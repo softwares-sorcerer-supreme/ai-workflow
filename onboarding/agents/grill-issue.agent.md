@@ -30,5 +30,5 @@ Headings fixed, order fixed, empty section = None. Status, Complexity use only t
 
 # Rules
 - Never guess data formats, business rules or user roles. Ask.
-- Prefer existing patterns in this repo (Clean Architecture, CQRS/MediatR, EF Core). Point to the file to copy.
+- Prefer existing patterns in this repo. Point to the file to copy.
 - Simple English. The team is not native English speakers.
