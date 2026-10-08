@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AiRunner/AiRunner.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AiRunner.Tests/AiRunner.Tests.csproj" />
+  </Folder>
+</Solution>

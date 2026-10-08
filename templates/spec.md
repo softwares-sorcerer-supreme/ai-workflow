@@ -1,11 +1,12 @@
 <!-- SPEC_START -->
-## SPEC – issue #{n}: {title}
+## SPEC - issue #{n}: {title}
 
 ### Goal
 One or two sentences.
 
 ### In scope
 - ...
+
 ### Out of scope
 - ...
 
@@ -16,19 +17,18 @@ One or two sentences.
 ### Technical plan
 | Step | File | Change |
 | --- | --- | --- |
-| 1 | `src/Domain/Entities/Export.cs` | new entity, fields: Id, RequestedBy, Status |
-| 2 | `src/Application/Exports/CreateExportCommand.cs` | new command + handler, follows `CreateReportCommand` |
-| 3 | ... | ... |
+| 1 | `path/to/new/or/changed/file` | <what changes; name the existing file to copy the pattern from> |
+| 2 | ... | ... |
 
 ### Data changes
-- Entity / table changes, or None. Migrations: yes / no.
+- Entity / table / schema changes, or None. Migrations: yes / no.
 
 ### API changes
-- `POST /api/exports` → request `CreateExportRequest`, response `ExportDto`. Or None.
+- `METHOD /path` -> request `<Name>`, response `<Name>`. Or None.
 
 ### Shared contract (exact names)
-- Classes: ...
-- DTOs: ...
+- Types / classes: ...
+- Data shapes (DTOs, JSON): ...
 - Endpoints: ...
 - Enums / constants: ...
 

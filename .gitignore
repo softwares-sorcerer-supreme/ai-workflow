@@ -1,0 +1,9 @@
+bin/
+obj/
+*.db
+*.db-journal
+logs/
+work/
+TestResults/
+.vs/
+*.user

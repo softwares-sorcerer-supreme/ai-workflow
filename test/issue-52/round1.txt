@@ -1,0 +1,52 @@
+﻿ANALYSIS_START
+## Status
+needs-info
+
+## Complexity
+complex. It touches about 14 files (12 endpoints, `ErrorOrExtensions`, one new test file). It also has one open question about the User endpoints that changes the design.
+
+## Summary
+Add one public method next to `ToHttpResult()` in `Server\MBHAnalytics.Application\Extensions\ErrorOrExtensions.cs`. It returns `Results<Ok<T>, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`. NotFound errors give 404, all other errors give 400, and both use `ToProblemDetails`. Then move the 12 endpoints onto it.
+
+## Assumptions (from the code)
+1. The 12 endpoints are the 12 hand-written `ErrorType.NotFound` branches found in the code.
+   - Component Analysis (10): GetById, Pivot, Reference, PartDistribution, RepairHistory, Subparts, DefectClassification, MtburTrend, FirstTimeRepeat, and Remove (in `Features\Reliability\ComponentAnalysis`).
+   - User (2): `GetUserByEmpNo.cs` and `GetUserByEmail.cs`.
+   - `UpdateComponentAnalysis` does not have this branch and is not included.
+2. The 10 Component Analysis endpoints already use typed results, so the move is mechanical. Their branch is: `ToProblemDetails`, then NotFound or BadRequest. Their `.Produces<...>` metadata stays unchanged.
+3. `Remove` returns `ErrorOr<Unit>`, so it needs a second overload for `Unit`, as `ToHttpResult` already has. This returns `Results<Ok, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`.
+4. `ToProblemDetails` is `internal`. The test project has no `InternalsVisibleTo`. Tests will call only the new public method, so no change is needed.
+5. `Application.Tests` has no HTTP or endpoint tests. The new tests will call the extension directly and check the typed result (`Results<...>.Result` is `Ok<T>`, `NotFound<ProblemDetails>` or `BadRequest<ProblemDetails>`) and the `ProblemDetails` fields.
+6. Only the status code of the User endpoints is used by the Blazor client (`UserService.CheckUserEmailExist` and `CheckUserEmpNoExist`). The Angular frontend (`../mbhanalytics-fe`) is not in this repo, so I could not check it.
+
+## Conflict found in the issue
+The two User endpoints are **not** like the 10 Component Analysis ones. They differ in four ways:
+- They return untyped `IResult`, so there is no typed union and no OpenAPI metadata today.
+- Success is `Results.Ok(result)`. This serializes the whole `ErrorOr<UserListItem>` object, not `result.Value`.
+- NotFound is `Results.NotFound()` and the error case is `Results.BadRequest()`. Both have an empty body, with no ProblemDetails.
+- If they move to the shared method, the 404/400 bodies become ProblemDetails and the 200 body becomes the plain `UserListItem`. That breaks "wire behaviour identical" and "ProblemDetails body unchanged" for those two endpoints.
+
+## Acceptance criteria
+1. Given an `ErrorOr<T>` with a value, when the new method is called, then it returns `Ok<T>` (200) with that value.
+2. Given an `ErrorOr<Unit>` success, when the Unit overload is called, then it returns `Ok` (200) with no body.
+3. Given an error of type `NotFound`, when the method is called, then it returns `NotFound<ProblemDetails>` (404). The body has Title "Not Found", Status 404, Detail equal to the error description, and `Extensions["ErrorCode"]` equal to the error code.
+4. Given an error of any other type (Validation, Conflict, Forbidden, Unauthorized, Failure, Unexpected), when the method is called, then it returns `BadRequest<ProblemDetails>` (400). The body is exactly what `ToProblemDetails` builds today, so the Status in the body is the type-based value and is not forced to 400.
+5. Given the 10 Component Analysis endpoints, when each runs, then it calls the shared method with no inline `ErrorType.NotFound` check. Status codes, bodies and `.Produces` metadata are unchanged.
+6. Given `GetUserByEmpNo` and `GetUserByEmail`, when each runs, then it calls the shared method. The behaviour of the User endpoints follows the answer to Q1.
+7. Given the whole solution, when `dotnet build MBHAnalytics.sln` and `dotnet test` run, then they pass with zero errors and no changes to existing `ToHttpResult()` callers.
+
+## Questions
+1. For the 2 User endpoints, may the 404/400 bodies change from empty to ProblemDetails, and the 200 body from the `ErrorOr` wrapper to the plain `UserListItem`? Or must they stay byte-identical, meaning no shared-method move for them or a variant that keeps empty bodies? The issue says "wire behaviour identical" and "ProblemDetails body unchanged", but these two endpoints have neither today.
+2. Does any consumer (the Angular app in `../mbhanalytics-fe` or another service) read the 200 body of `api/User/ByEmail` or `api/User/ByEmpNo`? If so, which JSON shape does it expect (the `ErrorOr` wrapper or the plain `UserListItem`)? The Blazor client only checks the status code.
+3. Note on the 400 case: the ProblemDetails `Status` for non-NotFound errors is type-based (for example 409 or 422 in the body) while the HTTP status is 400. Should that body mismatch be kept exactly as it is today? I assume yes, because the issue says the body is unchanged.
+4. Should the method be named `ToHttpResultWithNotFound`, or another name you prefer? The overloads for `ErrorOr<T>` and `ErrorOr<Unit>` would share the name. I assume they should be public, like `ToHttpResult`.
+
+## Proposed breakdown (complex)
+Contract: `ToHttpResultWithNotFound<T>(this ErrorOr<T>)` ΓåÆ `Results<Ok<T>, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`, plus the `ErrorOr<Unit>` overload ΓåÆ `Results<Ok, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`. Both use `ToProblemDetails`.
+1. Add both overloads to `ErrorOrExtensions.cs`, plus a test file in `Server\MBHAnalytics.Application.Tests` covering the success, NotFound, other-error and ProblemDetails-body cases (criteria 1ΓÇô4). Pattern: existing xUnit and FluentAssertions tests in `ComponentAnalysis\`.
+2. Move the 9 Component Analysis GET endpoints (all except Remove) to the T overload. Pattern: `GetComponentAnalysisMtburTrend.cs`. Delete the inline branch and the stale comments about it.
+3. Move `RemoveComponentAnalysis` to the Unit overload.
+4. Move the 2 User endpoints. This depends on Q1 and Q2.
+5. Run the full build and the tests.
+ANALYSIS_END
+

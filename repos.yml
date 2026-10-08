@@ -1,0 +1,44 @@
+# ai-runner config. Tokens are NOT here: use user secrets (see README).
+gitBucket:
+  baseUrl: http://10.221.10.34:3000
+
+pollIntervalSeconds: 90
+scopeLabel: ai              # the runner only looks at issues with this label (or assigned to the runner's user)
+
+copilot:
+  command: copilot          # if Windows says "file not found", put the full path from: Get-Command copilot
+  analyzeTimeoutMinutes: 15
+  reviewTimeoutMinutes: 15
+  implementTimeoutMinutes: 30
+  extraArgs: [--disable-builtin-mcps]   # the agent gets no GitHub MCP server: it works only on the local files
+
+# Relative to this file.
+paths:
+  work: work                # one clone per repo, reset before each job
+  logs: logs                # logs/jobs/<run>/ (kept logRetentionDays) and logs/cost.csv
+  state: ai-runner.db       # SQLite; deleting it is safe
+logRetentionDays: 30
+
+git:                        # author of the commits the runner makes in Workflow 2
+  userName: ai-runner
+  userEmail: ai-runner@localhost
+
+repos:
+  - owner: james
+    name: mbhanalytics
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3
+    workflows: [analyze]    # later: review, breakdown, implement
+    models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
+    commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
+      setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
+      build: ""             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
+      test: ""              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
+      allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
+    limits:
+      maxChangedFiles: 10
+      maxDiffLines: 800
+      maxAnalysisRounds: 5
+    review:
+      scope: all            # all = every open PR; scoped = only ai/* and feat/issue-* branches, PRs labelled "ai", or PRs of the runner's user
+      skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
+    autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue

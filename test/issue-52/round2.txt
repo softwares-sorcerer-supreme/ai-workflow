@@ -1,0 +1,89 @@
+﻿ANALYSIS_START
+## Status
+ready
+
+## Complexity
+complex. About 14 files change: 12 endpoints, `ErrorOrExtensions`, and one new test file. Each step is small, so the breakdown below is safe to do in order.
+
+## Summary
+Add two public overloads next to `ToHttpResult()` in `Server\MBHAnalytics.Application\Extensions\ErrorOrExtensions.cs`. Both return `NotFound<ProblemDetails>` (404) for a `NotFound` error and `BadRequest<ProblemDetails>` (400) for every other error. Both build the body with the existing `ToProblemDetails`. Then move the 12 endpoints onto them.
+
+## Assumptions (from the code)
+1. The 12 endpoints are the 12 hand-written `ErrorType.NotFound` branches found by grep.
+   - Component Analysis (10): GetById, Pivot, Reference, PartDistribution, RepairHistory, Subparts, DefectClassification, MtburTrend, FirstTimeRepeat, and Remove. All are in `Features\Reliability\ComponentAnalysis`.
+   - User (2): `GetUserByEmpNo.cs` and `GetUserByEmail.cs`.
+   - `UpdateComponentAnalysis` has no such branch and is not changed.
+2. The 10 Component Analysis endpoints already return typed results, so the move is mechanical. Their `.Produces<...>` metadata stays as it is.
+3. `RemoveComponentAnalysis` returns `ErrorOr<Unit>`, so it uses the `Unit` overload, which returns `Results<Ok, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`.
+4. `ToProblemDetails` is `internal`. The new methods are in the same assembly, so no change is needed. Tests call only the public methods.
+5. `Application.Tests` has no endpoint tests. The new tests call the extension directly and check `Results<...>.Result` and the `ProblemDetails` fields.
+6. Q1 to Q4 were answered with "Please do you feel right". I took that as "decide for us" and made these decisions:
+   - **Q1:** The 2 User endpoints move to the shared method, as the issue says (all 12). The status codes stay the same: 200, 404 and 400. The bodies change for these two only. The 404/400 bodies go from empty to `ProblemDetails`. The 200 body goes from the serialized `ErrorOr<UserListItem>` wrapper to the plain `UserListItem`. This is the only wire difference in the issue. The issue's "wire behaviour identical" cannot be fully true for these two.
+   - **Q2:** The Blazor client (`UserService.CheckUserEmailExist` and `CheckUserEmpNoExist`) reads only the status code, so it is safe. The Angular app (`../mbhanalytics-fe`) is not in this repo, so I could not check it. Someone must check it before release.
+   - **Q3:** Keep the `ProblemDetails.Status` exactly as `ToProblemDetails` builds it today. For non-NotFound errors it can be 409, 422 and so on, while the HTTP status is 400. This is out of scope to fix.
+   - **Q4:** The name is `ToHttpResultWithNotFound`. Both overloads are public, like `ToHttpResult`.
+
+## Acceptance criteria
+1. Given an `ErrorOr<T>` with a value, when `ToHttpResultWithNotFound` is called, then it returns `Ok<T>` (200) with that value.
+2. Given an `ErrorOr<Unit>` success, when the `Unit` overload is called, then it returns `Ok` (200) with no body.
+3. Given an error of type `NotFound`, when the method is called, then it returns `NotFound<ProblemDetails>` (404). The body has Title "Not Found", Status 404, Detail equal to the error description, and `Extensions["ErrorCode"]` equal to the error code.
+4. Given an error of any other type (Validation, Conflict, Forbidden, Unauthorized, Failure, Unexpected), when the method is called, then it returns `BadRequest<ProblemDetails>` (400). The body equals what `ToProblemDetails` builds today (type-based Status, not forced to 400).
+5. Given the 10 Component Analysis endpoints, when each runs, then it calls the shared method and has no inline `ErrorType.NotFound` check. Status codes, bodies and `.Produces` metadata are unchanged. The stale comments about the hand-written branch are removed.
+6. Given `GetUserByEmpNo` and `GetUserByEmail`, when each runs, then it calls the shared method. A found user gives 200 with a plain `UserListItem`, a missing user gives 404 with ProblemDetails, and any other error gives 400 with ProblemDetails (see Assumption 6, Q1).
+7. Given the whole solution, when `dotnet build MBHAnalytics.sln` and `dotnet test` run, then they pass with zero errors. Existing `ToHttpResult()` callers are not changed.
+
+## Questions
+None.
+
+## Proposed breakdown (complex)
+Contract: `ToHttpResultWithNotFound<T>(this ErrorOr<T>)` returns `Results<Ok<T>, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`. The `ErrorOr<Unit>` overload returns `Results<Ok, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>`. Both use `ToProblemDetails`.
+1. Add both overloads to `ErrorOrExtensions.cs`. Add a test file in `Server\MBHAnalytics.Application.Tests` for criteria 1 to 4. Pattern: the existing xUnit and FluentAssertions tests in `ComponentAnalysis\`.
+2. Move the 9 Component Analysis GET endpoints to the `T` overload. Pattern: `GetComponentAnalysisMtburTrend.cs`. Delete the inline branch and the stale comments.
+3. Move `RemoveComponentAnalysis` to the `Unit` overload. Remove its stale comment about `ToHttpResult()`.
+4. Move `GetUserByEmpNo` and `GetUserByEmail`. Change the handler return type from `IResult` to the typed `Results<...>`. Add `.Produces` metadata that matches the Component Analysis endpoints.
+5. Run `dotnet build MBHAnalytics.sln` and `dotnet test`. Then grep that `ErrorType.NotFound` appears only in `ErrorOrExtensions.cs`.
+ANALYSIS_END
+
+SPEC_START
+## Title
+Collapse the NotFound-versus-BadRequest endpoint mapping into one shared method (#52)
+
+## Goal
+One shared method in `ErrorOrExtensions` maps `ErrorOr` results to Ok (200), NotFound (404) or BadRequest (400). All 12 endpoints that hand-write this branch use it.
+
+## Final names and contract
+- File: `Server\MBHAnalytics.Application\Extensions\ErrorOrExtensions.cs`, class `ErrorOrExtensions`.
+- `public static Results<Ok<T>, NotFound<ProblemDetails>, BadRequest<ProblemDetails>> ToHttpResultWithNotFound<T>(this ErrorOr<T> result)`
+- `public static Results<Ok, NotFound<ProblemDetails>, BadRequest<ProblemDetails>> ToHttpResultWithNotFound(this ErrorOr<Unit> result)`
+- Logic: no error returns `TypedResults.Ok(result.Value)`, or `TypedResults.Ok()` for `Unit`. A `NotFound` first error returns `TypedResults.NotFound(ToProblemDetails(error))`. Any other first error returns `TypedResults.BadRequest(ToProblemDetails(error))`.
+- `ToProblemDetails` and the existing `ToHttpResult` overloads do not change.
+
+## Files to change
+- `Server\MBHAnalytics.Application\Extensions\ErrorOrExtensions.cs` (add the two overloads).
+- New test file in `Server\MBHAnalytics.Application.Tests` (for example `Extensions\ErrorOrExtensionsTests.cs`).
+- Component Analysis, in `Server\MBHAnalytics.Application\Features\Reliability\ComponentAnalysis\`: `GetComponentAnalysisById`, `GetComponentAnalysisPivot`, `GetComponentAnalysisReference`, `GetComponentAnalysisPartDistribution`, `GetComponentAnalysisRepairHistory`, `GetComponentAnalysisSubparts`, `GetComponentAnalysisDefectClassification`, `GetComponentAnalysisMtburTrend`, `GetComponentAnalysisFirstTimeRepeat`, `RemoveComponentAnalysis`.
+- User, in `Server\MBHAnalytics.Application\Features\User\`: `GetUserByEmpNo.cs` and `GetUserByEmail.cs`.
+
+## Behaviour
+- Component Analysis endpoints: status codes, bodies and `.Produces` metadata are unchanged.
+- User endpoints: status codes are unchanged (200, 404, 400). The 200 body is now the plain `UserListItem`. The 404 and 400 bodies are now `ProblemDetails`, not empty. This is an accepted exception to "wire behaviour identical". The Angular app must be checked for it before release.
+- Non-NotFound errors keep the type-based `ProblemDetails.Status` in the body while the HTTP status is 400.
+
+## Tests (xUnit + FluentAssertions)
+1. Success with a value returns `Ok<T>` (200) with that value.
+2. `Unit` success returns `Ok` (200).
+3. `NotFound` error returns `NotFound<ProblemDetails>` with Title "Not Found", Status 404, Detail, and `Extensions["ErrorCode"]`.
+4. Every other `ErrorType` returns `BadRequest<ProblemDetails>`. The body equals what `ToProblemDetails` builds today (use `[Theory]` for Validation, Conflict, Forbidden, Unauthorized, Failure, Unexpected).
+5. Both overloads are covered.
+
+## Out of scope
+- Making `ToHttpResult()` return 409, 422 or 403 for those error types.
+- Changing the existing `ToHttpResult()` callers.
+- Migrating any endpoint other than the 12 listed.
+- `UpdateComponentAnalysis`.
+
+## Done when
+- `dotnet build MBHAnalytics.sln` has zero errors and `dotnet test` is green.
+- `ErrorType.NotFound` appears only in `ErrorOrExtensions.cs` under `Server\MBHAnalytics.Application`.
+SPEC_END
+
