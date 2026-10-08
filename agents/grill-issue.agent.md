@@ -34,7 +34,7 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
 - If the author asks for changes to the breakdown, write the full table again with the changes applied.
 
 # Output
-Write ONLY these blocks, in this order, with nothing between them:
+Print ONLY these blocks as your final reply, in this order, with nothing before, between or after them. Do NOT create or edit any file: you have no write permission and the runner reads only your reply.
 - The analysis block, filled from `.ai-workflow/templates/analysis.md` (from `<!-- ANALYSIS_START -->` to `<!-- ANALYSIS_END -->`), every round. Replace `{k}` with the analysis round from context.md.
 - The SPEC block, filled from `.ai-workflow/templates/spec.md` (from `<!-- SPEC_START -->` to `<!-- SPEC_END -->`), only when Status is ready. Replace `{n}` and `{title}` with the issue number and title.
 
@@ -43,6 +43,17 @@ Rules for both blocks:
 - `Status` is exactly `questions-open` or `ready`. `Complexity` is exactly `simple` or `complex`. Write only the value, not the list of choices.
 - Markers on their own lines, first and last line of the block.
 - Use plain ASCII characters only (no emoji, no curly quotes, no long dashes): the issue tracker rejects other characters.
+
+The first lines inside the block must look exactly like this (bold label, colon, value on the same line):
+
+<!-- ANALYSIS_START -->
+## AI analysis - round 1
+
+**Status:** questions-open
+**Complexity:** simple
+
+Do not turn Status or Complexity into headings. Do not write the list of choices.
+
 
 # Rules
 - Never guess data formats, business rules, limits or user roles. Ask.

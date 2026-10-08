@@ -16,7 +16,7 @@ public sealed class ReviewPullRequestJobTests : IDisposable
     {
         _kit.GitBucket.AddIssue(12, "Export", null, "ai");
         _kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
-        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", body: "Closes #12");
+        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", body: "Closes #12", labels: "ai");
         _kit.Copilot.StdOut = "noise\n" + Markers.Wrap(Samples.Review(), Markers.Review);
 
         await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
@@ -29,7 +29,7 @@ public sealed class ReviewPullRequestJobTests : IDisposable
         Assert.Contains("stricter review", context);
         Assert.Equal("pr-review", _kit.Copilot.Requests.Single().Agent);
 
-        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha2", body: "Closes #12");
+        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha2", body: "Closes #12", labels: "ai");
         await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha2"), _kit.Run, default);
 
         Assert.Single(_kit.GitBucket.CommentsOf(30));
@@ -40,7 +40,7 @@ public sealed class ReviewPullRequestJobTests : IDisposable
     [Fact]
     public async Task Docs_only_change_is_skipped_without_copilot()
     {
-        _kit.GitBucket.AddPull(30, "docs", "main", sha: "sha1");
+        _kit.GitBucket.AddPull(30, "docs", "main", sha: "sha1", labels: "ai");
         _kit.Git.ChangedFiles = ["README.md", "docs/guide.md"];
 
         var outcome = await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
@@ -53,7 +53,7 @@ public sealed class ReviewPullRequestJobTests : IDisposable
     [Fact]
     public async Task Bad_verdict_fails_without_posting()
     {
-        _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1");
+        _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(verdict: "great"), Markers.Review);
 
         await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default));

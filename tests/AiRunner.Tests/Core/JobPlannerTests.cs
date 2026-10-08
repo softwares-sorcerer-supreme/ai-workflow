@@ -105,31 +105,41 @@ public class JobPlannerTests
 
     // ---- pull requests ----
 
-    private static GbPull Pull(string head = "feature/x", string title = "Add export", bool? draft = null, string user = "alice") =>
-        new(3, title, new GbRef(head, "sha1"), new GbRef("main", "sha0"), DateTimeOffset.UtcNow, User: new GbUser(user), Draft: draft);
+    private static GbPull Pull(string head = "feature/x", string title = "Add export", bool? draft = null, string user = "alice",
+        params string[] labels) =>
+        new(3, title, new GbRef(head, "sha1"), new GbRef("main", "sha0"), DateTimeOffset.UtcNow, User: new GbUser(user), Draft: draft,
+            Labels: labels.Select(l => new GbLabel(l)).ToList());
+
+    private static readonly RepoConfig AllPrs =
+        new() { Owner = "o", Name = "r", Workflows = [Workflows.Review], Review = new ReviewConfig { Scope = "all" } };
 
     [Fact]
     public void New_pr_and_new_head_are_reviewed_once()
     {
-        Assert.Equal("sha1", JobPlanner.PlanPull(Repo, Pull(), null, "bot", "ai").Job?.Payload);
-        Assert.Null(JobPlanner.PlanPull(Repo, Pull(), "sha1", "bot", "ai").Job);
-        Assert.NotNull(JobPlanner.PlanPull(Repo, Pull(), "sha0", "bot", "ai").Job);
+        Assert.Equal("sha1", JobPlanner.PlanPull(AllPrs, Pull(), null, "bot", "ai").Job?.Payload);
+        Assert.Null(JobPlanner.PlanPull(AllPrs, Pull(), "sha1", "bot", "ai").Job);
+        Assert.NotNull(JobPlanner.PlanPull(AllPrs, Pull(), "sha0", "bot", "ai").Job);
     }
 
     [Fact]
     public void Draft_and_skip_ai_are_skipped()
     {
-        Assert.Null(JobPlanner.PlanPull(Repo, Pull(draft: true), null, "bot", "ai").Job);
-        Assert.Null(JobPlanner.PlanPull(Repo, Pull(title: "[skip-ai] bump"), null, "bot", "ai").Job);
+        Assert.Null(JobPlanner.PlanPull(AllPrs, Pull(draft: true), null, "bot", "ai").Job);
+        Assert.Null(JobPlanner.PlanPull(AllPrs, Pull(title: "[skip-ai] bump"), null, "bot", "ai").Job);
     }
 
     [Fact]
-    public void Scoped_review_only_takes_ai_branches_or_the_bot_users_prs()
+    public void By_default_only_labelled_prs_and_the_runners_own_ai_prs_are_reviewed()
     {
-        var scoped = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Review], Review = new ReviewConfig { Scope = "scoped" } };
-        Assert.Null(JobPlanner.PlanPull(scoped, Pull(), null, "bot", "ai").Job);
-        Assert.NotNull(JobPlanner.PlanPull(scoped, Pull(head: "ai/issue-7"), null, "bot", "ai").Job);
-        Assert.NotNull(JobPlanner.PlanPull(scoped, Pull(user: "bot"), null, "bot", "ai").Job);
+        Assert.True(Repo.Review.IsScoped);
+        Assert.Null(JobPlanner.PlanPull(Repo, Pull(), null, "bot", "ai").Job);
+        Assert.NotNull(JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai").Job);
+        Assert.NotNull(JobPlanner.PlanPull(Repo, Pull(head: "ai/issue-7", user: "bot"), null, "bot", "ai").Job);
+        Assert.NotNull(JobPlanner.PlanPull(Repo, Pull(head: "feat/issue-12", user: "bot"), null, "bot", "ai").Job);
+
+        // Not enough on its own: an ai/* branch pushed by someone else (or another runner), or any other PR of the runner's user.
+        Assert.Null(JobPlanner.PlanPull(Repo, Pull(head: "ai/issue-7", user: "alice"), null, "bot", "ai").Job);
+        Assert.Null(JobPlanner.PlanPull(Repo, Pull(user: "bot"), null, "bot", "ai").Job);
     }
 }
 

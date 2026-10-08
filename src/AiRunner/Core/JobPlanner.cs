@@ -116,9 +116,8 @@ public static class JobPlanner
             reviewedSha is null ? "new PR" : "new head commit");
     }
 
+    /// <summary>A human opts a PR in with the scope label; PRs this runner opened itself are always in.</summary>
     private static bool InScope(GbPull pull, string botLogin, string scopeLabel) =>
-        Branches.IsAiBranch(pull.Head.Ref) ||
         pull.LabelNames().Contains(scopeLabel) ||
-        string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase) ||
-        pull.IsAssignedTo(botLogin);
+        (Branches.IsAiBranch(pull.Head.Ref) && string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase));
 }

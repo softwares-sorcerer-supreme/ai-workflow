@@ -39,8 +39,7 @@ public sealed record GbPull(
     bool? Merged = null,
     DateTimeOffset? MergedAt = null,
     bool? Draft = null,
-    List<GbLabel>? Labels = null,
-    List<GbUser>? Assignees = null);
+    List<GbLabel>? Labels = null);
 
 public static class GbExtensions
 {
@@ -65,7 +64,6 @@ public static class GbExtensions
 
     /// <summary>Checks "assignees" and the older single "assignee" field.</summary>
     public static bool IsAssignedTo(this GbIssue issue, string login) => AnyIs(issue.Assignees, issue.Assignee, login);
-    public static bool IsAssignedTo(this GbPull pull, string login) => AnyIs(pull.Assignees, null, login);
 
     /// <summary>GitBucket sets "merged" on newer versions and "merged_at" on all; trust either.</summary>
     public static bool IsMerged(this GbPull pull) => pull.Merged == true || pull.MergedAt is not null;

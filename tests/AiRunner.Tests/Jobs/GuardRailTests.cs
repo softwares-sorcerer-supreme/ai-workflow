@@ -88,7 +88,7 @@ public sealed class ReviewGuardRailTests : IDisposable
     [Fact]
     public async Task No_changed_files_means_no_copilot_run()
     {
-        _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1");
+        _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         _kit.Git.ChangedFiles = [];
 
         var outcome = await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
@@ -102,7 +102,7 @@ public sealed class ReviewGuardRailTests : IDisposable
     {
         var task = new SubTask(1, "Entity", "Add the Export entity", "Domain", [], false);
         _kit.GitBucket.AddIssue(20, "#12.1 Entity", SubIssueBody.Build(12, task, 2, "entity Export"), "ai", Labels.SubIssue);
-        _kit.GitBucket.AddPull(31, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Some text about #99.\n\nCloses #20");
+        _kit.GitBucket.AddPull(31, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Some text about #99.\n\nCloses #20", labels: "ai");
         _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
 
         await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 31, "sha1"), _kit.Run, default);

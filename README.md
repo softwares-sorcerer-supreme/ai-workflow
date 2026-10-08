@@ -9,7 +9,7 @@ See the design document for the full picture.
 | 1 Analysis | new issue with label `ai`, or a comment with `@ai` | Copilot (read-only) writes questions, assumptions, plan, complexity; when ready also the SPEC |
 | 1b Breakdown | human adds `ai-breakdown` on an `ai:ready` + `ai:complex` issue | creates `feat/issue-{n}` and one sub-issue per sub-task; starts the next sub-issue when one is merged; opens the final PR |
 | 2 Implement | human adds `ai-implement` on an `ai:ready` + `ai:simple` issue or sub-issue | Copilot writes code on `ai/issue-{n}`; the runner checks build/test, commits, pushes, opens the PR |
-| 3 PR review | new PR or new head commit | Copilot (read-only) writes one review comment, updated in place |
+| 3 PR review | new head commit on a PR labelled `ai` or opened by the runner (`review.scope`) | Copilot (read-only) writes one review comment, updated in place |
 | 4 GitHub fallback | `needs-cloud-agent` | **not built yet** - the label is only respected (the runner skips the issue) |
 
 ## First run
@@ -53,15 +53,18 @@ dotnet test ai-workflow.slnx
 3. `dotnet run --project src/AiRunner -- --setup-labels`.
 4. Put the label `ai` on an issue and watch `--once --dry-run`.
 
-With `review.scope: all`, the first start reviews **every PR that is open at that moment** (one Copilot run each).
-Start with `scope: scoped`, or put `[skip-ai]` on old PRs, if that is too many.
+PR review is opt-in by default (`review.scope: scoped`): a PR is reviewed when it has the label `ai`, or when this
+runner opened it itself (head `ai/*` or `feat/issue-*`, author = the runner's user). With `scope: all` every open PR
+is reviewed, including colleagues' PRs and **every PR open at the first start** (one Copilot run each), and each runner
+pointed at the repo reviews it again.
 
 ## How a human drives it
 
 - **Answer the analysis**: reply by number (`Q1: CSV only`, `A2: wrong, it is ...`) and write `@ai` in the comment. Comments without `@ai` cost nothing.
 - **Approve a breakdown**: add `ai-breakdown` (needs `ai:ready` + `ai:complex`). Change it first by replying with `@ai`.
 - **Start the code**: add `ai-implement` (needs `ai:ready` + `ai:simple`). Sub-issues after the first start by themselves when the previous PR is merged.
-- **Skip a review**: start the PR title with `[skip-ai]`, or keep it a draft.
+- **Ask for a review**: add the label `ai` to the PR (PRs the runner opened itself are reviewed anyway).
+  Every new commit is reviewed again; to stop, remove the label, start the title with `[skip-ai]`, or make it a draft.
 - **Retry after `ai:failed`**: read the comment (and the log folder it names), fix the cause, then remove `ai:failed`.
   An analysis that stopped at the round limit stops again on retry: clarify in a call, or raise `limits.maxAnalysisRounds`.
 - **Merge**: always a human. The runner never merges.

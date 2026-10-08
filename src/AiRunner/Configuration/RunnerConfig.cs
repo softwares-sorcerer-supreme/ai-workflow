@@ -152,8 +152,12 @@ public sealed class LimitsConfig
 
 public sealed class ReviewConfig
 {
-    /// <summary>"all" = every open PR; "scoped" = only ai/* and feat/issue-* branches, PRs labelled with the scope label, or PRs of the bot user.</summary>
-    public string Scope { get; set; } = "all";
+    /// <summary>
+    /// "scoped" (default) = only PRs labelled with the scope label, plus PRs this runner opened itself from ai/* or feat/issue-*.
+    /// "all" = every open PR. Scoped is the default so the bot does not comment on colleagues' PRs uninvited,
+    /// and several runners do not all review the same PR.
+    /// </summary>
+    public string Scope { get; set; } = "scoped";
     /// <summary>Glob patterns; a PR that changes only these files is not reviewed.</summary>
     public List<string> SkipPaths { get; set; } = [];
 

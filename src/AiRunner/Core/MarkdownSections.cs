@@ -58,13 +58,20 @@ public static class MarkdownSections
 
     /// <summary>Value of a "**Name:** value" line, lower case. Throws if missing.</summary>
     public static string ReadField(string block, string name)
-    {
-        var m = Regex.Match(block, $@"^[\s*_>-]*{name}[\s*_]*:[\s*_]*(?<v>[^\r\n]*?)[\s*_]*$",
-            RegexOptions.Multiline | RegexOptions.IgnoreCase);
-        if (!m.Success)
-            throw new FormatException($"'{name}:' line not found in the block");
+{
+    var m = Regex.Match(block, $@"^[\s*_>-]*{name}[\s*_]*:[\s*_]*(?<v>[^\r\n]*?)[\s*_]*$",
+        RegexOptions.Multiline | RegexOptions.IgnoreCase);
+    if (m.Success)
         return m.Groups["v"].Value.Trim().ToLowerInvariant();
-    }
+
+    // Fallback: "### Status" heading with the value on the next non-empty line.
+    var value = Get(block, name)?
+        .Split('\n')
+        .Select(l => l.Trim().Trim('*', '_', '`', '-', ' '))
+        .FirstOrDefault(l => l.Length > 0);
+    return value?.ToLowerInvariant()
+        ?? throw new FormatException($"'{name}:' line not found in the block");
+}
 
     private static string[] SplitLines(string text) => text.Replace("\r\n", "\n").Split('\n');
 }

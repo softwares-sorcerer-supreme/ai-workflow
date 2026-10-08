@@ -9,6 +9,8 @@ runs GitHub Copilot CLI (`copilot -p --agent ...`) for issue analysis, breakdown
 then writes the results back as comments, labels, branches and PRs. The design doc lives one folder up:
 `../AI Dev Workflow – Design Document (GitBucket + Jenkins + Copilot CLI).md`. Workflow 4 (GitHub mirror / cloud agent) is
 intentionally not built; `needs-cloud-agent` and `ai:on-github` only make the planner skip an issue.
+PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
+`ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR.
 
 ## Commands
 

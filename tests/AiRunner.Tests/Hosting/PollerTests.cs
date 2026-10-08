@@ -79,9 +79,10 @@ public sealed class PollerTests : IDisposable
     }
 
     [Fact]
-    public async Task New_pr_head_is_queued_for_review()
+    public async Task New_head_of_a_labelled_pr_is_queued_for_review()
     {
-        _kit.GitBucket.AddPull(3, "feature", "main", sha: "sha1");
+        _kit.GitBucket.AddPull(3, "feature", "main", sha: "sha1", labels: "ai");
+        _kit.GitBucket.AddPull(4, "colleague", "main", sha: "sha9");   // no label: not reviewed by default
         await NewPoller().PollOnceAsync(default);
 
         var review = Assert.Single(Pending());

@@ -31,10 +31,11 @@ public sealed class FakeGitBucket : IGitBucketClient
     public GbComment AddBotComment(int number, string body) => AddRaw(number, BotComments.Marker + "\n" + body, Login);
 
     public GbPull AddPull(int number, string head, string baseRef, string sha = "abc1234def", string? body = null,
-        bool merged = false, string state = "open", string title = "Some change")
+        bool merged = false, string state = "open", string title = "Some change", params string[] labels)
     {
         var pull = new GbPull(number, title, new GbRef(head, sha), new GbRef(baseRef, "base000"), DateTimeOffset.UtcNow,
-            body, new GbUser("alice"), state, merged, merged ? DateTimeOffset.UtcNow : null);
+            body, new GbUser("alice"), state, merged, merged ? DateTimeOffset.UtcNow : null,
+            Labels: labels.Select(l => new GbLabel(l)).ToList());
         Pulls.RemoveAll(p => p.Number == number);
         Pulls.Add(pull);
         return pull;

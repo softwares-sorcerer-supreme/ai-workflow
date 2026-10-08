@@ -39,6 +39,9 @@ repos:
       maxDiffLines: 800
       maxAnalysisRounds: 5
     review:
-      scope: all            # all = every open PR; scoped = only ai/* and feat/issue-* branches, PRs labelled "ai", or PRs of the runner's user
+      scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
       skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
     autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue
+
+copilot:
+  command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
