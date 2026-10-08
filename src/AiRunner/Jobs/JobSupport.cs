@@ -10,6 +10,12 @@ namespace AiRunner.Jobs;
 /// </summary>
 public sealed record IssueSnapshot(RepoConfig Repo, GbIssue Issue, IReadOnlyList<GbComment> Comments, PlanDecision Decision);
 
+/// <summary>A PR as a job sees it when it starts; Comments is null when the decision did not need them.</summary>
+public sealed record PullSnapshot(RepoConfig Repo, GbPull Pull, IReadOnlyList<GbComment>? Comments, PlanDecision Decision);
+
+/// <summary>The issue a PR links to, or Number null. Analysis and Spec are null when not found.</summary>
+public sealed record LinkedIssue(int? Number, string? Analysis, string? Spec);
+
 /// <summary>Small steps several jobs share. No decisions here; those live in Core.</summary>
 public static class JobSupport
 {
@@ -28,6 +34,27 @@ public static class JobSupport
     }
 
     /// <summary>
+    /// Plans a PR the way the poller and the PR jobs all do: comments are read only when the decision
+    /// needs them (a review fix is possible), then the PR is planned again with them.
+    /// </summary>
+    public static async Task<PullSnapshot> PlanPullAsync(this IGitBucketClient gb, RunnerConfig config, IStateStore state,
+        RunnerIdentity identity, RepoConfig repo, GbPull pull, CancellationToken ct)
+    {
+        var reviewed = state.GetReview(repo.FullName, pull.Number)?.HeadSha;
+        var decision = JobPlanner.PlanPull(repo, pull, reviewed, identity.Login, config.ScopeLabel);
+        if (!decision.NeedsComments) return new PullSnapshot(repo, pull, null, decision);
+        var comments = await gb.ListCommentsAsync(repo.FullName, pull.Number, ct);
+        return new PullSnapshot(repo, pull, comments, JobPlanner.PlanPull(repo, pull, reviewed, identity.Login, config.ScopeLabel,
+            comments, state.GetLastHandledComment(repo.FullName, pull.Number)));
+    }
+
+    /// <summary>Reads the PR fresh and plans it again, like LoadIssueAsync for issues.</summary>
+    public static async Task<PullSnapshot> LoadPullAsync(this IGitBucketClient gb, RunnerConfig config, IStateStore state,
+        RunnerIdentity identity, JobRequest request, CancellationToken ct) =>
+        await gb.PlanPullAsync(config, state, identity, config.RepoConfig(request.Repo),
+            await gb.GetPullAsync(request.Repo, request.Number, ct), ct);
+
+    /// <summary>
     /// Adds the labels that are missing and removes the ones that are present. Reads the issue
     /// again first: labels change during a job, and a stale copy would skip a removal.
     /// </summary>
@@ -43,6 +70,35 @@ public static class JobSupport
     public static async Task<string> DefaultBranchAsync(this IGitBucketClient gb, string repo, CancellationToken ct) =>
         (await gb.GetRepoAsync(repo, ct)).DefaultBranch
         ?? throw new JobFailedException($"GitBucket did not return the default branch of {repo}");
+
+    /// <summary>
+    /// The issue a PR links to ("Closes #12") with its final analysis and SPEC. A sub-issue has no SPEC
+    /// comment: its body (scope, touches, shared contract) is its plan and comes back as the SPEC.
+    /// An unreadable issue is logged, not fatal: the PR can still be handled without it.
+    /// </summary>
+    public static async Task<LinkedIssue> LinkedIssueAsync(this IGitBucketClient gb, string repo, GbPull pull, JobRun run,
+        CancellationToken ct)
+    {
+        var linked = ContextBuilder.LinkedIssue(pull.Body);
+        if (linked is null) return new LinkedIssue(null, null, null);
+        try
+        {
+            var comments = await gb.ListCommentsAsync(repo, linked.Value, ct);
+            var analysis = LatestBlock(comments, Markers.Analysis);
+            var spec = LatestBlock(comments, Markers.Spec);
+            if (spec is null)
+            {
+                var issue = await gb.GetIssueAsync(repo, linked.Value, ct);
+                if (issue.HasLabel(Labels.SubIssue)) spec = ContextBuilder.PlanFromSubIssue(issue);
+            }
+            return new LinkedIssue(linked, analysis, spec);
+        }
+        catch (GitBucketException ex)
+        {
+            run.Info($"linked issue #{linked} not readable: {ex.Message}");
+            return new LinkedIssue(linked, null, null);
+        }
+    }
 
     /// <summary>The block inside the newest bot comment of that kind (ANALYSIS, SPEC, REVIEW), or null.</summary>
     public static string? LatestBlock(IEnumerable<GbComment> comments, string marker) =>

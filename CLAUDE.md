@@ -11,6 +11,8 @@ then writes the results back as comments, labels, branches and PRs. The design d
 intentionally not built; `needs-cloud-agent` and `ai:on-github` only make the planner skip an issue.
 PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
 `ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR.
+Review fix (workflow `fix`, `FixReviewJob`): a new `@ai` comment on a PR in that same scope (whatever `review.scope` says) makes
+Copilot change the PR's branch; it is planned before the review, and the pushed commit is then reviewed as usual.
 
 ## Commands
 
@@ -66,6 +68,18 @@ Key mechanics that span several files:
   round's Copilot call failed, which still opens the PR; job time comes from `JobRun.TimeLeft`, set by `JobWorker`). A fix round
   that changed no code keeps the previous checks. Only a round-1 Copilot failure fails the job. Logs per round:
   `round-N-copilot-*`, `round-N-transcript.md` (`--share`), `round-N-check-M.txt`, `fix-N.md` (input of round N).
+  The loop lives in `Jobs/AgentSession` and is shared with `FixReviewJob` (agent `fix-review`, output REPLY.md checked by
+  `ReviewReplyParser`); the jobs keep what happens around it (implement: save work, size limits, PR; fix: commit + non-forced
+  push to the PR branch, reply comment). Only a round-1 Copilot failure fails a fix, and then nothing is pushed.
+- **Review fix bookkeeping.** The reply comment is a `REVIEW_FIX` block with `context-upto` (`BotComments.WithUpto`);
+  `BotComments.AnsweredUpTo` + `NewAtAi` find new `@ai` comments after it (or after the local last-handled id), the same
+  rule the analysis rounds use. Refusals (limit, push target not the PR's own branch at its head) are `JobPlanner.WhyNotFix`. The requests in `review-fix.md` start after the reply
+  only, never after the local id, so a failed fix's requests reach the next fix; `review-fix.md` also carries the last
+  reply. `limits.maxReviewFixes` counts the replies. A fix queued while another runs waits and then sees the new head.
+  A failed fix marks its `@ai` comment handled in `OnFailed` (there is no `ai:failed` on PRs), so it is not retried every poll;
+  `JobInfo.Retry` tells the human to write `@ai` again. Poller and PR jobs plan PRs through `JobSupport.PlanPullAsync` /
+  `LoadPullAsync`, which read comments only when `PlanPull` says `NeedsComments`. `Markers.Wrap` neutralises `<!--` in the
+  block text, so agent output can never fake a marker or a `context-upto` tag.
 - **Agent output contract.** `templates/` (ASCII) define what agents write; `Core` parsers validate it strictly (status/complexity/verdict/severity
   vocabularies, the 5-column breakdown table `| # | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
@@ -77,8 +91,8 @@ Key mechanics that span several files:
   Lists are paged with `per_page=100&page=n` until a page brings nothing new.
 - `ProcessRunner` strips token env vars from every child process. git gets auth via `GIT_CONFIG_COUNT/KEY_i/VALUE_i` env vars
   (http.extraHeader, hooks and fsmonitor off) — never put tokens on a command line or in `.git/config`.
-  `ImplementIssueJob` discards the clone and pushes nothing if `.git/config` changed during the run.
-- Copilot permissions: analyze/review deny `write` and `shell`; implement allows `write` plus the *tools* of the repo's configured
+  `AgentSession` (implement and review fix) discards the clone and pushes nothing if `.git/config` changed during the run.
+- Copilot permissions: analyze/review deny `write` and `shell`; implement and fix allow `write` plus the *tools* of the repo's configured
   setup/build/test/lint commands with any arguments (`Core/ShellPermissions`: `dotnet build X.sln` -> `shell(dotnet:*)`, launchers keep
   the exact command), never git; `write(.ai-workflow)` is denied (whether it covers files inside is unconfirmed). In `-p` mode nobody
   approves a command, so a narrow pattern silently blocks the agent. This is a guard rail, not a boundary: `npm exec`, a Makefile

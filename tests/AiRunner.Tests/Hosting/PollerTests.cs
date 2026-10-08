@@ -88,4 +88,19 @@ public sealed class PollerTests : IDisposable
         var review = Assert.Single(Pending());
         Assert.Equal((JobType.ReviewPullRequest, "sha1"), (review.Type, review.Payload));
     }
+
+    [Fact]
+    public async Task At_ai_on_a_pr_in_scope_queues_a_review_fix_and_other_prs_are_not_read()
+    {
+        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", labels: "ai");
+        _kit.GitBucket.AddPull(31, "feature/y", "main", sha: "sha2");   // out of scope: comments never read
+        _kit.GitBucket.AddHumanComment(31, "@ai fix this");
+        var trigger = _kit.GitBucket.AddHumanComment(30, "@ai 1: fix");
+
+        await NewPoller().PollOnceAsync(default);
+
+        var fix = Assert.Single(Pending());
+        Assert.Equal((JobType.FixReview, 30, trigger.Id.ToString()), (fix.Type, fix.Number, fix.Payload));
+        Assert.Equal(1, _kit.GitBucket.CommentListCalls);
+    }
 }

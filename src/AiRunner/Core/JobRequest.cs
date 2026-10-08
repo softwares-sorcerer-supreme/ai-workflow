@@ -1,10 +1,10 @@
 namespace AiRunner.Core;
 
-public enum JobType { AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues }
+public enum JobType { AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues, FixReview }
 
 /// <summary>
 /// One unit of work, small enough to persist in SQLite. Number is the issue or PR number.
-/// Payload is job specific (the PR head sha for a review).
+/// Payload is job specific (the PR head sha for a review, the @ai comment id for a review fix).
 /// </summary>
 public sealed record JobRequest(JobType Type, string Repo, int Number, string? Payload = null)
 {

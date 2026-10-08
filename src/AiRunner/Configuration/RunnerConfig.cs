@@ -58,8 +58,9 @@ public static class Workflows
     public const string Breakdown = "breakdown";
     public const string Implement = "implement";
     public const string Review = "review";
+    public const string Fix = "fix";
 
-    public static readonly string[] All = [Analyze, Breakdown, Implement, Review];
+    public static readonly string[] All = [Analyze, Breakdown, Implement, Review, Fix];
 }
 
 public sealed class GitBucketConfig
@@ -149,6 +150,8 @@ public sealed class LimitsConfig
     public int MaxChangedFiles { get; set; } = 15;
     public int MaxDiffLines { get; set; } = 800;
     public int MaxAnalysisRounds { get; set; } = 5;
+    /// <summary>Review fixes per PR (each an @ai comment answered with commits); counted from the bot's replies on the PR.</summary>
+    public int MaxReviewFixes { get; set; } = 5;
 
     /// <summary>Still "simple"? Above the limits Workflow 2 opens no PR.</summary>
     public bool Allows(int changedFiles, int changedLines) => changedFiles <= MaxChangedFiles && changedLines <= MaxDiffLines;

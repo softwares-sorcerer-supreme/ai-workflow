@@ -57,10 +57,14 @@ public sealed class GitWorkspaceTests : IDisposable
 
         await _git.CommitAsync(dir, "#1: test (Copilot)", default);
         await _git.PushAsync(dir, "HEAD", "ai/issue-1", default);
+        var head = await _git.ResolveAsync(dir, "HEAD", default);
+        Assert.Matches("^[0-9a-f]{40}$", head);
 
         // a fresh prepare sees the pushed branch and its commit count
         var again = await _workspace.PrepareAsync("o/r", "origin/main", null, [], default);
         Assert.True(await _git.RefExistsAsync(again, "origin/ai/issue-1", default));
+        Assert.Equal(head, await _git.ResolveAsync(again, "origin/ai/issue-1", default));
+        Assert.Null(await _git.ResolveAsync(again, "origin/no-such-branch", default));
         Assert.Equal(1, await _git.CountCommitsAsync(again, "origin/main", "origin/ai/issue-1", default));
         Assert.Equal([_config.Git.UserEmail], await _git.AuthorsAsync(again, "origin/main", "origin/ai/issue-1", default));
         Assert.Equal(["app.txt", "new.txt"], (await _git.ChangedFilesAsync(again, "origin/main", "origin/ai/issue-1", default)).Order());

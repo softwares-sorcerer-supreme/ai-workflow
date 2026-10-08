@@ -10,7 +10,7 @@ namespace AiRunner.Tests.Jobs;
 public sealed class ImplementGuardRailTests : IDisposable
 {
     private readonly JobTestKit _kit = new(r => r.Commands.Setup = "npm ci");
-    private ImplementIssueJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.Processes, _kit.State);
+    private ImplementIssueJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Session, _kit.State);
 
     public ImplementGuardRailTests()
     {

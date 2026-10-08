@@ -32,17 +32,15 @@ public sealed class ReviewPullRequestJob(
 
     public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken ct)
     {
-        var repo = config.RepoConfig(request.Repo);
-        var pull = await gitBucket.GetPullAsync(request.Repo, request.Number, ct);
-        var previous = state.GetReview(request.Repo, pull.Number);
-
-        var decision = JobPlanner.PlanPull(repo, pull, previous?.HeadSha, identity.Login, config.ScopeLabel);
-        if (decision.Job is null)
+        // A review fix asked for since the poll goes first.
+        var (repo, pull, _, decision) = await gitBucket.LoadPullAsync(config, state, identity, request, ct);
+        if (decision.Job?.Type != Type)
             return JobOutcome.NotNeeded(decision.Reason);
+        var previous = state.GetReview(request.Repo, pull.Number);
         var sha = pull.Head.Sha;
 
         var dir = await workspace.PrepareAsync(request.Repo, sha, null,
-            [$"+refs/pull/{pull.Number}/head:refs/remotes/pr/{pull.Number}"], ct);
+            [Branches.PullHead(pull.Number)], ct);
         var baseRef = Branches.Remote(pull.Base.Ref);
         var files = await git.ChangedFilesAsync(dir, baseRef, sha, ct);
 
@@ -56,28 +54,8 @@ public sealed class ReviewPullRequestJob(
         await File.WriteAllTextAsync(Path.Combine(dir, "diff.patch"), diff, ct);
         await File.WriteAllLinesAsync(Path.Combine(dir, "changed-files.txt"), files, ct);
 
-        var linked = ContextBuilder.LinkedIssue(pull.Body);
-        string? analysis = null, spec = null;
-        if (linked is not null)
-        {
-            try
-            {
-                var issueComments = await gitBucket.ListCommentsAsync(request.Repo, linked.Value, ct);
-                analysis = JobSupport.LatestBlock(issueComments, Markers.Analysis);
-                spec = JobSupport.LatestBlock(issueComments, Markers.Spec);
-                if (spec is null)
-                {
-                    // A sub-issue has no SPEC comment: its body (scope, touches, shared contract) is its plan.
-                    var issue = await gitBucket.GetIssueAsync(request.Repo, linked.Value, ct);
-                    if (issue.HasLabel(Labels.SubIssue)) spec = ContextBuilder.PlanFromSubIssue(issue);
-                }
-            }
-            catch (GitBucketException ex)
-            {
-                run.Info($"linked issue #{linked} not readable: {ex.Message}");
-            }
-        }
-        var context = ContextBuilder.ForPull(pull, files, linked, analysis, spec);
+        var linked = await gitBucket.LinkedIssueAsync(request.Repo, pull, run, ct);
+        var context = ContextBuilder.ForPull(pull, files, linked.Number, linked.Analysis, linked.Spec);
         await File.WriteAllTextAsync(Path.Combine(dir, "context.md"), context, ct);
         run.Save("context.md", context);
         run.Save("diff.patch", diff);

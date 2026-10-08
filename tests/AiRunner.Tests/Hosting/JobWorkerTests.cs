@@ -12,10 +12,10 @@ public sealed class JobWorkerTests : IDisposable
 
     public void Dispose() => _kit.Dispose();
 
-    private sealed class StubJob(Func<Task<JobOutcome>> run) : IJob
+    private sealed class StubJob(Func<Task<JobOutcome>> run, JobInfo? info = null) : IJob
     {
         public JobType Type => JobType.AnalyzeIssue;
-        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
+        public JobInfo Info => info ?? new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
         public Task<JobOutcome> RunAsync(JobRequest request, JobRun r, CancellationToken ct) => run();
     }
 
@@ -36,6 +36,21 @@ public sealed class JobWorkerTests : IDisposable
         Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
         Assert.Contains("failed", File.ReadAllText(Path.Combine(logs, "cost.csv")));
         Assert.Single(_kit.State.ListJobs(JobStatus.Failed));
+    }
+
+    [Fact]
+    public async Task Failure_comment_uses_the_jobs_own_retry_hint()
+    {
+        var info = new JobInfo(Workflows.Fix, "AI review fix", TimeSpan.FromMinutes(1), OnPullRequest: true, Retry: "Write @ai again.");
+        var (worker, queue, _) = _kit.CreateWorker(new StubJob(() => throw new JobFailedException("push rejected"), info));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        var body = _kit.GitBucket.CommentsOf(7).Single().Body;
+        Assert.Contains("AI review fix failed: push rejected", body);
+        Assert.Contains("Write @ai again.", body);
+        Assert.DoesNotContain("next commit", body);
+        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
     }
 
     [Fact]

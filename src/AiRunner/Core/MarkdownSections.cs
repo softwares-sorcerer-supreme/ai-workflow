@@ -23,6 +23,37 @@ public static class MarkdownSections
         return string.Join("\n", body).Trim();
     }
 
+    private static readonly Regex AnyHeading = new(@"^[ \t]*#{2,4}[ \t]+", RegexOptions.Multiline);
+
+    /// <summary>
+    /// "## X" and "#### X" become "### X". Only for files with one heading level (PR_BODY.md, REPLY.md):
+    /// agents slip on the level, and that is not worth a fix round.
+    /// </summary>
+    public static string HeadingsToLevel3(string markdown) => AnyHeading.Replace(markdown, "### ");
+
+    /// <summary>
+    /// A missing heading, or an empty one unless it is in mayBeNone. Expects HeadingsToLevel3 text.
+    /// The wording goes back to the agent in a fix round.
+    /// </summary>
+    public static List<string> HeadingProblems(string markdown, IEnumerable<string> headings, params string[] mayBeNone)
+    {
+        var problems = new List<string>();
+        foreach (var heading in headings)
+        {
+            var section = Get(markdown, heading);
+            if (section is null)
+                problems.Add($"The heading `### {heading}` is missing.");
+            else if (!mayBeNone.Contains(heading) && IsNone(section))
+                problems.Add($"`### {heading}` is empty.");
+        }
+        return problems;
+    }
+
+    private static readonly Regex ListItem = new(@"^ ?(?:[-*+]|\d+[.)])[ \t]+\S", RegexOptions.Multiline);
+
+    /// <summary>A top-level list line with any marker ("- ", "* ", "1. "): a slip there is not worth a fix round.</summary>
+    public static bool HasListItem(string section) => ListItem.IsMatch(section.Replace("\r\n", "\n"));
+
     /// <summary>True for an empty section or one that only says None.</summary>
     public static bool IsNone(string? section) =>
         string.IsNullOrWhiteSpace(section) ||

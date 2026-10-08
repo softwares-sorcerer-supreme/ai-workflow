@@ -30,7 +30,8 @@ public sealed class FakeCopilot : ICopilotRunner
 /// <summary>Git that remembers what it was asked to do.</summary>
 public sealed class FakeGit : IGitClient
 {
-    public HashSet<string> Refs { get; } = ["origin/main"];
+    /// <summary>Refs in the clone and their shas: RefExistsAsync and ResolveAsync both read this; a push updates it.</summary>
+    public Dictionary<string, string> Refs { get; } = new() { ["origin/main"] = "main000", ["HEAD"] = "fix1234abcd" };
     public Dictionary<string, int> CommitsAhead { get; } = [];
     /// <summary>Authors of the commits on a branch that is ahead of its base. Foreign by default.</summary>
     public List<string> Authors { get; set; } = ["other@example.com"];
@@ -42,17 +43,21 @@ public sealed class FakeGit : IGitClient
     public Task CloneOrFetchAsync(string repo, string dir, CancellationToken ct) => Task.CompletedTask;
     public Task CheckoutCleanAsync(string dir, string startPoint, string? newBranch, CancellationToken ct) => Task.CompletedTask;
     public Task FetchAsync(string dir, string refspec, CancellationToken ct) => Task.CompletedTask;
-    public Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.Contains(gitRef));
+    public Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.ContainsKey(gitRef));
+    public Task<string?> ResolveAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.GetValueOrDefault(gitRef));
     public Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct) =>
         Task.FromResult(CommitsAhead.GetValueOrDefault(to));
     public Task<IReadOnlyList<string>> AuthorsAsync(string dir, string from, string to, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>(Authors);
     public Task<IReadOnlyList<DiffStat>> StageAllAsync(string dir, CancellationToken ct) => Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
     public Task CommitAsync(string dir, string message, CancellationToken ct) { Commits.Add(message); return Task.CompletedTask; }
+    /// <summary>Models a push the server rejects (the branch moved).</summary>
+    public bool PushFails { get; set; }
     public Task PushAsync(string dir, string source, string branch, CancellationToken ct)
     {
+        if (PushFails) throw new InvalidOperationException("git push failed (exit 1): rejected, fetch first");
         Pushes.Add((source, branch));
-        Refs.Add("origin/" + branch);
+        Refs["origin/" + branch] = Refs["HEAD"];
         return Task.CompletedTask;
     }
     public Task<string> DiffAsync(string dir, string baseRef, string headRef, CancellationToken ct) => Task.FromResult("diff --git a/x b/x\n");
@@ -141,13 +146,15 @@ public sealed class JobTestKit : IDisposable
         configure?.Invoke(repo);
         Config = new RunnerConfig { Repos = [repo] };
         Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
-        State = new SqliteStateStore(Path.Combine(_tmp, "state.db"));
+        State = new SqliteStateStore(Path.Combine(_tmp, "state.db"), pooling: false);
         var runDir = Path.Combine(_tmp, "run");
         Directory.CreateDirectory(runDir);
         Run = new JobRun(runDir, NullLogger.Instance);
     }
 
     public RepoConfig RepoConfig => Config.Repos[0];
+
+    public AgentSession Session => new(Config, Workspace, Git, Copilot, Processes);
 
     public JobRequest Request(JobType type, int number, string? payload = null) => new(type, Repo, number, payload);
 
@@ -165,7 +172,6 @@ public sealed class JobTestKit : IDisposable
     public void Dispose()
     {
         Workspace.Dispose();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); // release state.db so the folder can go
         FileSystem.DeleteDirectory(_tmp);
     }
 }

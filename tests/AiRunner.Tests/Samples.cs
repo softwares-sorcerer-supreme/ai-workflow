@@ -73,6 +73,21 @@ public static class Samples
         - None
         """;
 
+    /// <summary>A REPLY.md as the fix-review agent writes it (templates/review-reply.md).</summary>
+    public static string ReviewReply(string replies = "- 1: fixed - added the null check (`src/a.cs`)\n- 2: not changed - skipped as asked") => $"""
+        ### Replies
+        {replies}
+
+        ### How it was tested
+        - `make build` and `make test` pass.
+
+        ### Open points
+        - None
+        """;
+
+    /// <summary>The body of a review fix reply that read the comments up to that id.</summary>
+    public static string FixReply(long upTo) => BotComments.WithUpto("## AI fix 1", Markers.ReviewFix, upTo);
+
     public static string AgentOutput(string analysis, string? spec = null) =>
         "Thinking... reading files\n" +
         Markers.Wrap(analysis, Markers.Analysis) + "\n" +

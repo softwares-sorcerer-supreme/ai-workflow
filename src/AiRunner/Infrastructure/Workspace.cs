@@ -26,7 +26,8 @@ public sealed class Workspace(RunnerConfig config, IGitClient git) : IWorkspace
 
     /// <summary>Files the runner writes into the work folder. Never committed.</summary>
     private static readonly string[] RunnerFiles =
-        [".ai-workflow/", "context.md", "plan.md", "PR_BODY.md", "fix.md", "diff.patch", "changed-files.txt"];
+        [".ai-workflow/", "context.md", "plan.md", "PR_BODY.md", "fix.md", "diff.patch", "changed-files.txt",
+         "review-fix.md", "REPLY.md"];
 
     private string DirFor(string repo) =>
         Path.Combine(config.ResolvePath(config.Paths.Work), repo.Replace('/', Path.DirectorySeparatorChar));

@@ -59,9 +59,10 @@ public sealed class SqliteStateStore : IStateStore
 
     public SqliteStateStore(RunnerConfig config) : this(config.ResolvePath(config.Paths.State)) { }
 
-    public SqliteStateStore(string file)
+    /// <param name="pooling">False in tests: the file is released on close, without clearing every pool of the process.</param>
+    public SqliteStateStore(string file, bool pooling = true)
     {
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = file }.ToString();
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = file, Pooling = pooling }.ToString();
         Execute("""
             CREATE TABLE IF NOT EXISTS issue_seen (repo TEXT, issue INTEGER, fingerprint TEXT NOT NULL,
                 PRIMARY KEY (repo, issue));

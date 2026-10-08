@@ -56,8 +56,7 @@ public static class GbExtensions
         issue.UpdatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture) + "|" +
         string.Join(",", issue.LabelNames().Select(l => l.ToLowerInvariant()).Order(StringComparer.Ordinal));
 
-    public static bool IsOpen(this GbIssue issue) =>
-        issue.State is null || string.Equals(issue.State, "open", StringComparison.OrdinalIgnoreCase);
+    public static bool IsOpen(this GbIssue issue) => IsOpenState(issue.State);
 
     public static bool IsPullRequest(this GbIssue issue) =>
         issue.PullRequest is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined };
@@ -65,12 +64,17 @@ public static class GbExtensions
     /// <summary>Checks "assignees" and the older single "assignee" field.</summary>
     public static bool IsAssignedTo(this GbIssue issue, string login) => AnyIs(issue.Assignees, issue.Assignee, login);
 
+    /// <summary>Open and not merged. A missing state counts as open (lists of open PRs may leave it out).</summary>
+    public static bool IsOpen(this GbPull pull) => !pull.IsMerged() && IsOpenState(pull.State);
+
     /// <summary>GitBucket sets "merged" on newer versions and "merged_at" on all; trust either.</summary>
     public static bool IsMerged(this GbPull pull) => pull.Merged == true || pull.MergedAt is not null;
 
     /// <summary>The PR from head into base, or null.</summary>
     public static GbPull? Find(this IEnumerable<GbPull> pulls, string head, string baseRef) =>
         pulls.FirstOrDefault(p => p.Head.Ref == head && p.Base.Ref == baseRef);
+
+    private static bool IsOpenState(string? state) => state is null || string.Equals(state, "open", StringComparison.OrdinalIgnoreCase);
 
     private static HashSet<string> Names(List<GbLabel>? labels) =>
         (labels ?? []).Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);

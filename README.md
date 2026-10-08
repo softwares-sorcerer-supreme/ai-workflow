@@ -10,6 +10,7 @@ See the design document for the full picture.
 | 1b Breakdown | human adds `ai-breakdown` on an `ai:ready` + `ai:complex` issue | creates `feat/issue-{n}` and one sub-issue per sub-task; starts the next sub-issue when one is merged; opens the final PR |
 | 2 Implement | human adds `ai-implement` on an `ai:ready` + `ai:simple` issue or sub-issue | Copilot writes code on `ai/issue-{n}` and goes through its stages itself (verify with build/test/lint, review and simplify with the `code-reviewer` subagent, PR_BODY.md); the runner re-checks build/test/lint and PR_BODY.md, sends problems back for up to `implement.maxFixRounds` fix rounds, then commits, pushes, opens the PR (WIP if checks still fail); work from a failed or too-big run is still pushed to the branch (no PR) and a retry continues from it |
 | 3 PR review | new head commit on a PR labelled `ai` or opened by the runner (`review.scope`) | Copilot (read-only) writes one review comment, updated in place |
+| 3b Review fix | a comment with `@ai` on a PR labelled `ai` or opened by the runner (workflow `fix`) | Copilot reads the latest review and the comments since the last fix, changes the code on the PR's branch with the same stages and runner checks as Workflow 2, writes REPLY.md; the runner adds a commit (never forced), pushes and answers on the PR; the new head is reviewed again |
 | 4 GitHub fallback | `needs-cloud-agent` | **not built yet** - the label is only respected (the runner skips the issue) |
 
 ## First run
@@ -65,6 +66,11 @@ pointed at the repo reviews it again.
 - **Start the code**: add `ai-implement` (needs `ai:ready` + `ai:simple`). Sub-issues after the first start by themselves when the previous PR is merged.
 - **Ask for a review**: add the label `ai` to the PR (PRs the runner opened itself are reviewed anyway).
   Every new commit is reviewed again; to stop, remove the label, start the title with `[skip-ai]`, or make it a draft.
+- **Answer the review**: write on the PR, by finding number or in your own words, and write `@ai` in the comment
+  (`@ai 1: fix, 2: skip - on purpose, 3: use the existing DateHelper`). Needs the workflow `fix`. Copilot changes only
+  what you asked, pushes one commit to the PR's branch and replies per point; the new commit is reviewed again.
+  Every comment since the last fix is read, so you can write the points in several comments and put `@ai` in the last one.
+  At most `limits.maxReviewFixes` (default 5) per PR. A failed fix is not retried by itself: write `@ai` again.
 - **Retry after `ai:failed`**: read the comment (and the log folder it names), fix the cause, then remove `ai:failed`.
   An analysis that stopped at the round limit stops again on retry: clarify in a call, or raise `limits.maxAnalysisRounds`.
 - **Merge**: always a human. The runner never merges.
@@ -82,8 +88,9 @@ src/AiRunner/
   Infrastructure/   every side effect behind an interface: GitBucketClient, CopilotRunner, GitClient,
                     ProcessRunner, Workspace, SqliteStateStore, CostLog, JobLog, AgentInstaller
   Jobs/             one class per workflow step: AnalyzeIssue, BreakdownIssue, ImplementIssue,
-                    ReviewPullRequest, SequenceSubIssues. A job orchestrates: reads GitBucket,
-                    asks Core to decide or parse, calls Infrastructure
+                    ReviewPullRequest, FixReview, SequenceSubIssues. A job orchestrates: reads GitBucket,
+                    asks Core to decide or parse, calls Infrastructure. AgentSession is the agent + checks +
+                    fix rounds loop that ImplementIssue and FixReview share
   Hosting/          Poller (GitBucket -> JobPlanner -> JobQueue), JobQueue (SQLite-backed, one pending
                     per key), JobWorker (one job at a time, timeout, failure comment + ai:failed, cost row)
 tests/AiRunner.Tests/
@@ -100,9 +107,9 @@ Shared files:
 
 | Folder | Used how |
 | --- | --- |
-| `agents/` | `grill-issue`, `implement-issue`, `code-reviewer` (read-only subagent of implement-issue), `pr-review`; copied to `~/.copilot/agents/` |
+| `agents/` | `grill-issue`, `implement-issue`, `fix-review`, `code-reviewer` (read-only subagent of both), `pr-review`; copied to `~/.copilot/agents/` |
 | `skills/` | `grill-me`, `implement-checklist`, `review-checklist`; copied to `~/.copilot/skills/` |
-| `templates/` | analysis (F), SPEC (G), review (H), PR_BODY.md of the implement agent; copied into each work folder as `.ai-workflow/templates/`, never committed |
+| `templates/` | analysis (F), SPEC (G), review (H), PR_BODY.md of the implement agent, REPLY.md of the fix-review agent; copied into each work folder as `.ai-workflow/templates/`, never committed |
 | `onboarding/AGENTS.md` | starting point for a product repo |
 
 Security limits (what the runner does and does not protect):
@@ -123,6 +130,9 @@ Security limits (what the runner does and does not protect):
   (1 premium request each) and raises the job timeout to `implementTimeoutMinutes * (2 + 2 * maxFixRounds) + 10` minutes.
   When only PR_BODY.md is wrong, at most one fix round runs. A fix round is not started when too little job time is left,
   and a failed fix round still opens the PR from what exists. Set it to 0 to keep the old behaviour (one run, WIP PR when red).
+- **Anyone who can comment on a PR in fix scope can make the agent change its code** (`@ai`), like anyone can start
+  an analysis round. The change is still a commit on the PR that a human reviews and merges, and the limits above apply.
+  Keep the label `ai` off PRs where that is not wanted; PRs from the repo's default branch are always refused.
 - Bot comments are recognised by a hidden marker. Since the runner posts with your account, a human who pastes a
   bot comment (with the marker) is treated like the bot. Every bot comment starts with a visible `**[ai-runner]**`.
 
@@ -151,4 +161,6 @@ These calls are new since Phase 0; check them once with `--once` on a test issue
 - `POST /repos/{o}/{r}/pulls` with `head` = branch name; `merged` / `merged_at` on closed PRs.
 - git over HTTP with `login:token` basic auth (else set `GitBucket:GitPassword`), and `refs/pull/{n}/head`
   (the review falls back to the branch when it is missing).
+- Review fix: only comments in the PR's Conversation tab are read (issue comments API). Whether line comments in the
+  diff can be read through the GitBucket API is not checked; answer the review in the Conversation tab.
 - The exact Copilot CLI error text when the premium requests are used up (`CopilotRunner.LooksLikeQuotaError`).

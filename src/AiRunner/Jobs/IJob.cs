@@ -32,7 +32,8 @@ public interface IJob
 /// The request number is a PR. A failure is then only commented: no ai:failed label, the job
 /// itself remembers the failed commit and the next commit retries.
 /// </param>
-public sealed record JobInfo(string Workflow, string Description, TimeSpan Timeout, bool OnPullRequest = false);
+/// <param name="Retry">How a human retries after a failure, for the failure comment; null = the default for issues or PRs.</param>
+public sealed record JobInfo(string Workflow, string Description, TimeSpan Timeout, bool OnPullRequest = false, string? Retry = null);
 
 /// <param name="Result">Short word for the cost log: ok, wip, rejected, too-big, not-needed, skipped.</param>
 /// <param name="Quiet">Nothing was spent and nothing changed; no cost row, no job row.</param>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using AiRunner.Configuration;
 
 namespace AiRunner.Core;
@@ -56,12 +57,9 @@ public static class JobPlanner
         if (comments is null)
             return PlanDecision.Skip("comments not read (no change since last poll)") with { NeedsComments = true };
 
-        var analyses = comments.Where(BotComments.IsAnalysis).OrderBy(c => c.Id).ToList();
-        var last = analyses.LastOrDefault();
-        var afterId = Math.Max(lastHandledCommentId, last is null ? 0 : BotComments.ContextUpto(last) ?? last.Id);
-        var trigger = comments.Where(c => c.Id > afterId && BotComments.MentionsAi(c)).MaxBy(c => c.Id);
+        var trigger = BotComments.NewAtAi(comments, BotComments.AnsweredUpTo(comments, Markers.Analysis, lastHandledCommentId));
 
-        if (analyses.Count == 0)
+        if (BotComments.Count(comments, Markers.Analysis) == 0)
         {
             // Sub-issues come with their scope from the breakdown; they are analyzed only on request.
             if (labels.Contains(Labels.SubIssue) && trigger is null)
@@ -80,7 +78,7 @@ public static class JobPlanner
     /// <summary>The number of the next analysis round, and whether it is over the limit.</summary>
     public static (int Number, bool LimitReached) NextRound(RepoConfig repo, IEnumerable<GbComment> comments)
     {
-        var done = comments.Count(BotComments.IsAnalysis);
+        var done = BotComments.Count(comments, Markers.Analysis);
         return (done + 1, done >= repo.Limits.MaxAnalysisRounds);
     }
 
@@ -98,15 +96,74 @@ public static class JobPlanner
             : $"`{Labels.Breakdown}` needs `{Labels.Ready}` and `{Labels.Complex}` on the issue. " +
               "Finish the analysis first (answer the questions and write @ai).";
 
+    /// <summary>
+    /// A new @ai comment on a PR in scope asks for a review fix; it goes before a review, so the review of
+    /// the fixed head covers both. Without comments the review decision is returned with NeedsComments
+    /// when a fix is possible.
+    /// </summary>
     /// <param name="reviewedSha">Head commit already reviewed (local state), or null.</param>
-    public static PlanDecision PlanPull(RepoConfig repo, GbPull pull, string? reviewedSha, string botLogin, string scopeLabel)
+    /// <param name="comments">The PR's comments, or null when they were not read.</param>
+    /// <param name="lastHandledCommentId">Newest @ai comment a review fix already answered (local state, 0 = none).</param>
+    public static PlanDecision PlanPull(RepoConfig repo, GbPull pull, string? reviewedSha, string botLogin, string scopeLabel,
+        IReadOnlyList<GbComment>? comments = null, long lastHandledCommentId = 0)
     {
-        if (!repo.IsEnabled(Workflows.Review))
-            return PlanDecision.Skip("review workflow is off for this repo");
+        // A job planned while the PR was open may run after the merge: never push to or review a closed PR.
+        if (!pull.IsOpen())
+            return PlanDecision.Skip("closed");
         if (pull.Draft == true)
             return PlanDecision.Skip("draft");
         if (pull.Title.TrimStart().StartsWith(SkipAiPrefix, StringComparison.OrdinalIgnoreCase))
             return PlanDecision.Skip(SkipAiPrefix);
+
+        // Fix scope is the scoped review rule whatever review.scope says: the fix pushes to the PR's branch.
+        var fixPossible = repo.IsEnabled(Workflows.Fix) && InScope(pull, botLogin, scopeLabel);
+        if (fixPossible && comments is not null)
+        {
+            var trigger = BotComments.NewAtAi(comments, BotComments.AnsweredUpTo(comments, Markers.ReviewFix, lastHandledCommentId));
+            if (trigger is not null)
+            {
+                var fix = NextFix(repo, comments);
+                return PlanDecision.Run(
+                    new JobRequest(JobType.FixReview, repo.FullName, pull.Number, trigger.Id.ToString(CultureInfo.InvariantCulture)),
+                    fix.LimitReached
+                        ? $"review fix limit {repo.Limits.MaxReviewFixes} reached - the job will say so"
+                        : $"review fix {fix.Number}, @ai comment {trigger.Id}");
+            }
+        }
+        return PlanReview(repo, pull, reviewedSha, botLogin, scopeLabel) with { NeedsComments = fixPossible && comments is null };
+    }
+
+    /// <summary>The number of the next review fix on a PR, and whether it is over the limit.</summary>
+    public static (int Number, bool LimitReached) NextFix(RepoConfig repo, IEnumerable<GbComment> comments)
+    {
+        var done = BotComments.Count(comments, Markers.ReviewFix);
+        return (done + 1, done >= repo.Limits.MaxReviewFixes);
+    }
+
+    /// <summary>
+    /// Why a planned review fix must not start, or null: the limit is reached, or the push target is not the
+    /// PR's own branch at the PR head (the default branch, a fork's branch name, deleted, or moved since).
+    /// </summary>
+    /// <param name="branchSha">What origin/{head ref} points to in the clone, or null when it does not exist.</param>
+    public static string? WhyNotFix(RepoConfig repo, GbPull pull, IEnumerable<GbComment> comments, string defaultBranch, string? branchSha)
+    {
+        if (NextFix(repo, comments).LimitReached)
+            return $"{repo.Limits.MaxReviewFixes} review fixes reached on this PR (limits.maxReviewFixes). Please finish it by hand.";
+        if (pull.Head.Ref == defaultBranch)
+            return $"This PR comes from the default branch `{pull.Head.Ref}`; I never push to it.";
+        if (!string.Equals(branchSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
+            return $"Branch `{pull.Head.Ref}` in this repository is " +
+                   (branchSha is null
+                       ? "missing (a PR from a fork, or a deleted branch)"
+                       : $"at {Text.ShortSha(branchSha)}, not at the PR head {Text.ShortSha(pull.Head.Sha)}") +
+                   ". I only push to the PR's own branch here. If someone just pushed, write @ai again.";
+        return null;
+    }
+
+    private static PlanDecision PlanReview(RepoConfig repo, GbPull pull, string? reviewedSha, string botLogin, string scopeLabel)
+    {
+        if (!repo.IsEnabled(Workflows.Review))
+            return PlanDecision.Skip("review workflow is off for this repo");
         if (repo.Review.IsScoped && !InScope(pull, botLogin, scopeLabel))
             return PlanDecision.Skip("out of review scope (review.scope: scoped)");
         if (string.Equals(reviewedSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))

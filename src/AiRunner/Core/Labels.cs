@@ -46,6 +46,9 @@ public static class Branches
     /// <summary>The remote-tracking name of a branch in the runner's clone.</summary>
     public static string Remote(string branch) => $"origin/{branch}";
 
+    /// <summary>Refspec for a PR's head commit (refs/pull/N/head); not every GitBucket version has it.</summary>
+    public static string PullHead(int number) => $"+refs/pull/{number}/head:refs/remotes/pr/{number}";
+
     public static string Feature(int parent) => $"feat/issue-{parent}";
     public static string Issue(int number) => $"ai/issue-{number}";
     public static string SubIssue(int parent, int order) => $"ai/issue-{parent}-{order}";
@@ -90,9 +93,26 @@ public static class BotComments
 
     public static string ContextUptoTag(long commentId) => $"{UptoPrefix}{commentId} -->";
 
+    /// <summary>A bot block plus the newest comment id its job read, ready to post.</summary>
+    public static string WithUpto(string inner, string marker, long upTo) => Markers.Wrap(inner, marker) + "\n" + ContextUptoTag(upTo);
+
+    /// <summary>Newest comment id the latest bot block of that kind (or the local state) answered; later comments are new.</summary>
+    public static long AnsweredUpTo(IEnumerable<GbComment> comments, string marker, long lastHandledCommentId)
+    {
+        var last = Latest(comments, marker);
+        return Math.Max(lastHandledCommentId, last is null ? 0 : ContextUpto(last) ?? last.Id);
+    }
+
+    /// <summary>The newest human @ai comment after that id, or null.</summary>
+    public static GbComment? NewAtAi(IEnumerable<GbComment> comments, long afterId) =>
+        comments.Where(c => c.Id > afterId && MentionsAi(c)).MaxBy(c => c.Id);
+
+    public static int Count(IEnumerable<GbComment> comments, string marker) => comments.Count(c => Is(c, marker));
+
     public static long? ContextUpto(GbComment c)
     {
-        var m = Regex.Match(c.Body ?? "", Regex.Escape(UptoPrefix) + @"(\d+) -->");
-        return m.Success ? long.Parse(m.Groups[1].Value) : null;
+        // The last tag: the runner appends it after the text it posts, which could contain a fake one.
+        var m = Regex.Matches(c.Body ?? "", Regex.Escape(UptoPrefix) + @"(\d+) -->").LastOrDefault();
+        return m is null ? null : long.Parse(m.Groups[1].Value);
     }
 }

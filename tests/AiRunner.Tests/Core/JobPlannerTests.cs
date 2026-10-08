@@ -141,6 +141,89 @@ public class JobPlannerTests
         Assert.Null(JobPlanner.PlanPull(Repo, Pull(head: "ai/issue-7", user: "alice"), null, "bot", "ai").Job);
         Assert.Null(JobPlanner.PlanPull(Repo, Pull(user: "bot"), null, "bot", "ai").Job);
     }
+
+    // ---- review fixes ----
+
+    private GbComment FixReply(long upto) => Samples.Bot(++_id, Samples.FixReply(upto));
+
+    [Fact]
+    public void At_ai_on_a_pr_in_scope_asks_for_a_review_fix_before_the_review()
+    {
+        var at = Human("@ai 1: fix, 2: skip");
+        var d = JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai", [Human("looks odd"), at]);
+
+        Assert.Equal(JobType.FixReview, Type(d));
+        Assert.Equal(at.Id.ToString(), d.Job!.Payload);
+    }
+
+    [Fact]
+    public void Without_comments_a_pr_in_fix_scope_asks_for_them_and_keeps_the_review_decision()
+    {
+        var d = JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai");
+        Assert.True(d.NeedsComments);
+        Assert.Equal(JobType.ReviewPullRequest, Type(d));
+
+        Assert.False(JobPlanner.PlanPull(Repo, Pull(), null, "bot", "ai").NeedsComments);     // out of scope
+        var reviewOnly = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Review] };
+        Assert.False(JobPlanner.PlanPull(reviewOnly, Pull(labels: "ai"), null, "bot", "ai").NeedsComments);
+    }
+
+    [Fact]
+    public void Answered_or_bot_at_ai_comments_do_not_ask_again()
+    {
+        var at = Human("@ai fix 1");
+        Assert.Equal(JobType.ReviewPullRequest, Type(JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai", [at, FixReply(at.Id)])));
+        Assert.Equal(JobType.ReviewPullRequest, Type(JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai", [at], at.Id)));
+        Assert.Equal(JobType.ReviewPullRequest,
+            Type(JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai", [Samples.Bot(++_id, "@ai said")])));
+
+        // A comment written while the fix ran is newer than what the reply read: still a request.
+        var during = Human("@ai also rename it");
+        Assert.Equal(JobType.FixReview,
+            Type(JobPlanner.PlanPull(Repo, Pull(labels: "ai"), null, "bot", "ai", [at, during, FixReply(at.Id)])));
+    }
+
+    [Fact]
+    public void Review_fix_needs_the_fix_workflow_and_a_pr_in_scope()
+    {
+        var reviewOnly = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Review], Review = new ReviewConfig { Scope = "all" } };
+        Assert.Equal(JobType.ReviewPullRequest, Type(JobPlanner.PlanPull(reviewOnly, Pull(labels: "ai"), null, "bot", "ai", [Human("@ai fix")])));
+
+        // review.scope: all reviews every PR, but a fix still only pushes to PRs labelled ai or the runner's own.
+        var all = new RepoConfig { Owner = "o", Name = "r", Workflows = [.. Workflows.All], Review = new ReviewConfig { Scope = "all" } };
+        Assert.Equal(JobType.ReviewPullRequest, Type(JobPlanner.PlanPull(all, Pull(), null, "bot", "ai", [Human("@ai fix")])));
+        Assert.Equal(JobType.FixReview, Type(JobPlanner.PlanPull(all, Pull(head: "ai/issue-7", user: "bot"), null, "bot", "ai", [Human("@ai fix")])));
+
+        var fixOnly = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Fix] };
+        Assert.Equal(JobType.FixReview, Type(JobPlanner.PlanPull(fixOnly, Pull(labels: "ai"), null, "bot", "ai", [Human("@ai fix")])));
+        Assert.Null(JobPlanner.PlanPull(fixOnly, Pull(labels: "ai"), null, "bot", "ai", []).Job);
+    }
+
+    [Fact]
+    public void Closed_or_merged_pr_gets_neither_fix_nor_review()
+    {
+        var closed = Pull(labels: "ai") with { State = "closed" };
+        var merged = Pull(labels: "ai") with { MergedAt = DateTimeOffset.UtcNow };
+
+        Assert.Null(JobPlanner.PlanPull(Repo, closed, null, "bot", "ai", [Human("@ai fix")]).Job);
+        Assert.Null(JobPlanner.PlanPull(Repo, merged, null, "bot", "ai", [Human("@ai fix")]).Job);
+    }
+
+    [Fact]
+    public void The_last_context_upto_tag_counts() =>
+        Assert.Equal(5, BotComments.ContextUpto(Samples.Bot(1, BotComments.ContextUptoTag(999) + "\n" + BotComments.ContextUptoTag(5))));
+
+    [Fact]
+    public void Review_fix_limit_still_runs_the_job_so_it_can_answer()
+    {
+        var repo = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Fix], Limits = new LimitsConfig { MaxReviewFixes = 1 } };
+        var first = Human("@ai fix 1");
+        var d = JobPlanner.PlanPull(repo, Pull(labels: "ai"), null, "bot", "ai", [first, FixReply(first.Id), Human("@ai again")]);
+
+        Assert.Equal(JobType.FixReview, Type(d));
+        Assert.Contains("limit 1 reached", d.Reason);
+        Assert.True(JobPlanner.NextFix(repo, [FixReply(1)]).LimitReached);
+    }
 }
 
 public class ContextBuilderTests

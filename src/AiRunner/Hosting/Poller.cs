@@ -1,12 +1,14 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Jobs;
 
 namespace AiRunner.Hosting;
 
 /// <summary>
 /// Polls GitBucket (no webhooks: GitBucket cannot reach the laptop), asks JobPlanner what
 /// each issue and PR needs, and queues the jobs. It never changes anything in GitBucket.
+/// For PRs it reads comments only where a review fix (@ai) is possible.
 /// GitBucket ignores "since", so for each issue the poller remembers a fingerprint (updated_at +
 /// labels) of the last time there was nothing to do, and reads comments only when it changed.
 /// While an issue still needs a job, nothing is remembered: if the job fails without being able
@@ -72,11 +74,11 @@ public sealed class Poller(
                 state.SetIssueFingerprint(repo.FullName, issue.Number, fingerprints[issue.Number]);
         }
 
-        if (!repo.IsEnabled(Workflows.Review)) return;
+        if (!repo.IsEnabled(Workflows.Review) && !repo.IsEnabled(Workflows.Fix)) return;
         foreach (var pull in await gitBucket.ListPullsAsync(repo.FullName, "open", ct))
         {
-            var decision = JobPlanner.PlanPull(repo, pull, state.GetReview(repo.FullName, pull.Number)?.HeadSha,
-                identity.Login, config.ScopeLabel);
+            // Only PRs a review fix can touch need their comments; PRs have no fingerprint, so this is one call per poll each.
+            var decision = (await gitBucket.PlanPullAsync(config, state, identity, repo, pull, ct)).Decision;
             Handle(decision, $"PR #{pull.Number} \"{pull.Title}\" {pull.Head.Ref} -> {pull.Base.Ref} @ {Text.ShortSha(pull.Head.Sha)}");
         }
     }

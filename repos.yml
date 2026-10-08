@@ -26,8 +26,8 @@ git:                        # author of the commits the runner makes in Workflow
 repos:
   - owner: james
     name: mbhanalytics
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3
-    workflows: [analyze, review, breakdown, implement]    # later: review, breakdown, implement
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit)
+    workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
     models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
     commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
       setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
@@ -40,9 +40,11 @@ repos:
       maxChangedFiles: 15
       maxDiffLines: 800
       maxAnalysisRounds: 5
+      maxReviewFixes: 5     # @ai review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
     implement:
       maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
                             # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
+                            # the review fix (workflow fix) uses the same number of fix rounds
     review:
       scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
       skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
@@ -50,8 +52,8 @@ repos:
 
   - owner: manhhai
     name: mbhanalytics-fe
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3
-    workflows: [analyze, review, breakdown, implement]    # later: review, breakdown, implement
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit)
+    workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
     models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
     commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
       setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
@@ -64,9 +66,11 @@ repos:
       maxChangedFiles: 15
       maxDiffLines: 800
       maxAnalysisRounds: 5
+      maxReviewFixes: 5     # @ai review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
     implement:
       maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
                             # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
+                            # the review fix (workflow fix) uses the same number of fix rounds
     review:
       scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
       skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed

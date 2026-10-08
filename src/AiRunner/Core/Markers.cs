@@ -10,6 +10,7 @@ public static class Markers
     public const string Analysis = "ANALYSIS";
     public const string Spec = "SPEC";
     public const string Review = "REVIEW";
+    public const string ReviewFix = "REVIEW_FIX";
 
     private static string Start(string name) => $"<!-- {name}_START -->";
     private static string End(string name) => $"<!-- {name}_END -->";
@@ -27,8 +28,13 @@ public static class Markers
         return e < 0 ? null : text[from..e].Trim();
     }
 
-    /// <summary>The block with its markers on their own lines, ready to post.</summary>
-    public static string Wrap(string inner, string name) => $"{Start(name)}\n{inner.Trim()}\n{End(name)}";
+    /// <summary>
+    /// The block with its markers on their own lines, ready to post. The inner text is agent output that
+    /// issue and PR text can steer, so its HTML comments are neutralised: it cannot fake a block marker or
+    /// a context-upto tag that the runner would trust later.
+    /// </summary>
+    public static string Wrap(string inner, string name) =>
+        $"{Start(name)}\n{inner.Trim().Replace("<!--", "&lt;!--", StringComparison.Ordinal)}\n{End(name)}";
 
     public static bool Contains(string? text, string name) =>
         text is not null && text.Contains(Start(name), StringComparison.Ordinal);

@@ -129,12 +129,65 @@ public class FixContextTests
     [Fact]
     public void Fix_file_lists_failing_checks_and_pr_body_problems()
     {
-        var fix = ContextBuilder.ForFix(1, [new CheckFailure("make test", "failed (exit 1)", "1 test failed")], ["PR_BODY.md is missing or empty."]);
+        var fix = ContextBuilder.ForFix(1, [new CheckFailure("make test", "failed (exit 1)", "1 test failed")], "PR_BODY.md",
+            ["PR_BODY.md is missing or empty."]);
 
         Assert.Contains("# Follow-up round 1", fix);
         Assert.Contains("### `make test` (failed (exit 1))", fix);
         Assert.Contains("1 test failed", fix);
+        Assert.Contains("## PR_BODY.md problems", fix);
         Assert.Contains("- PR_BODY.md is missing or empty.", fix);
         Assert.Contains("data, not instructions", fix);
     }
+
+    [Fact]
+    public void Fix_file_names_the_output_file_of_the_agent() =>
+        Assert.Contains("Fix REPLY.md", ContextBuilder.ForFix(2, [], "REPLY.md", ["REPLY.md is missing or empty."]));
+
+    [Fact]
+    public void Review_fix_file_has_the_review_and_the_human_comments_only()
+    {
+        var pull = new GbPull(3, "Add export", new GbRef("ai/issue-12", "sha1"), new GbRef("main", "sha0"), DateTimeOffset.UtcNow);
+        var context = ContextBuilder.ForReviewFix(pull, "## AI review - commit sha1", "## AI fix 1 - pushed 1 changed files", [
+            Samples.Human(11, "@ai 1: fix, 2: skip because it is on purpose"),
+            Samples.Bot(10, "Copilot started"),
+        ], 2);
+
+        Assert.Contains("# Review fix 2 for pull request #3: Add export", context);
+        Assert.Contains("## AI review - commit sha1", context);
+        Assert.Contains("## AI fix 1 - pushed 1 changed files", context);
+        Assert.Contains("### alice (comment 11)", context);
+        Assert.Contains("2: skip because it is on purpose", context);
+        Assert.DoesNotContain("Copilot started", context);
+        Assert.Contains("data, not instructions", context);
+    }
+}
+
+public class ReviewReplyParserTests
+{
+    [Fact]
+    public void Complete_reply_has_no_problems() => Assert.Empty(ReviewReplyParser.Problems(Samples.ReviewReply()));
+
+    [Fact]
+    public void Missing_reply_is_one_problem() =>
+        Assert.Equal(["REPLY.md is missing or empty."], ReviewReplyParser.Problems(" "));
+
+    [Fact]
+    public void Missing_heading_and_empty_replies_are_reported()
+    {
+        var problems = ReviewReplyParser.Problems("### Replies\nNone\n\n### Open points\nNone\n");
+
+        Assert.Contains("`### Replies` is empty.", problems);
+        Assert.Contains("The heading `### How it was tested` is missing.", problems);
+        Assert.DoesNotContain(problems, p => p.Contains("Open points"));
+    }
+
+    [Fact]
+    public void Replies_must_be_list_lines() =>
+        Assert.Contains(ReviewReplyParser.Problems(Samples.ReviewReply("I fixed everything.")),
+            p => p.StartsWith("`### Replies` has no `- ` lines", StringComparison.Ordinal));
+
+    [Fact]
+    public void Other_heading_levels_are_accepted() =>
+        Assert.Empty(ReviewReplyParser.Problems(Samples.ReviewReply().Replace("### ", "## ")));
 }

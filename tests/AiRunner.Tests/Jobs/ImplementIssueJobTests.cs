@@ -7,7 +7,7 @@ namespace AiRunner.Tests.Jobs;
 public sealed class ImplementIssueJobTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
-    private ImplementIssueJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.Processes, _kit.State);
+    private ImplementIssueJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Session, _kit.State);
 
     public void Dispose() => _kit.Dispose();
 
@@ -94,7 +94,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Branch_with_foreign_commits_is_refused()
     {
         SimpleIssueWithSpec();
-        _kit.Git.Refs.Add("origin/ai/issue-12");
+        _kit.Git.Refs["origin/ai/issue-12"] = "saved01";
         _kit.Git.CommitsAhead["origin/ai/issue-12"] = 2;
 
         var ex = await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
@@ -157,7 +157,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Branch_with_only_runner_commits_is_continued_not_refused()
     {
         SimpleIssueWithSpec();
-        _kit.Git.Refs.Add("origin/ai/issue-12");
+        _kit.Git.Refs["origin/ai/issue-12"] = "saved01";
         _kit.Git.CommitsAhead["origin/ai/issue-12"] = 1;
         _kit.Git.Authors = [_kit.Config.Git.UserEmail];
 
@@ -177,7 +177,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         _kit.GitBucket.AddIssue(20, SubIssueBody.Title(12, t1), SubIssueBody.Build(12, t1, 2, "Export"), "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
         _kit.GitBucket.AddIssue(21, SubIssueBody.Title(12, t2), SubIssueBody.Build(12, t2, 2, "Export"), "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
         _kit.GitBucket.AddBotComment(12, SubIssueBody.ListMarker([20, 21]));
-        _kit.Git.Refs.Add("origin/feat/issue-12");
+        _kit.Git.Refs["origin/feat/issue-12"] = "saved01";
 
         // previous one not merged yet -> wait
         var waiting = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);

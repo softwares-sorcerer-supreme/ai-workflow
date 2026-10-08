@@ -17,6 +17,8 @@ public interface IGitClient
     Task CheckoutCleanAsync(string dir, string startPoint, string? newBranch, CancellationToken ct);
     Task FetchAsync(string dir, string refspec, CancellationToken ct);
     Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct);
+    /// <summary>The commit sha a ref points to, or null when it does not exist.</summary>
+    Task<string?> ResolveAsync(string dir, string gitRef, CancellationToken ct);
     /// <summary>Number of commits in "to" that are not in "from".</summary>
     Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct);
     /// <summary>Distinct author e-mails of the commits in "to" that are not in "from".</summary>
@@ -68,7 +70,13 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
     public Task FetchAsync(string dir, string refspec, CancellationToken ct) => GitAsync(dir, ct, "fetch", "origin", refspec);
 
     public async Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct) =>
-        (await RunAsync(dir, ct, "rev-parse", "--verify", "--quiet", gitRef + "^{commit}")).Ok;
+        await ResolveAsync(dir, gitRef, ct) is not null;
+
+    public async Task<string?> ResolveAsync(string dir, string gitRef, CancellationToken ct)
+    {
+        var r = await RunAsync(dir, ct, "rev-parse", "--verify", "--quiet", gitRef + "^{commit}");
+        return r.Ok ? r.StdOut.Trim() : null;
+    }
 
     public async Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct) =>
         int.Parse((await GitAsync(dir, ct, "rev-list", "--count", $"{from}..{to}")).Trim());

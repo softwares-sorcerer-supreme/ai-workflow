@@ -55,7 +55,7 @@ public sealed class AnalyzeIssueJob(
         var spec = parsed.Status == AnalysisStatus.Ready ? JobSupport.RequireBlock(output, Markers.Spec, run) : null;
 
         await gitBucket.AddCommentAsync(request.Repo, issue.Number,
-            Markers.Wrap(analysis, Markers.Analysis) + "\n" + BotComments.ContextUptoTag(readUpTo), ct);
+            BotComments.WithUpto(analysis, Markers.Analysis, readUpTo), ct);
         await gitBucket.ApplyLabelsAsync(request.Repo, issue.Number, parsed.LabelsToAdd, parsed.LabelsToRemove, ct);
         if (spec is not null)
             await gitBucket.AddCommentAsync(request.Repo, issue.Number, Markers.Wrap(spec, Markers.Spec), ct);

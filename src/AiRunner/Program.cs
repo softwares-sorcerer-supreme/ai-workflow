@@ -51,6 +51,7 @@ builder.Services.AddSingleton<IStateStore, SqliteStateStore>();
 builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();
+builder.Services.AddSingleton<AgentSession>();
 
 // Jobs: stateless, one per workflow.
 builder.Services.AddSingleton<IJob, AnalyzeIssueJob>();
@@ -58,6 +59,7 @@ builder.Services.AddSingleton<IJob, BreakdownIssueJob>();
 builder.Services.AddSingleton<IJob, ImplementIssueJob>();
 builder.Services.AddSingleton<IJob, ReviewPullRequestJob>();
 builder.Services.AddSingleton<IJob, SequenceSubIssuesJob>();
+builder.Services.AddSingleton<IJob, FixReviewJob>();
 builder.Services.AddSingleton<JobFactory>();
 
 // Hosting.

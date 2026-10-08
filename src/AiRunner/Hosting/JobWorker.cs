@@ -114,9 +114,9 @@ public sealed class JobWorker(
         var where = logFolder is null ? "" : $" (`{Path.Combine(config.Paths.Logs, "jobs", logFolder)}`)";
         var text = $"{job.Info.Description} failed: {message}\n\n" +
                    $"The full log is in the runner's log folder{where}. " +
-                   (job.Info.OnPullRequest
+                   (job.Info.Retry ?? (job.Info.OnPullRequest
                        ? "I will try again on the next commit."
-                       : $"To retry, fix the cause and remove the `{Labels.Failed}` label.");
+                       : $"To retry, fix the cause and remove the `{Labels.Failed}` label."));
         try
         {
             job.OnFailed(request);
