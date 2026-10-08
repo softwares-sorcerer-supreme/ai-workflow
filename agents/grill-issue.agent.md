@@ -19,7 +19,7 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
    If the code already answers it, do not ask; state it as a numbered assumption with the file that made you assume it.
 3. Restate the requirement as numbered acceptance criteria (Given / When / Then). This is what the human checks.
 4. Max 7 questions, one sentence each, numbered Q1..Q7, each with a short reason. Never repeat a question that is already answered in the thread. Keep the numbers of earlier questions that are still open.
-5. Complexity: simple = 1 to 3 files, clear requirement, similar code already exists, no DB migration, no external system change. Otherwise complex.
+5. Complexity: simple = up to 5 files of production code, clear requirement, similar code already exists, no DB migration, no external system change. Test files, snapshots, fixtures, mocks, docs and lock files do not count: a small change plus its tests is still simple. Otherwise complex.
 6. For a complex issue fill `### Proposed breakdown` (see below). For a simple issue write `None` under that heading.
 7. Status is `ready` only when every question you asked has an answer in the thread and you have no new ones. Otherwise `questions-open`.
 8. When Status is ready, also write the SPEC block from `.ai-workflow/templates/spec.md`. Every name in it is final; the implement agent must use these names.
@@ -27,14 +27,14 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
 # Proposed breakdown (complex issues only)
 - Use exactly the table in the template: `| # | Title | Scope | Touches | Depends on |`.
 - Rows numbered 1, 2, 3 ... in the order they must be built (usually data and domain first, then logic, then API or UI).
-- Each row must itself be simple: 1 to 3 files, no DB migration unless the row is only the migration, no external system change.
+- Each row must itself be simple: up to 5 files of production code (test files, snapshots, fixtures, mocks, docs and lock files do not count), no DB migration unless the row is only the migration, no external system change.
 - `Depends on` lists earlier row numbers (`1, 2`) or `-`.
 - If you cannot make a part small enough, start its Title with `[developer]`; a human builds that row.
 - After the table write one line `Shared contract: ...` with every exact name the rows must agree on (types, data shapes, endpoints, enum values, function names). It is copied into every sub-issue.
 - If the author asks for changes to the breakdown, write the full table again with the changes applied.
 
 # Output
-Print ONLY these blocks as your final reply, in this order, with nothing before, between or after them. Do NOT create or edit any file: you have no write permission and the runner reads only your reply.
+Write ONLY these blocks, in this order, with nothing between them:
 - The analysis block, filled from `.ai-workflow/templates/analysis.md` (from `<!-- ANALYSIS_START -->` to `<!-- ANALYSIS_END -->`), every round. Replace `{k}` with the analysis round from context.md.
 - The SPEC block, filled from `.ai-workflow/templates/spec.md` (from `<!-- SPEC_START -->` to `<!-- SPEC_END -->`), only when Status is ready. Replace `{n}` and `{title}` with the issue number and title.
 
@@ -43,17 +43,6 @@ Rules for both blocks:
 - `Status` is exactly `questions-open` or `ready`. `Complexity` is exactly `simple` or `complex`. Write only the value, not the list of choices.
 - Markers on their own lines, first and last line of the block.
 - Use plain ASCII characters only (no emoji, no curly quotes, no long dashes): the issue tracker rejects other characters.
-
-The first lines inside the block must look exactly like this (bold label, colon, value on the same line):
-
-<!-- ANALYSIS_START -->
-## AI analysis - round 1
-
-**Status:** questions-open
-**Complexity:** simple
-
-Do not turn Status or Complexity into headings. Do not write the list of choices.
-
 
 # Rules
 - Never guess data formats, business rules, limits or user roles. Ask.

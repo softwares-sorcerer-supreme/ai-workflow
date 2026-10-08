@@ -58,6 +58,21 @@ public static class Samples
         Export a report as CSV.
         """;
 
+    /// <summary>A PR_BODY.md as the implement agent writes it (templates/pr-body.md); complete with the default criteria.</summary>
+    public static string PrBody(string criteria = "- [x] 1. Report downloads as CSV - ExportTests.Downloads_csv") => $"""
+        ### What changed
+        - Adds CSV export. (`src/Export.cs`)
+
+        ### How it was tested
+        - `make build` and `make test` pass; added ExportTests.
+
+        ### Acceptance criteria
+        {criteria}
+
+        ### Open points
+        - None
+        """;
+
     public static string AgentOutput(string analysis, string? spec = null) =>
         "Thinking... reading files\n" +
         Markers.Wrap(analysis, Markers.Analysis) + "\n" +

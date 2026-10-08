@@ -19,12 +19,16 @@ public interface IGitClient
     Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct);
     /// <summary>Number of commits in "to" that are not in "from".</summary>
     Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct);
+    /// <summary>Distinct author e-mails of the commits in "to" that are not in "from".</summary>
+    Task<IReadOnlyList<string>> AuthorsAsync(string dir, string from, string to, CancellationToken ct);
     /// <summary>git add -A, then the staged changes per file.</summary>
     Task<IReadOnlyList<DiffStat>> StageAllAsync(string dir, CancellationToken ct);
     Task CommitAsync(string dir, string message, CancellationToken ct);
     /// <summary>Push source (a ref or sha) to the branch on origin. Never forced.</summary>
     Task PushAsync(string dir, string source, string branch, CancellationToken ct);
     Task<string> DiffAsync(string dir, string baseRef, string headRef, CancellationToken ct);
+    /// <summary>git add -A, then the diff of everything in the work folder (commits and uncommitted files) against baseRef.</summary>
+    Task<string> StageAndDiffAsync(string dir, string baseRef, CancellationToken ct);
     Task<IReadOnlyList<string>> ChangedFilesAsync(string dir, string baseRef, string headRef, CancellationToken ct);
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string dir);
@@ -69,6 +73,12 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
     public async Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct) =>
         int.Parse((await GitAsync(dir, ct, "rev-list", "--count", $"{from}..{to}")).Trim());
 
+    public async Task<IReadOnlyList<string>> AuthorsAsync(string dir, string from, string to, CancellationToken ct) =>
+        (await GitAsync(dir, ct, "log", "--format=%ae", $"{from}..{to}"))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     public async Task<IReadOnlyList<DiffStat>> StageAllAsync(string dir, CancellationToken ct)
     {
         await GitAsync(dir, ct, "add", "-A");
@@ -85,6 +95,12 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
     public Task<string> DiffAsync(string dir, string baseRef, string headRef, CancellationToken ct) =>
         GitAsync(dir, ct, "diff", $"{baseRef}...{headRef}");
+
+    public async Task<string> StageAndDiffAsync(string dir, string baseRef, CancellationToken ct)
+    {
+        await GitAsync(dir, ct, "add", "-A");
+        return await GitAsync(dir, ct, "diff", "--cached", baseRef);
+    }
 
     public async Task<IReadOnlyList<string>> ChangedFilesAsync(string dir, string baseRef, string headRef, CancellationToken ct) =>
         (await GitAsync(dir, ct, "diff", "--name-only", $"{baseRef}...{headRef}"))
@@ -124,6 +140,7 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
             ("core.hooksPath", Path.Combine(config.ResolvePath(config.Paths.Work), ".no-hooks")), // does not exist
             ("core.fsmonitor", "false"),
             ("core.autocrlf", "false"),
+            ("core.longpaths", "true"),                               // node_modules paths pass 260 chars on Windows
         ];
         var env = new Dictionary<string, string>
         {

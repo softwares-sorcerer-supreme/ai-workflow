@@ -52,6 +52,28 @@ public class GitBucketClientTests
     }
 
     [Fact]
+    public async Task Unreadable_reply_reports_the_response_text()
+    {
+        var (client, _) = Create(_ => "\"not an object\"");
+
+        var ex = await Assert.ThrowsAsync<GitBucketException>(() => client.GetPullAsync("o/r", 1, default));
+
+        Assert.Contains("GbPull", ex.Message);
+        Assert.Contains("not an object", ex.Message);
+    }
+
+    [Fact]
+    public async Task Created_pull_is_read_back_by_number_because_the_create_reply_is_not_trusted()
+    {
+        var (client, handler) = Create(r => r.Method == HttpMethod.Post ? """{"number":8,"merged":"odd"}""" : Pull(8));
+
+        var pull = await client.CreatePullAsync("o/r", "t", "ai/issue-6", "main", "body", default);
+
+        Assert.Equal(8, pull.Number);
+        Assert.Equal(["/api/v3/repos/o/r/pulls", "/api/v3/repos/o/r/pulls/8"], handler.Urls);
+    }
+
+    [Fact]
     public async Task Server_that_ignores_page_does_not_loop()
     {
         var (client, handler) = Create(_ => $"[{Pull(1)},{Pull(2)}]");

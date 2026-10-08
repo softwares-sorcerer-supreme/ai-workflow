@@ -55,7 +55,9 @@ public sealed class JobWorker(
         var sw = Stopwatch.StartNew();
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(job.Info.Timeout);
+        var timeout = job.Info.Timeout;
+        run.Deadline = DateTimeOffset.UtcNow + timeout;
+        cts.CancelAfter(timeout);
         try
         {
             var outcome = await job.RunAsync(request, run, cts.Token);

@@ -121,9 +121,15 @@ public sealed class GitBucketClient(HttpClient http) : IGitBucketClient
         }
     }
 
-    public Task<GbPull> CreatePullAsync(string repo, string title, string head, string baseBranch, string body, CancellationToken ct) =>
-        SendAsync<GbPull>(HttpMethod.Post, $"repos/{repo}/pulls",
+    public async Task<GbPull> CreatePullAsync(string repo, string title, string head, string baseBranch, string body, CancellationToken ct)
+    {
+        // GitBucket's create reply is not readable as GbPull; only the number is trusted, the PR is read back with GET.
+        var created = await SendAsync<JsonElement>(HttpMethod.Post, $"repos/{repo}/pulls",
             new { title = AsciiSanitizer.Clean(title), head, @base = baseBranch, body = WithMarker(body) }, ct);
+        if (!created.TryGetProperty("number", out var number) || !number.TryGetInt32(out var n))
+            throw new GitBucketException(HttpStatusCode.OK, $"POST repos/{repo}/pulls: the reply has no PR number. Reply: {Text.Short(created.GetRawText())}");
+        return await GetPullAsync(repo, n, ct);
+    }
 
     // ---- helpers ----
 
@@ -168,7 +174,16 @@ public sealed class GitBucketClient(HttpClient http) : IGitBucketClient
             throw new GitBucketException(res.StatusCode, $"{method} {url} -> {(int)res.StatusCode}: {Text.Short(text)}");
 
         if (string.IsNullOrWhiteSpace(text)) return default!;
-        return JsonSerializer.Deserialize<T>(text, Json)!;
+        try
+        {
+            return JsonSerializer.Deserialize<T>(text, Json)!;
+        }
+        catch (JsonException ex)
+        {
+            // The raw reply is the only way to see which GitBucket quirk broke the model.
+            throw new GitBucketException(res.StatusCode,
+                $"{method} {url}: cannot read the reply as {typeof(T).Name} ({ex.Message}). Reply: {Text.Short(text)}");
+        }
     }
 }
 

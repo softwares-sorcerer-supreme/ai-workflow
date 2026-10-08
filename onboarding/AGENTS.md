@@ -7,17 +7,19 @@ Delete these comments and the examples you do not need.
 -->
 
 ## Build and test
-The agent may run exactly these commands, and ai-runner runs build and test again after the agent stops.
-They must be the same as `commands.setup`, `commands.build` and `commands.test` for this repo in `repos.yml`.
+The agent runs these before it stops (it may also run the same tools with other arguments, e.g. one test),
+and ai-runner runs build, test and lint again after the agent stops and sends failures back to it.
+They must be the same as `commands.setup`, `commands.build`, `commands.test` and `commands.lint` for this repo in `repos.yml`.
 
 - Setup: `<install dependencies, or delete this line>`
 - Build: `<build command>`
 - Test: `<test command>`
+- Lint: `<lint or format check, or delete this line>`
 
 <!--
 Examples:
   .NET:    Build: `dotnet build MyService.sln`      Test: `dotnet test MyService.sln --no-build`
-  Node:    Setup: `npm ci`  Build: `npm run build`  Test: `npm test`
+  Node:    Setup: `npm ci`  Build: `npm run build`  Test: `npm test`  Lint: `npm run lint`
   Java:    Build: `mvn -q -DskipTests package`      Test: `mvn -q test`
   Gradle:  Build: `./gradlew assemble`              Test: `./gradlew test`
   Python:  Setup: `pip install -r requirements.txt`  Build: `python -m compileall -q src`  Test: `pytest -q`

@@ -201,7 +201,7 @@ public class RunnerConfigTests
         Assert.Null(repo.ModelFor("implement"));
         Assert.Equal(["npm run build", "npm test"], repo.Commands.Verification());
         Assert.True(repo.Review.IsScoped);
-        Assert.Equal(10, repo.Limits.MaxChangedFiles);
+        Assert.Equal(15, repo.Limits.MaxChangedFiles);
         Assert.Equal(90, config.PollIntervalSeconds);
     }
 }

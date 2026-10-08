@@ -13,6 +13,11 @@ public sealed class JobRun(string dir, ILogger log)
 {
     public string Dir { get; } = dir;
 
+    /// <summary>When JobWorker cancels the job (it sets this from the same timeout); jobs use it to avoid starting work they cannot finish.</summary>
+    public DateTimeOffset Deadline { get; set; } = DateTimeOffset.MaxValue;
+
+    public TimeSpan TimeLeft => Deadline - DateTimeOffset.UtcNow;
+
     public void Save(string fileName, string content) =>
         File.WriteAllText(Path.Combine(EnsureDir(), fileName), content);
 

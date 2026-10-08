@@ -59,6 +59,13 @@ Key mechanics that span several files:
 - **No database dependency for correctness.** Bot comments carry a hidden `<!-- ai-runner -->` marker plus a visible `**[ai-runner]**` line;
   analysis/SPEC/review comments keep their `<!-- X_START -->` / `<!-- X_END -->` markers; the parent's sub-issue list is
   `<!-- SUBISSUES: ... -->`. The runner finds its own comments by these, so deleting `ai-runner.db` is safe — keep it that way.
+- **Implement = agent stages + runner safety net.** `agents/implement-issue.agent.md` makes the agent verify (build/test/lint),
+  review and simplify via the read-only `code-reviewer` subagent, and write PR_BODY.md before it stops. `ImplementIssueJob` then re-runs
+  the checks and `PrBodyParser`; `ImplementGate` decides on a fix round (`fix.md` from `ContextBuilder.ForFix` + `diff.patch`, max
+  `implement.maxFixRounds`, each a premium request; at most 1 when only PR_BODY.md is wrong; none when job time is short or a fix
+  round's Copilot call failed, which still opens the PR; job time comes from `JobRun.TimeLeft`, set by `JobWorker`). A fix round
+  that changed no code keeps the previous checks. Only a round-1 Copilot failure fails the job. Logs per round:
+  `round-N-copilot-*`, `round-N-transcript.md` (`--share`), `round-N-check-M.txt`, `fix-N.md` (input of round N).
 - **Agent output contract.** `templates/` (ASCII) define what agents write; `Core` parsers validate it strictly (status/complexity/verdict/severity
   vocabularies, the 5-column breakdown table `| # | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
@@ -71,7 +78,11 @@ Key mechanics that span several files:
 - `ProcessRunner` strips token env vars from every child process. git gets auth via `GIT_CONFIG_COUNT/KEY_i/VALUE_i` env vars
   (http.extraHeader, hooks and fsmonitor off) — never put tokens on a command line or in `.git/config`.
   `ImplementIssueJob` discards the clone and pushes nothing if `.git/config` changed during the run.
-- Copilot permissions: analyze/review deny `write` and `shell`; implement allows `write` plus only the repo's configured commands, never git.
+- Copilot permissions: analyze/review deny `write` and `shell`; implement allows `write` plus the *tools* of the repo's configured
+  setup/build/test/lint commands with any arguments (`Core/ShellPermissions`: `dotnet build X.sln` -> `shell(dotnet:*)`, launchers keep
+  the exact command), never git; `write(.ai-workflow)` is denied (whether it covers files inside is unconfirmed). In `-p` mode nobody
+  approves a command, so a narrow pattern silently blocks the agent. This is a guard rail, not a boundary: `npm exec`, a Makefile
+  target or agent-edited build files can run anything; the real protections are no tokens in the env and the `.git/config` guard.
 
 ## Conventions
 

@@ -26,7 +26,7 @@ public sealed class ImplementGuardRailTests : IDisposable
         await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
 
         Assert.Contains("npm ci", _kit.Processes.Commands[0]);
-        Assert.Contains("shell(npm ci)", _kit.Copilot.Requests.Single().AllowTools);
+        Assert.Contains("shell(npm:*)", _kit.Copilot.Requests.Single().AllowTools);
     }
 
     [Fact]
@@ -50,6 +50,20 @@ public sealed class ImplementGuardRailTests : IDisposable
 
         Assert.Contains(".git/config", ex.Message);
         Assert.Equal([JobTestKit.Repo], _kit.Workspace.Discarded);
+        Assert.Empty(_kit.Git.Commits);
+        Assert.Empty(_kit.Git.Pushes);
+    }
+
+    [Fact]
+    public async Task Changed_git_config_after_a_failed_copilot_run_saves_nothing()
+    {
+        _kit.Copilot.ExitCode = 2;
+        _kit.Git.Fingerprints.Enqueue("before");
+        _kit.Git.Fingerprints.Enqueue("after-agent-wrote-it");
+
+        var ex = await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
+
+        Assert.Contains(".git/config", ex.Message);
         Assert.Empty(_kit.Git.Commits);
         Assert.Empty(_kit.Git.Pushes);
     }

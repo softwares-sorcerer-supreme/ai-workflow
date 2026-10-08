@@ -48,12 +48,16 @@ public static class JobSupport
     public static string? LatestBlock(IEnumerable<GbComment> comments, string marker) =>
         BotComments.Latest(comments, marker) is { } c ? Markers.Extract(c.Body!, marker) : null;
 
-    /// <summary>Runs Copilot and fails the job with a clear message when it did not finish well.</summary>
-    public static async Task<string> RunCopilotAsync(this ICopilotRunner copilot, CopilotRequest request, JobRun run, CancellationToken ct)
+    /// <summary>
+    /// Runs Copilot and fails the job with a clear message when it did not finish well. The output is
+    /// saved as {logName}-stdout.txt and {logName}-stderr.txt (a job with several runs names each one).
+    /// </summary>
+    public static async Task<string> RunCopilotAsync(this ICopilotRunner copilot, CopilotRequest request, JobRun run,
+        CancellationToken ct, string logName = "copilot")
     {
         var result = await copilot.RunAsync(request, ct);
-        run.Save("copilot-stdout.txt", result.StdOut);
-        run.Save("copilot-stderr.txt", result.StdErr);
+        run.Save($"{logName}-stdout.txt", result.StdOut);
+        run.Save($"{logName}-stderr.txt", result.StdErr);
         run.Info($"copilot exit {result.ExitCode} after {result.Duration.TotalSeconds:F0}s");
 
         if (result.TimedOut)

@@ -62,9 +62,25 @@ public sealed class GitWorkspaceTests : IDisposable
         var again = await _workspace.PrepareAsync("o/r", "origin/main", null, [], default);
         Assert.True(await _git.RefExistsAsync(again, "origin/ai/issue-1", default));
         Assert.Equal(1, await _git.CountCommitsAsync(again, "origin/main", "origin/ai/issue-1", default));
+        Assert.Equal([_config.Git.UserEmail], await _git.AuthorsAsync(again, "origin/main", "origin/ai/issue-1", default));
         Assert.Equal(["app.txt", "new.txt"], (await _git.ChangedFilesAsync(again, "origin/main", "origin/ai/issue-1", default)).Order());
         Assert.Contains("+more", await _git.DiffAsync(again, "origin/main", "origin/ai/issue-1", default));
         Assert.False(File.Exists(Path.Combine(again, "plan.md")));   // cleaned
+    }
+
+    [Fact]
+    public async Task Working_diff_shows_uncommitted_changes_but_not_runner_files()
+    {
+        var dir = await _workspace.PrepareAsync("o/r", "origin/main", "ai/issue-2", [], default);
+        File.WriteAllText(Path.Combine(dir, "app.txt"), "v2\n");
+        File.WriteAllText(Path.Combine(dir, "fix.md"), "runner file");
+        File.WriteAllText(Path.Combine(dir, "diff.patch"), "runner file");
+
+        var diff = await _git.StageAndDiffAsync(dir, "origin/main", default);
+
+        Assert.Contains("+v2", diff);
+        Assert.DoesNotContain("fix.md", diff);
+        Assert.DoesNotContain("diff.patch", diff);
     }
 
     [Fact]

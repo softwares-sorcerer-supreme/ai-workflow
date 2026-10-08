@@ -11,15 +11,19 @@ public sealed class FakeCopilot : ICopilotRunner
     public string StdOut { get; set; } = "";
     public int ExitCode { get; set; }
     public string StdErr { get; set; } = "";
+    public bool TimedOut { get; set; }
     public Dictionary<string, string> FilesToWrite { get; } = [];
     public List<CopilotRequest> Requests { get; } = [];
+    /// <summary>Called after FilesToWrite, with the 1-based number of the call, e.g. to write different files per round.</summary>
+    public Action<CopilotRequest, int>? OnRun { get; set; }
 
     public Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken ct)
     {
         Requests.Add(request);
         foreach (var (name, content) in FilesToWrite)
             File.WriteAllText(Path.Combine(request.WorkDir, name), content);
-        return Task.FromResult(new ProcessResult(ExitCode, StdOut, StdErr, TimeSpan.FromSeconds(1), false));
+        OnRun?.Invoke(request, Requests.Count);
+        return Task.FromResult(new ProcessResult(ExitCode, StdOut, StdErr, TimeSpan.FromSeconds(1), TimedOut));
     }
 }
 
@@ -28,6 +32,8 @@ public sealed class FakeGit : IGitClient
 {
     public HashSet<string> Refs { get; } = ["origin/main"];
     public Dictionary<string, int> CommitsAhead { get; } = [];
+    /// <summary>Authors of the commits on a branch that is ahead of its base. Foreign by default.</summary>
+    public List<string> Authors { get; set; } = ["other@example.com"];
     public List<DiffStat> Staged { get; set; } = [new("src/a.txt", 10, 2)];
     public List<string> ChangedFiles { get; set; } = ["src/a.txt"];
     public List<(string Source, string Branch)> Pushes { get; } = [];
@@ -39,6 +45,8 @@ public sealed class FakeGit : IGitClient
     public Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.Contains(gitRef));
     public Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct) =>
         Task.FromResult(CommitsAhead.GetValueOrDefault(to));
+    public Task<IReadOnlyList<string>> AuthorsAsync(string dir, string from, string to, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>(Authors);
     public Task<IReadOnlyList<DiffStat>> StageAllAsync(string dir, CancellationToken ct) => Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
     public Task CommitAsync(string dir, string message, CancellationToken ct) { Commits.Add(message); return Task.CompletedTask; }
     public Task PushAsync(string dir, string source, string branch, CancellationToken ct)
@@ -48,6 +56,14 @@ public sealed class FakeGit : IGitClient
         return Task.CompletedTask;
     }
     public Task<string> DiffAsync(string dir, string baseRef, string headRef, CancellationToken ct) => Task.FromResult("diff --git a/x b/x\n");
+    public List<string> StageAndDiffs { get; } = [];
+    /// <summary>Null: every call returns a different diff (the agent changed code). Set it to model a round that changed nothing.</summary>
+    public string? FixedDiff { get; set; }
+    public Task<string> StageAndDiffAsync(string dir, string baseRef, CancellationToken ct)
+    {
+        StageAndDiffs.Add(baseRef);
+        return Task.FromResult(FixedDiff ?? $"diff --git a/src/a.txt b/src/a.txt\n+change {StageAndDiffs.Count}\n");
+    }
     public Task<IReadOnlyList<string>> ChangedFilesAsync(string dir, string baseRef, string headRef, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>(ChangedFiles);
 
@@ -76,17 +92,24 @@ public sealed class FakeWorkspace : IWorkspace, IDisposable
     public void Dispose() => FileSystem.DeleteDirectory(Dir);
 }
 
-/// <summary>Build/test commands: exit code per command, 0 when not listed.</summary>
+/// <summary>
+/// Build/test commands: exit code per command, 0 when not listed. ExitCodeSequence gives one code per
+/// call instead (the last one repeats), e.g. tests that fail once and pass after a fix round.
+/// </summary>
 public sealed class FakeProcesses : IProcessRunner
 {
     public Dictionary<string, int> ExitCodes { get; } = [];
+    public Dictionary<string, Queue<int>> ExitCodeSequence { get; } = [];
     public List<string> Commands { get; } = [];
 
     public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
     {
         var command = spec.RawArguments ?? string.Join(" ", spec.Args);
         Commands.Add(command);
-        var code = ExitCodes.FirstOrDefault(kv => command.Contains(kv.Key)).Value;
+        var sequence = ExitCodeSequence.FirstOrDefault(kv => command.Contains(kv.Key)).Value;
+        var code = sequence is { Count: > 0 }
+            ? sequence.Count > 1 ? sequence.Dequeue() : sequence.Peek()
+            : ExitCodes.FirstOrDefault(kv => command.Contains(kv.Key)).Value;
         return Task.FromResult(new ProcessResult(code, $"ran {command}", code == 0 ? "" : "1 test failed", TimeSpan.FromSeconds(1), false));
     }
 }
@@ -117,6 +140,7 @@ public sealed class JobTestKit : IDisposable
         };
         configure?.Invoke(repo);
         Config = new RunnerConfig { Repos = [repo] };
+        Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
         State = new SqliteStateStore(Path.Combine(_tmp, "state.db"));
         var runDir = Path.Combine(_tmp, "run");
         Directory.CreateDirectory(runDir);

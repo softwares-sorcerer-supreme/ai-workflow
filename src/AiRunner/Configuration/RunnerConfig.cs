@@ -99,6 +99,7 @@ public sealed class RepoConfig
     public CommandsConfig Commands { get; set; } = new();
     public LimitsConfig Limits { get; set; } = new();
     public ReviewConfig Review { get; set; } = new();
+    public ImplementConfig Implement { get; set; } = new();
     public bool AutoStartFirstSubIssue { get; set; }
 
     public string FullName => $"{Owner}/{Name}";
@@ -113,9 +114,10 @@ public sealed class RepoConfig
 }
 
 /// <summary>
-/// Build and test commands of the product repo, in any language ("npm test", "mvn -q verify",
-/// "dotnet test X.sln"). Copilot may run exactly these; the runner runs them again after
-/// the agent stops to decide whether the PR is WIP. Empty = not checked.
+/// Build, test and lint commands of the product repo, in any language ("npm test", "mvn -q verify",
+/// "dotnet test X.sln"). Copilot may run the tools of these commands with any arguments; the runner
+/// runs them again after the agent stops, sends failures back for a fix round, and marks the PR WIP
+/// when they still fail. Empty = not checked.
 /// </summary>
 public sealed class CommandsConfig
 {
@@ -127,14 +129,16 @@ public sealed class CommandsConfig
     public string? Setup { get; set; }
     public string? Build { get; set; }
     public string? Test { get; set; }
+    /// <summary>Linter or format check ("npm run lint", "dotnet format --verify-no-changes"). Optional.</summary>
+    public string? Lint { get; set; }
     /// <summary>Extra Copilot shell permission patterns, e.g. "npm:*" or "./gradlew:*".</summary>
     public List<string> AllowShell { get; set; } = [];
 
-    /// <summary>Every command the agent may run: setup, build, test.</summary>
-    public IEnumerable<string> AllowedForAgent() => NonEmpty(Setup, Build, Test);
+    /// <summary>Every command whose tool the agent may run: setup, build, test, lint.</summary>
+    public IEnumerable<string> AllowedForAgent() => NonEmpty(Setup, Build, Test, Lint);
 
-    /// <summary>Build and test, run by the runner after the agent stops.</summary>
-    public IEnumerable<string> Verification() => NonEmpty(Build, Test);
+    /// <summary>Build, test and lint, run by the runner after the agent stops.</summary>
+    public IEnumerable<string> Verification() => NonEmpty(Build, Test, Lint);
 
     private static IEnumerable<string> NonEmpty(params string?[] commands) =>
         commands.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!.Trim());
@@ -142,12 +146,22 @@ public sealed class CommandsConfig
 
 public sealed class LimitsConfig
 {
-    public int MaxChangedFiles { get; set; } = 10;
+    public int MaxChangedFiles { get; set; } = 15;
     public int MaxDiffLines { get; set; } = 800;
     public int MaxAnalysisRounds { get; set; } = 5;
 
     /// <summary>Still "simple"? Above the limits Workflow 2 opens no PR.</summary>
     public bool Allows(int changedFiles, int changedLines) => changedFiles <= MaxChangedFiles && changedLines <= MaxDiffLines;
+}
+
+/// <summary>Workflow 2 settings beyond the commands and the size limits.</summary>
+public sealed class ImplementConfig
+{
+    /// <summary>
+    /// Extra Copilot runs the runner may start when its own checks fail or PR_BODY.md is incomplete
+    /// after the agent stopped. Each one costs a premium request. 0 = never; the PR is then WIP at once.
+    /// </summary>
+    public int MaxFixRounds { get; set; } = 2;
 }
 
 public sealed class ReviewConfig

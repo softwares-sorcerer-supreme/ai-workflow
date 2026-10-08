@@ -30,6 +30,12 @@ Check these in order. Report only real problems in the diff, with a concrete fix
 - The change is in the right layer / folder (see the folder map in AGENTS.md).
 - No copy-paste of logic that already exists; no dead code; no commented-out code.
 
+## Simplicity (severity: style; the code-reviewer subagent calls it simplify)
+- An existing helper, base class or library call already does this: reuse it.
+- An abstraction, option, flag or layer that the change does not need.
+- Code that can be clearly shorter without losing clarity (nested ifs, manual loops a built-in covers).
+- Unrelated reformatting or renaming that makes the diff bigger.
+
 ## Team rules
 Add your own rules here, for example:
 - "All new endpoints need an integration test."

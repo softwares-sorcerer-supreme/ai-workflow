@@ -9,7 +9,7 @@ copilot:
   command: copilot          # if Windows says "file not found", put the full path from: Get-Command copilot
   analyzeTimeoutMinutes: 15
   reviewTimeoutMinutes: 15
-  implementTimeoutMinutes: 30
+  implementTimeoutMinutes: 45  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
   extraArgs: [--disable-builtin-mcps]   # the agent gets no GitHub MCP server: it works only on the local files
 
 # Relative to this file.
@@ -27,17 +27,46 @@ repos:
   - owner: james
     name: mbhanalytics
     # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3
-    workflows: [analyze]    # later: review, breakdown, implement
+    workflows: [analyze, review, breakdown, implement]    # later: review, breakdown, implement
     models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
     commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
       setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
       build: ""             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
       test: ""              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
+      lint: ""              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
+                            # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
       allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
     limits:
-      maxChangedFiles: 10
+      maxChangedFiles: 15
       maxDiffLines: 800
       maxAnalysisRounds: 5
+    implement:
+      maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
+                            # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
+    review:
+      scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
+      skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
+    autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue
+
+  - owner: manhhai
+    name: mbhanalytics-fe
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3
+    workflows: [analyze, review, breakdown, implement]    # later: review, breakdown, implement
+    models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
+    commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
+      setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
+      build: ""             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
+      test: ""              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
+      lint: ""              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
+                            # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
+      allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
+    limits:
+      maxChangedFiles: 15
+      maxDiffLines: 800
+      maxAnalysisRounds: 5
+    implement:
+      maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
+                            # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
     review:
       scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
       skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed

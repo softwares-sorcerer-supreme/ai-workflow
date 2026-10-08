@@ -7,6 +7,8 @@ public sealed record CopilotRequest(string WorkDir, string Prompt, string? Agent
 {
     public IReadOnlyList<string> AllowTools { get; init; } = [];
     public IReadOnlyList<string> DenyTools { get; init; } = [];
+    /// <summary>When set, the whole session (tool calls, denied commands, subagents) is exported there as Markdown; "-s" stdout only has the final answer.</summary>
+    public string? TranscriptFile { get; init; }
 }
 
 public interface ICopilotRunner
@@ -28,6 +30,7 @@ public sealed class CopilotRunner(RunnerConfig config, IProcessRunner processes,
         if (request.Model is not null) args.AddRange(["--model", request.Model]);
         args.AddRange(request.AllowTools.Select(t => $"--allow-tool={t}"));
         args.AddRange(request.DenyTools.Select(t => $"--deny-tool={t}"));
+        if (request.TranscriptFile is not null) args.AddRange(["--share", request.TranscriptFile]);
         args.AddRange(config.Copilot.ExtraArgs);
 
         log.LogInformation("copilot --agent {Agent} --model {Model} in {Dir}",

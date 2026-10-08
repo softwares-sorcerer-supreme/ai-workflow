@@ -8,7 +8,7 @@ See the design document for the full picture.
 | --- | --- | --- |
 | 1 Analysis | new issue with label `ai`, or a comment with `@ai` | Copilot (read-only) writes questions, assumptions, plan, complexity; when ready also the SPEC |
 | 1b Breakdown | human adds `ai-breakdown` on an `ai:ready` + `ai:complex` issue | creates `feat/issue-{n}` and one sub-issue per sub-task; starts the next sub-issue when one is merged; opens the final PR |
-| 2 Implement | human adds `ai-implement` on an `ai:ready` + `ai:simple` issue or sub-issue | Copilot writes code on `ai/issue-{n}`; the runner checks build/test, commits, pushes, opens the PR |
+| 2 Implement | human adds `ai-implement` on an `ai:ready` + `ai:simple` issue or sub-issue | Copilot writes code on `ai/issue-{n}` and goes through its stages itself (verify with build/test/lint, review and simplify with the `code-reviewer` subagent, PR_BODY.md); the runner re-checks build/test/lint and PR_BODY.md, sends problems back for up to `implement.maxFixRounds` fix rounds, then commits, pushes, opens the PR (WIP if checks still fail); work from a failed or too-big run is still pushed to the branch (no PR) and a retry continues from it |
 | 3 PR review | new head commit on a PR labelled `ai` or opened by the runner (`review.scope`) | Copilot (read-only) writes one review comment, updated in place |
 | 4 GitHub fallback | `needs-cloud-agent` | **not built yet** - the label is only respected (the runner skips the issue) |
 
@@ -100,21 +100,29 @@ Shared files:
 
 | Folder | Used how |
 | --- | --- |
-| `agents/` | `grill-issue`, `implement-issue`, `pr-review`; copied to `~/.copilot/agents/` |
-| `skills/` | `grill-me`, `review-checklist`; copied to `~/.copilot/skills/` |
-| `templates/` | analysis (F), SPEC (G), review (H); copied into each work folder as `.ai-workflow/templates/`, never committed |
+| `agents/` | `grill-issue`, `implement-issue`, `code-reviewer` (read-only subagent of implement-issue), `pr-review`; copied to `~/.copilot/agents/` |
+| `skills/` | `grill-me`, `implement-checklist`, `review-checklist`; copied to `~/.copilot/skills/` |
+| `templates/` | analysis (F), SPEC (G), review (H), PR_BODY.md of the implement agent; copied into each work folder as `.ai-workflow/templates/`, never committed |
 | `onboarding/AGENTS.md` | starting point for a product repo |
 
 Security limits (what the runner does and does not protect):
 
 - Copilot runs without GitBucket/GitHub tokens in its environment and without the GitHub MCP server.
-  Analysis and review deny `write` and `shell`; implement allows `write` and only the configured commands, never git.
+  Analysis and review deny `write` and `shell`; implement allows `write` and the tools of the configured setup/build/test/lint
+  commands with any arguments (`dotnet build X.sln` -> `shell(dotnet:*)`; shells like `powershell` keep the exact command), never git.
+  This is a guard rail, not a boundary: a tool like `npm` or `make` can still run other programs (`npm exec`, a Makefile target).
+  `write(.ai-workflow)` is denied as well; whether Copilot applies that to the files inside is not confirmed, so the runner
+  also re-copies the folder on every run and never commits it.
 - Every child process (Copilot, git, setup/build/test) runs without the token variables. git gets the token
   through `GIT_CONFIG_*` variables (not the command line, not `.git/config`), with hooks and fsmonitor off.
   If `.git/config` changed during an implement run, the clone is deleted and nothing is pushed.
-- **Setup/build/test run code that the agent wrote, with your user rights.** That code can read anything you can,
+- **Setup/build/test/lint run code that the agent wrote, with your user rights.** That code can read anything you can,
   including the user-secrets file. The runner limits the damage (no tokens in the environment, a human reviews
   every PR) but it is not a sandbox. Do not run the implement workflow on a machine with production access.
+- **Cost and time of fix rounds.** `implement.maxFixRounds` (default 2) adds up to that many Copilot runs per implement job
+  (1 premium request each) and raises the job timeout to `implementTimeoutMinutes * (2 + 2 * maxFixRounds) + 10` minutes.
+  When only PR_BODY.md is wrong, at most one fix round runs. A fix round is not started when too little job time is left,
+  and a failed fix round still opens the PR from what exists. Set it to 0 to keep the old behaviour (one run, WIP PR when red).
 - Bot comments are recognised by a hidden marker. Since the runner posts with your account, a human who pastes a
   bot comment (with the marker) is treated like the bot. Every bot comment starts with a visible `**[ai-runner]**`.
 
