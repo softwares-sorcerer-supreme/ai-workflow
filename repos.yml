@@ -33,7 +33,7 @@ git:                        # author of the commits the runner makes in Workflow
   userEmail: ai-runner@localhost
 
 repos:
-  - owner: james
+  - owner: manhhai
     name: mbhanalytics
     # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit when build/test pass; needs commands.build or commands.test below)
     workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement

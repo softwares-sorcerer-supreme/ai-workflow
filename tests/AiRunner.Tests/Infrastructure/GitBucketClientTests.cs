@@ -73,6 +73,53 @@ public class GitBucketClientTests
     }
 
     [Fact]
+    public async Task Created_pull_with_string_reply_is_found_by_head_and_base()
+    {
+        var (client, handler) = Create(request =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                return "\"created\"";
+            }
+
+            return Page(request) == 1
+                ? """[{"number":7,"head":{"ref":"h"},"base":{"ref":"other"}},{"number":8,"head":{"ref":"h"},"base":{"ref":"main"}}]"""
+                : "[]";
+        });
+        var newPull = new NewPull("t", "h", "main", "body");
+
+        var pull = await client.CreatePullAsync("o/r", newPull, default);
+
+        Assert.Equal(8, pull.Number);
+        Assert.Equal(3, handler.Urls.Count);
+        Assert.Single(handler.Bodies, body => body.Length > 0);
+        Assert.Contains("state=open", handler.Urls[1]);
+    }
+
+    [Theory]
+    [InlineData("\"not an object\"")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("{\"number\":\"8\"}")]
+    [InlineData("{\"number\":0}")]
+    [InlineData("")]
+    public async Task Create_pull_without_number_or_matching_pull_reports_the_response(string reply)
+    {
+        var (client, handler) = Create(request => request.Method == HttpMethod.Post ? reply : "[]");
+        var newPull = new NewPull("t", "h", "main", "body");
+
+        var exception = await Assert.ThrowsAsync<GitBucketException>(
+            () => client.CreatePullAsync("o/r", newPull, default));
+
+        Assert.Contains("POST repos/o/r/pulls", exception.Message);
+        Assert.Contains("Reply:", exception.Message);
+        Assert.Contains(reply.Length == 0 ? "(empty response)" : reply, exception.Message);
+        Assert.Equal(2, handler.Urls.Count);
+        Assert.Single(handler.Bodies, body => body.Length > 0);
+    }
+
+    [Fact]
     public async Task Server_that_ignores_page_does_not_loop()
     {
         var (client, handler) = Create(_ => $"[{Pull(1)},{Pull(2)}]");

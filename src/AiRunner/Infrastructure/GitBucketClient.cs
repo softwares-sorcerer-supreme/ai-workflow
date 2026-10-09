@@ -257,15 +257,27 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             },
             cancellationToken);
 
-        if (!created.TryGetProperty("number", out var numberElement) ||
-            !numberElement.TryGetInt32(out var pullNumber))
+        if (created.ValueKind == JsonValueKind.Object &&
+            created.TryGetProperty("number", out var numberElement) &&
+            numberElement.ValueKind == JsonValueKind.Number &&
+            numberElement.TryGetInt32(out var pullNumber) && pullNumber > 0)
         {
-            throw new GitBucketException(
-                HttpStatusCode.OK,
-                $"POST repos/{repo}/pulls: the reply has no PR number. Reply: {Text.Short(created.GetRawText())}");
+            return await GetPullAsync(repo, pullNumber, cancellationToken);
         }
 
-        return await GetPullAsync(repo, pullNumber, cancellationToken);
+        var openPulls = await ListPullsAsync(repo, "open", cancellationToken);
+        var matchingPull = openPulls.Find(pull.Head, pull.BaseBranch);
+        if (matchingPull is not null)
+        {
+            return matchingPull;
+        }
+
+        var reply = created.ValueKind == JsonValueKind.Undefined ? "(empty response)" : created.GetRawText();
+        var shortReply = Text.Short(reply);
+        throw new GitBucketException(
+            HttpStatusCode.OK,
+            $"POST repos/{repo}/pulls: the reply has no usable PR number and no open PR matches " +
+            $"'{pull.Head}' into '{pull.BaseBranch}'. Reply: {shortReply}");
     }
 
     /// <summary>
