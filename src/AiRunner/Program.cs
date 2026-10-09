@@ -10,11 +10,13 @@ using AiRunner.Jobs;
 //   --dry-run       print what would be queued; run nothing (with --once: a single poll)
 //   --setup-labels  create the runner's labels in every repo of repos.yml
 //   --copilot-test  start copilot as a child process and show its output
-var once         = args.Contains("--once");
-var dryRun       = args.Contains("--dry-run");
-var copilotTest  = args.Contains("--copilot-test");
-var setupLabels  = args.Contains("--setup-labels");
-var configPath   = GetArg(args, "--config") ?? FindConfig();
+//   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
+var runOnce = args.Contains("--once");
+var dryRun = args.Contains("--dry-run");
+var copilotTest = args.Contains("--copilot-test");
+var setupLabels = args.Contains("--setup-labels");
+var attachmentTestUrl = GetArg(args, "--attachment-test");
+var configPath = GetArg(args, "--config") ?? FindConfig();
 
 var config = RunnerConfig.Load(configPath);
 
@@ -22,27 +24,40 @@ var config = RunnerConfig.Load(configPath);
 var builder = Host.CreateApplicationBuilder();
 builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.Logging.ClearProviders();
-builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; });
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.SingleLine = true;
+    options.TimestampFormat = "HH:mm:ss ";
+});
 
 var token = builder.Configuration["GitBucket:Token"]
-            ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
-            ?? (copilotTest ? "" : throw new InvalidOperationException(
-                "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
+    ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
+    ?? (copilotTest ? "" : throw new InvalidOperationException(
+        "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
 var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket:GitPassword"] ?? token };
 
 // Configuration and Infrastructure: one instance each, every side effect behind an interface.
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(identity);
-builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(new HttpClient
-{
-    BaseAddress = new Uri(config.GitBucket.BaseUrl.TrimEnd('/') + "/api/v3/"),
-    Timeout = TimeSpan.FromSeconds(30),
-    DefaultRequestHeaders =
+
+// Attachments are web routes, not /api/v3: a second client that never follows redirects (a redirect to the
+// login page is reported, and the token cannot be sent on to another host).
+builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(
+    new HttpClient
     {
-        Authorization = new AuthenticationHeaderValue("token", token),
-        Accept = { new MediaTypeWithQualityHeaderValue("application/json") },
+        BaseAddress = new Uri(config.GitBucket.BaseUrl.TrimEnd('/') + "/api/v3/"),
+        Timeout = TimeSpan.FromSeconds(30),
+        DefaultRequestHeaders =
+        {
+            Authorization = new AuthenticationHeaderValue("token", token),
+            Accept = { new MediaTypeWithQualityHeaderValue("application/json") },
+        },
     },
-}));
+    new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
+    {
+        Timeout = TimeSpan.FromMinutes(2),
+        DefaultRequestHeaders = { Authorization = new AuthenticationHeaderValue("token", token) },
+    }));
 builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
 builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
 builder.Services.AddSingleton<IGitClient, GitClient>();
@@ -52,6 +67,7 @@ builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();
 builder.Services.AddSingleton<AgentSession>();
+builder.Services.AddSingleton<AttachmentFetcher>();
 
 // Jobs: stateless, one per workflow.
 builder.Services.AddSingleton<IJob, AnalyzeIssueJob>();
@@ -61,6 +77,7 @@ builder.Services.AddSingleton<IJob, ReviewPullRequestJob>();
 builder.Services.AddSingleton<IJob, SequenceSubIssuesJob>();
 builder.Services.AddSingleton<IJob, FixReviewJob>();
 builder.Services.AddSingleton<JobFactory>();
+builder.Services.AddSingleton<JobLoader>();
 
 // Hosting.
 builder.Services.AddSingleton<JobQueue>();
@@ -68,63 +85,96 @@ builder.Services.AddSingleton<Poller>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddSingleton<LabelSetup>();
 builder.Services.AddSingleton<CopilotSelfTest>();
-var loop = !once && !copilotTest && !setupLabels;
-if (loop)
+builder.Services.AddSingleton<AttachmentSelfTest>();
+
+var isPollingLoop = !runOnce && !copilotTest && !setupLabels && attachmentTestUrl is null;
+if (isPollingLoop)
 {
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<Poller>());
-    if (!dryRun) builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+    builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<Poller>());
+
+    if (!dryRun)
+    {
+        builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<JobWorker>());
+    }
 }
 
 using var host = builder.Build();
 var services = host.Services;
-var ct = CancellationToken.None;
+var cancellationToken = CancellationToken.None;
 
 if (copilotTest)
 {
-    await services.GetRequiredService<CopilotSelfTest>().RunAsync(ct);
+    await services.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
+    return;
+}
+
+if (attachmentTestUrl is not null)
+{
+    await services.GetRequiredService<AttachmentSelfTest>().RunAsync(attachmentTestUrl, cancellationToken);
     return;
 }
 
 // Who are we on GitBucket? Needed for the scope guard and for git over HTTP.
-identity.Login = (await services.GetRequiredService<IGitBucketClient>().GetCurrentUserAsync(ct)).Login;
-var log = services.GetRequiredService<ILogger<Program>>();
-log.LogInformation("ai-runner as {Login} on {Url}, {Repos} repo(s), config {Config}",
-    identity.Login, config.GitBucket.BaseUrl, config.Repos.Count, Path.GetFullPath(configPath));
+var currentUser = await services.GetRequiredService<IGitBucketClient>().GetCurrentUserAsync(cancellationToken);
+identity.Login = currentUser.Login;
+
+var logger = services.GetRequiredService<ILogger<Program>>();
+var fullConfigPath = Path.GetFullPath(configPath);
+logger.LogInformation(
+    "ai-runner as {Login} on {Url}, {Repos} repo(s), config {Config}",
+    identity.Login,
+    config.GitBucket.BaseUrl,
+    config.Repos.Count,
+    fullConfigPath);
 
 if (setupLabels)
 {
-    await services.GetRequiredService<LabelSetup>().RunAsync(ct);
+    await services.GetRequiredService<LabelSetup>().RunAsync(cancellationToken);
     return;
 }
 
 services.GetRequiredService<Poller>().DryRun = dryRun;
+
 if (!dryRun)
 {
     services.GetRequiredService<AgentInstaller>().Install();
     services.GetRequiredService<JobLog>().Cleanup();
 }
 
-if (once)
+if (runOnce)
 {
-    await services.GetRequiredService<Poller>().PollOnceAsync(ct);
-    if (!dryRun) await services.GetRequiredService<JobWorker>().DrainAsync(ct);
+    await services.GetRequiredService<Poller>().PollOnceAsync(cancellationToken);
+
+    if (!dryRun)
+    {
+        await services.GetRequiredService<JobWorker>().DrainAsync(cancellationToken);
+    }
+
     return;
 }
+
 await host.RunAsync();
 
-static string? GetArg(string[] a, string name)
+static string? GetArg(string[] arguments, string name)
 {
-    var i = Array.IndexOf(a, name);
-    return i >= 0 && i + 1 < a.Length ? a[i + 1] : null;
+    var argumentIndex = Array.IndexOf(arguments, name);
+    return argumentIndex >= 0 && argumentIndex + 1 < arguments.Length ? arguments[argumentIndex + 1] : null;
 }
 
 // repos.yml in the current folder, or in the repo root when started with "dotnet run --project src/AiRunner".
 static string FindConfig()
 {
-    for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
+    var currentDirectory = Directory.GetCurrentDirectory();
+    for (var directory = new DirectoryInfo(currentDirectory);
+         directory is not null;
+         directory = directory.Parent)
     {
-        var candidate = Path.Combine(dir.FullName, "repos.yml");
-        if (File.Exists(candidate)) return candidate;
+        var candidate = Path.Combine(directory.FullName, "repos.yml");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
     }
+
     return "repos.yml";
 }

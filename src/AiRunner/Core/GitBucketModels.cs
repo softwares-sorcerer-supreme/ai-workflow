@@ -52,9 +52,14 @@ public static class GbExtensions
     /// updated_at plus the labels: a change in either means the issue must be planned again.
     /// Labels are part of it because GitBucket may not bump updated_at when a label changes.
     /// </summary>
-    public static string Fingerprint(this GbIssue issue) =>
-        issue.UpdatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture) + "|" +
-        string.Join(",", issue.LabelNames().Select(l => l.ToLowerInvariant()).Order(StringComparer.Ordinal));
+    public static string Fingerprint(this GbIssue issue)
+    {
+        var updatedAt = issue.UpdatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        var labelNames = issue.LabelNames().Select(label => label.ToLowerInvariant()).Order(StringComparer.Ordinal);
+        var joinedLabels = string.Join(",", labelNames);
+
+        return updatedAt + "|" + joinedLabels;
+    }
 
     public static bool IsOpen(this GbIssue issue) => IsOpenState(issue.State);
 
@@ -72,13 +77,16 @@ public static class GbExtensions
 
     /// <summary>The PR from head into base, or null.</summary>
     public static GbPull? Find(this IEnumerable<GbPull> pulls, string head, string baseRef) =>
-        pulls.FirstOrDefault(p => p.Head.Ref == head && p.Base.Ref == baseRef);
+        pulls.FirstOrDefault(pull => pull.Head.Ref == head && pull.Base.Ref == baseRef);
 
-    private static bool IsOpenState(string? state) => state is null || string.Equals(state, "open", StringComparison.OrdinalIgnoreCase);
+    private static bool IsOpenState(string? state) =>
+        state is null || string.Equals(state, "open", StringComparison.OrdinalIgnoreCase);
 
     private static HashSet<string> Names(List<GbLabel>? labels) =>
-        (labels ?? []).Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        (labels ?? []).Select(label => label.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static bool AnyIs(List<GbUser>? users, GbUser? single, string login) =>
-        (users ?? []).Append(single).Any(u => string.Equals(u?.Login, login, StringComparison.OrdinalIgnoreCase));
+        (users ?? [])
+            .Append(single)
+            .Any(user => string.Equals(user?.Login, login, StringComparison.OrdinalIgnoreCase));
 }

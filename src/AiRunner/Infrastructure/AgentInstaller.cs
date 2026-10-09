@@ -7,18 +7,24 @@ namespace AiRunner.Infrastructure;
 /// uses the version checked out in this repo (design doc section 11, versioning rule).
 /// A product repo's own .github/agents/ copy still wins over these.
 /// </summary>
-public sealed class AgentInstaller(RunnerConfig config, ILogger<AgentInstaller> log)
+public sealed class AgentInstaller(RunnerConfig config, ILogger<AgentInstaller> logger)
 {
     public void Install()
     {
-        var copilotHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot");
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var copilotHome = Path.Combine(userProfile, ".copilot");
+
         foreach (var folder in new[] { "agents", "skills" })
         {
-            var from = config.ResolvePath(folder);
-            if (!Directory.Exists(from)) continue;
-            var to = Path.Combine(copilotHome, folder);
-            Workspace.CopyDirectory(from, to);
-            log.LogInformation("Installed shared {Folder} to {Target}", folder, to);
+            var sourceFolder = config.ResolvePath(folder);
+            if (!Directory.Exists(sourceFolder))
+            {
+                continue;
+            }
+
+            var targetFolder = Path.Combine(copilotHome, folder);
+            Workspace.CopyDirectory(sourceFolder, targetFolder);
+            logger.LogInformation("Installed shared {Folder} to {Target}", folder, targetFolder);
         }
     }
 }

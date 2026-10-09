@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis and breakdown - ai-runner docs</title>
+<meta name="description" content="Workflows 1 and 1b: Copilot analyses an issue in rounds until it is ready, then a complex issue is split into ordered sub-issues that are built one by one.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html">Planning (Core)</a>
+<a href="../modules/hosting.html">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html" class="current" aria-current="page">Analysis and breakdown</a>
+<a href="../modules/implement.html">Implement and AgentSession</a>
+<a href="../modules/review-fix.html">PR review and review fix</a>
+<a href="../modules/infrastructure.html">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Analysis and breakdown</h1>
+<p class="summary">Workflows 1 and 1b: Copilot analyses an issue in rounds until it is ready, then a complex issue is split into ordered sub-issues that are built one by one.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#flow-analysis">Flow 1: one analysis round</a><a href="#flow-breakdown">Flow 2: breakdown into sub-issues</a><a href="#flow-sequence">Flow 3: building the sub-issues in order</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p>Before any code is written, an issue needs to be clear. <strong>Workflow 1</strong> lets a read-only Copilot agent (<code>grill-issue</code>) read the issue and the code, ask up to 7 questions, list assumptions, guess whether the work is simple or complex, and, when no question is left, write a SPEC.
+<strong>Workflow 1b</strong> takes an approved <em>complex</em> issue and turns it into ordered sub-issues on a feature branch, then starts them one after the other. Workflow 1b makes no Copilot call, because the analysis already contains the breakdown.</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph jobs["Jobs"]
+    AJ["AnalyzeIssueJob"]
+    BJ["BreakdownIssueJob"]
+    SJ["SequenceSubIssuesJob"]
+  end
+  subgraph core["Core"]
+    CB["ContextBuilder.ForIssue"]
+    AP["AnalysisParser"]
+    BP["BreakdownParser"]
+    SB["SubIssueBody"]
+    SQ["SubIssueSequencer"]
+    MS["MarkdownSections"]
+    AT["AtAiThread"]
+  end
+  subgraph infra["Infrastructure"]
+    GB["IGitBucketClient"]
+    WS["IWorkspace"]
+    CP["ICopilotRunner"]
+    GIT["IGitClient"]
+    ST["IStateStore"]
+  end
+  AJ --> AT
+  AJ --> CB
+  AJ --> AP
+  AJ --> WS
+  AJ --> CP
+  AJ --> GB
+  AJ --> ST
+  BJ --> BP
+  BJ --> SB
+  BJ --> WS
+  BJ --> GIT
+  BJ --> GB
+  SJ --> SQ
+  SJ --> SB
+  SJ --> GB
+  AP --> MS
+  BP --> MS
+  SQ --> SB
+</pre></div>
+<figcaption>Classes of both workflows. <code>AnalyzeIssueJob</code> is the only one that starts Copilot.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>Jobs/AnalyzeIssueJob.cs</code></td><td>Workflow 1 job. Agent <code>grill-issue</code>, denies <code>write</code> and <code>shell</code> (l.46-51). Job timeout = <code>analyzeTimeoutMinutes + 10</code>.</td></tr>
+<tr><td><code>Jobs/BreakdownIssueJob.cs</code></td><td>Workflow 1b: feature branch, sub-issues, parent comment (l.23-66). 10 minute timeout.</td></tr>
+<tr><td><code>Jobs/SequenceSubIssuesJob.cs</code></td><td>Starts the next sub-issue or opens the final PR (l.22-53, 55-78).</td></tr>
+<tr><td><code>Core/AnalysisParser.cs</code></td><td>Reads <code>Status</code> and <code>Complexity</code> and returns the labels to add and remove (l.20-42).</td></tr>
+<tr><td><code>Core/BreakdownParser.cs</code></td><td>Reads <code>### Proposed breakdown</code>: a 5-column table and a <code>Shared contract:</code> line (l.20-59).</td></tr>
+<tr><td><code>Core/SubIssueBody.cs</code></td><td>Writes and reads the sub-issue body and the hidden list in the parent comment.</td></tr>
+<tr><td><code>Core/SubIssueSequencer.cs</code></td><td>Wait / StartNext / OpenFinalPr decision.</td></tr>
+<tr><td><code>Core/ContextBuilder.cs</code></td><td><code>ForIssue</code> (l.19-42): writes <code>context.md</code> with the issue and all comments, oldest first, bot comments marked <code>[bot]</code>.</td></tr>
+<tr><td><code>Core/MarkdownSections.cs</code></td><td><code>Get</code>, <code>ReadField</code>, <code>TableRows</code>, <code>IsNone</code>: small readers for the fixed layouts.</td></tr>
+</tbody></table></div>
+
+<h2 id="flow-analysis">Flow 1: one analysis round</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant W as JobWorker
+  participant J as AnalyzeIssueJob
+  participant GB as GitBucket
+  participant WS as Workspace
+  participant CP as Copilot (grill-issue)
+  participant PA as AnalysisParser
+  W->>J: RunAsync(AnalyzeIssue, repo, issue number)
+  J->>GB: LoadIssueAsync (issue, comments, re-plan)
+  alt planner no longer says AnalyzeIssue
+    J-->>W: NotNeeded (Quiet)
+  end
+  J->>J: thread.Next(maxAnalysisRounds)
+  alt limit reached
+    J-->>W: throw JobFailedException (call, update the issue)
+  end
+  J->>WS: PrepareAsync(origin/default branch)
+  J->>J: write context.md (issue + comments)
+  J->>CP: copilot -p, deny write and shell
+  CP-->>J: stdout with ANALYSIS (and SPEC) blocks
+  J->>PA: RequireBlock + Parse(analysis)
+  J->>J: if ready: RequireBlock SPEC
+  J->>GB: AddComment(analysis + context-upto tag)
+  J->>GB: ApplyLabels(add, remove)
+  J->>GB: AddComment(SPEC) if ready
+  J->>J: SetLastHandledComment(ReadUpTo)
+  J-->>W: Ok("round N, status, complexity")
+</pre></div>
+<figcaption><code>AnalyzeIssueJob.RunAsync</code> (<code>AnalyzeIssueJob.cs:26-67</code>). Everything is validated <em>before</em> the first write, so a bad answer is never half-posted.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>Re-plan: <code>LoadIssueAsync</code> reads the issue and comments and calls <code>PlanIssue</code> again. If the answer is not <code>AnalyzeIssue</code>, the job ends quietly (l.28-30).</li>
+  <li>Count rounds with <code>AtAiThread</code>. At the limit the job <em>fails on purpose</em>, so the bot explains that humans should clarify in a call (l.33-38).</li>
+  <li>Clean checkout of the default branch, then <code>context.md</code> with all comments (l.40-44).</li>
+  <li>Copilot runs read-only with the prompt <code>Analyze the issue in context.md ...</code> (l.19-20, 46-51).</li>
+  <li>Strict checks: the <code>ANALYSIS</code> block must exist, <code>Status</code> and <code>Complexity</code> must use the fixed words, and a <code>ready</code> status also requires a <code>SPEC</code> block (l.54-56).</li>
+  <li>Post: analysis comment, label changes, SPEC comment. Finally the local cursor moves to the newest comment id read (l.58-64).</li>
+</ol>
+
+<h3>Status and complexity become labels</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Status</th><th>Complexity</th><th>Labels added</th><th>Labels removed</th></tr></thead>
+<tbody>
+<tr><td><code>questions-open</code></td><td>any</td><td><code>ai:questions-open</code></td><td><code>ai:ready</code>, <code>ai:simple</code>, <code>ai:complex</code></td></tr>
+<tr><td><code>ready</code></td><td><code>simple</code></td><td><code>ai:ready</code>, <code>ai:simple</code></td><td><code>ai:questions-open</code>, <code>ai:complex</code></td></tr>
+<tr><td><code>ready</code></td><td><code>complex</code></td><td><code>ai:ready</code>, <code>ai:complex</code></td><td><code>ai:questions-open</code>, <code>ai:simple</code></td></tr>
+</tbody></table></div>
+<p>From <code>AnalysisParser.cs:35-41</code>. Any other value throws a <code>FormatException</code>, which <code>JobSupport.Parse</code> turns into "The analysis has the wrong format: ...".</p>
+
+<h2 id="flow-breakdown">Flow 2: breakdown into sub-issues</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant J as BreakdownIssueJob
+  participant GB as GitBucket
+  participant BP as BreakdownParser
+  participant WS as Workspace
+  participant GIT as git
+  J->>GB: LoadIssueAsync (re-plan)
+  alt not ai:ready + ai:complex
+    J->>GB: comment "I did not create sub-issues: ..."
+    J->>GB: remove label ai-breakdown
+    J-->>J: outcome rejected
+  end
+  J->>J: LatestBlock(ANALYSIS) from comments
+  J->>BP: Parse(analysis)
+  J->>WS: PrepareAsync(origin/default)
+  opt feat/issue-N does not exist
+    J->>GIT: push origin/default to feat/issue-N
+  end
+  J->>GB: list open issues with label ai:sub-issue
+  loop each task in order
+    alt a sub-issue with Parent N and Order k exists
+      J->>J: reuse it
+    else
+      J->>GB: CreateIssue(title, body, labels)
+      J->>GB: ApplyLabels (some servers ignore labels on create)
+    end
+  end
+  J->>GB: AddComment(parent: list + hidden SUBISSUES marker)
+  J->>GB: labels: add ai:parent, remove ai-breakdown
+</pre></div>
+<figcaption><code>BreakdownIssueJob.RunAsync</code> (<code>BreakdownIssueJob.cs:23-66</code>). A retry is safe: an existing branch and existing sub-issues are reused.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>If the labels are wrong the job explains and removes <code>ai-breakdown</code> (l.29-34).</li>
+  <li><code>BreakdownParser.Parse</code> reads the table from the <em>latest analysis block</em>. Errors are specific: not 5 cells, rows not numbered 1..n, a dependency on a later row, empty title or scope, missing <code>Shared contract:</code> (<code>BreakdownParser.cs:22-57</code>).</li>
+  <li>The feature branch <code>feat/issue-N</code> is created from the default branch by pushing <code>origin/&lt;default&gt;</code> to it, unless it exists (l.42-49).</li>
+  <li>Sub-issue labels: <code>ai</code> (the scope label) and <code>ai:sub-issue</code>; plus <code>ai:ready</code> and <code>ai:simple</code> unless the row is a <code>[developer]</code> row; plus <code>ai-implement</code> on row 1 only when <code>autoStartFirstSubIssue</code> is true (l.71-76).</li>
+  <li>The parent gets a comment that lists the sub-issues and ends with <code>&lt;!-- SUBISSUES: n1,n2,... --&gt;</code> (l.85-100). This is how every later step finds the order.</li>
+</ol>
+
+<h3>What a sub-issue body looks like</h3>
+<pre><code class="language-markdown">Parent: #52
+Order: 2 of 4
+Base branch: feat/issue-52
+Depends on: #52.1
+
+### Scope
+...
+### Touches
+...
+### Shared contract (exact names, used by every sub-issue)
+...</code></pre>
+<p>Built by <code>SubIssueBody.Build</code> (<code>SubIssueBody.cs:16-40</code>). The title is <code>#52.2 &lt;title&gt;</code>. <code>ImplementIssueJob</code> reads parent, order and base branch from these first lines (<code>SubIssueBody.Parse</code>, l.43-57), so no database is needed.</p>
+
+<h2 id="flow-sequence">Flow 3: building the sub-issues in order</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  participant H as Human
+  participant GB as GitBucket
+  participant SJ as SequenceSubIssuesJob
+  participant IJ as ImplementIssueJob
+  H->>GB: add ai-implement on sub-issue 1
+  IJ->>GB: PR ai/issue-52-1 into feat/issue-52
+  H->>GB: merge the PR
+  SJ->>GB: every poll: read list, sub-issues, open and closed PRs
+  Note over SJ: SubIssueSequencer.Decide returns StartNext for sub 2
+  SJ->>GB: add ai-implement on sub-issue 2, comment
+  IJ->>GB: PR ai/issue-52-2 into feat/issue-52
+  H->>GB: merge the PR
+  Note over SJ: all done, no PR from feat/issue-52
+  SJ->>GB: create PR feat/issue-52 into default, comment on parent
+</pre></div>
+<figcaption>The chain runs on polls. The decision rules are in the flowchart on <a href="../integrations-infra.html#events">Integrations and infrastructure</a>.</figcaption>
+</figure>
+<p>The final PR body lists the sub-issue PRs and ends with <code>Closes #N</code> (<code>SequenceSubIssuesJob.cs:55-78</code>). A sub-issue closed without a runner PR is listed as "closed without a runner PR".</p>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<ul>
+  <li><strong>Maximum 7 questions</strong> and fixed headings are rules for the agent, in <code>agents/grill-issue.agent.md</code>. The runner only checks <code>Status</code> and <code>Complexity</code>.</li>
+  <li><strong>Simple means</strong> up to 5 files of production code, a clear requirement, similar code already exists, no migration and no external change. Test files, snapshots, fixtures, mocks, docs and lock files do not count.</li>
+  <li><strong>Breakdown rows must themselves be simple.</strong> A row the agent cannot make simple starts with <code>[developer]</code>. A human builds it, and the sequencer waits for the human (<code>SubIssueSequencer.cs:32-33</code>).</li>
+  <li><strong>Round limit</strong> <code>limits.maxAnalysisRounds</code> (default 5) counts bot replies carrying the <code>ANALYSIS</code> marker.</li>
+  <li><strong>The first sub-issue is always started by a human</strong> (or by <code>autoStartFirstSubIssue</code>). The sequencer returns <code>Wait</code> for sub-issue 1 (<code>SubIssueSequencer.cs:26-27</code>).</li>
+  <li><strong>Existing sub-issues are matched by their body</strong> (<code>Parent</code> and <code>Order</code> lines), not by title, and only among <em>open</em> issues with <code>ai:sub-issue</code> (<code>BreakdownIssueJob.cs:52-58</code>).</li>
+</ul>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> <code>IGitBucketClient</code>, <code>IWorkspace</code>, <code>ICopilotRunner</code> (analysis only), <code>IGitClient</code> (breakdown), <code>IStateStore</code>, and the Core parsers.</li>
+  <li><strong>Used by:</strong> <code>JobWorker</code> through <code>JobFactory</code>. The result feeds <a href="implement.html">implement</a> (SPEC and sub-issue bodies become <code>plan.md</code>) and <a href="review-fix.html">review</a> (linked analysis and SPEC).</li>
+  <li><strong>Tests:</strong> <code>AnalyzeAndBreakdownJobTests</code> (11), <code>ParserTests</code>, <code>SubIssueSequencerTests</code>, <code>ReviewAndSequenceJobTests</code>.</li>
+</ul>
+
+<div class="callout gotcha"><span class="title">Gotcha</span>
+<code>AnalysisParser</code> accepts only the exact words <code>questions-open</code>, <code>ready</code>, <code>simple</code>, <code>complex</code>. The two saved outputs in <code>test/issue-52/</code> use <code>needs-info</code> and would fail today (<a href="../findings.html">finding F13</a>).</div>
+<div class="callout warning"><span class="title">Warning</span>
+If you change <code>templates/analysis.md</code>, you must change <code>AnalysisParser</code> / <code>BreakdownParser</code>, <code>agents/grill-issue.agent.md</code> and <code>tests/AiRunner.Tests/Samples.cs</code> together (<code>CLAUDE.md</code> "Agent output contract").</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

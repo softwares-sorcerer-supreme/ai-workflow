@@ -5,20 +5,28 @@ namespace AiRunner.Tests.Infrastructure;
 
 public class ProcessRunnerTests
 {
-    private static readonly string Dir = Path.GetTempPath();
-    private static ProcessSpec Shell(string windows, string unix, TimeSpan timeout) =>
-        ProcessSpec.Shell(OperatingSystem.IsWindows() ? windows : unix, Dir, timeout);
+    private static readonly string WorkFolder = Path.GetTempPath();
+
+    private static ProcessSpec Shell(string windows, string unix, TimeSpan timeout)
+    {
+        var command = OperatingSystem.IsWindows() ? windows : unix;
+
+        return ProcessSpec.Shell(command, WorkFolder, timeout);
+    }
 
     [Fact]
     public async Task Timeout_kills_the_process()
     {
-        var sw = Stopwatch.StartNew();
-        var r = await new ProcessRunner(TimeSpan.FromSeconds(2))
-            .RunAsync(Shell("ping -n 30 127.0.0.1", "sleep 30", TimeSpan.FromSeconds(1)), default);
+        var stopwatch = Stopwatch.StartNew();
+        var drainTimeout = TimeSpan.FromSeconds(2);
+        var runner = new ProcessRunner(drainTimeout);
+        var commandTimeout = TimeSpan.FromSeconds(1);
+        var spec = Shell("ping -n 30 127.0.0.1", "sleep 30", commandTimeout);
+        var result = await runner.RunAsync(spec, default);
 
-        Assert.True(r.TimedOut);
-        Assert.False(r.Ok);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), $"took {sw.Elapsed}");
+        Assert.True(result.TimedOut);
+        Assert.False(result.Ok);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"took {stopwatch.Elapsed}");
     }
 
     [Fact]
@@ -26,24 +34,34 @@ public class ProcessRunnerTests
     {
         // The shell exits at once, but a background child keeps stdout open for 30 s
         // (like an MSBuild node or a test host).
-        var sw = Stopwatch.StartNew();
-        var r = await new ProcessRunner(TimeSpan.FromSeconds(2)).RunAsync(
-            Shell("start /b ping -n 30 127.0.0.1 >nul & echo parent-done", "sleep 30 & echo parent-done", TimeSpan.FromMinutes(1)), default);
+        var stopwatch = Stopwatch.StartNew();
+        var drainTimeout = TimeSpan.FromSeconds(2);
+        var runner = new ProcessRunner(drainTimeout);
+        var commandTimeout = TimeSpan.FromMinutes(1);
+        var spec = Shell(
+            "start /b ping -n 30 127.0.0.1 >nul & echo parent-done",
+            "sleep 30 & echo parent-done",
+            commandTimeout);
+        var result = await runner.RunAsync(spec, default);
 
-        Assert.Equal(0, r.ExitCode);
-        Assert.Contains("parent-done", r.StdOut);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), $"took {sw.Elapsed}");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("parent-done", result.StdOut);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"took {stopwatch.Elapsed}");
     }
 
     [Fact]
     public async Task Tokens_are_not_passed_to_child_processes()
     {
         Environment.SetEnvironmentVariable("GITBUCKET_TOKEN", "secret-123");
+
         try
         {
-            var r = await new ProcessRunner().RunAsync(
-                Shell("echo [%GITBUCKET_TOKEN%]", "echo \"[${GITBUCKET_TOKEN}]\"", TimeSpan.FromSeconds(30)), default);
-            Assert.DoesNotContain("secret-123", r.StdOut);
+            var runner = new ProcessRunner();
+            var commandTimeout = TimeSpan.FromSeconds(30);
+            var spec = Shell("echo [%GITBUCKET_TOKEN%]", "echo \"[${GITBUCKET_TOKEN}]\"", commandTimeout);
+            var result = await runner.RunAsync(spec, default);
+
+            Assert.DoesNotContain("secret-123", result.StdOut);
         }
         finally
         {

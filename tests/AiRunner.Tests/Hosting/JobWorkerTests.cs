@@ -16,14 +16,16 @@ public sealed class JobWorkerTests : IDisposable
     {
         public JobType Type => JobType.AnalyzeIssue;
         public JobInfo Info => info ?? new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
-        public Task<JobOutcome> RunAsync(JobRequest request, JobRun r, CancellationToken ct) => run();
+        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) => run();
     }
 
     private async Task<string> RunAsync(Func<Task<JobOutcome>> job)
     {
         var (worker, queue, logs) = _kit.CreateWorker(new StubJob(job));
-        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        var analyzeRequest = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(analyzeRequest);
         await worker.DrainAsync(default);
+
         return logs;
     }
 
@@ -34,16 +36,25 @@ public sealed class JobWorkerTests : IDisposable
 
         Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(7));
         Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
-        Assert.Contains("failed", File.ReadAllText(Path.Combine(logs, "cost.csv")));
+        var costFile = Path.Combine(logs, "cost.csv");
+        Assert.Contains("failed", File.ReadAllText(costFile));
         Assert.Single(_kit.State.ListJobs(JobStatus.Failed));
     }
 
     [Fact]
     public async Task Failure_comment_uses_the_jobs_own_retry_hint()
     {
-        var info = new JobInfo(Workflows.Fix, "AI review fix", TimeSpan.FromMinutes(1), OnPullRequest: true, Retry: "Write @ai again.");
+        var timeout = TimeSpan.FromMinutes(1);
+        var info = new JobInfo(
+            Workflows.Fix,
+            "AI review fix",
+            timeout,
+            OnPullRequest: true,
+            Retry: "Write @ai again.");
         var (worker, queue, _) = _kit.CreateWorker(new StubJob(() => throw new JobFailedException("push rejected"), info));
-        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        var analyzeRequest = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(analyzeRequest);
         await worker.DrainAsync(default);
 
         var body = _kit.GitBucket.CommentsOf(7).Single().Body;
@@ -65,11 +76,13 @@ public sealed class JobWorkerTests : IDisposable
     public async Task Locked_cost_csv_does_not_turn_success_into_failure()
     {
         var (worker, queue, logs) = _kit.CreateWorker(new StubJob(() => Task.FromResult(JobOutcome.Ok("fine"))));
-        File.WriteAllText(Path.Combine(logs, "cost.csv"), "header\n");
+        var costFile = Path.Combine(logs, "cost.csv");
+        File.WriteAllText(costFile, "header\n");
 
-        using (new FileStream(Path.Combine(logs, "cost.csv"), FileMode.Open, FileAccess.ReadWrite, FileShare.None)) // like Excel
+        using (new FileStream(costFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) // like Excel
         {
-            queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+            var analyzeRequest = _kit.Request(JobType.AnalyzeIssue, 7);
+            queue.Enqueue(analyzeRequest);
             await worker.DrainAsync(default);
         }
 
@@ -84,6 +97,8 @@ public sealed class JobWorkerTests : IDisposable
         var logs = await RunAsync(() => Task.FromResult(JobOutcome.NotNeeded("waiting")));
 
         Assert.Empty(_kit.State.ListJobs(JobStatus.Done));
-        Assert.False(Directory.Exists(Path.Combine(logs, "jobs")) && Directory.EnumerateDirectories(Path.Combine(logs, "jobs")).Any());
+
+        var jobsFolder = Path.Combine(logs, "jobs");
+        Assert.False(Directory.Exists(jobsFolder) && Directory.EnumerateDirectories(jobsFolder).Any());
     }
 }

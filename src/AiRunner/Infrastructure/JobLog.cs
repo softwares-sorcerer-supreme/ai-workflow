@@ -9,51 +9,85 @@ namespace AiRunner.Infrastructure;
 /// their inputs, the raw agent output and the extracted blocks here for debugging (kept 30 days).
 /// The folder is created on the first write, so a job that writes nothing leaves nothing.
 /// </summary>
-public sealed class JobRun(string dir, ILogger log)
+public sealed class JobRun(string directory, ILogger logger)
 {
-    public string Dir { get; } = dir;
+    public string Dir { get; } = directory;
 
     /// <summary>When JobWorker cancels the job (it sets this from the same timeout); jobs use it to avoid starting work they cannot finish.</summary>
     public DateTimeOffset Deadline { get; set; } = DateTimeOffset.MaxValue;
 
     public TimeSpan TimeLeft => Deadline - DateTimeOffset.UtcNow;
 
-    public void Save(string fileName, string content) =>
-        File.WriteAllText(Path.Combine(EnsureDir(), fileName), content);
+    public void Save(string fileName, string content)
+    {
+        var directoryPath = EnsureDir();
+        var targetFile = Path.Combine(directoryPath, fileName);
+        File.WriteAllText(targetFile, content);
+    }
 
     public void SaveCopy(string sourceFile, string fileName)
     {
-        if (File.Exists(sourceFile)) File.Copy(sourceFile, Path.Combine(EnsureDir(), fileName), overwrite: true);
+        if (File.Exists(sourceFile))
+        {
+            var directoryPath = EnsureDir();
+            var targetFile = Path.Combine(directoryPath, fileName);
+            File.Copy(sourceFile, targetFile, overwrite: true);
+        }
     }
 
     /// <summary>A line in job.log and in the console.</summary>
     public void Info(string message)
     {
-        log.LogInformation("{Message}", message);
-        File.AppendAllText(Path.Combine(EnsureDir(), "job.log"),
+        logger.LogInformation("{Message}", message);
+        var directoryPath = EnsureDir();
+        var logFile = Path.Combine(directoryPath, "job.log");
+        File.AppendAllText(
+            logFile,
             $"{DateTimeOffset.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture)} {message}\n");
     }
 
     private string EnsureDir() => Directory.CreateDirectory(Dir).FullName;
 }
 
-public sealed class JobLog(RunnerConfig config, ILogger<JobLog> log)
+public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
 {
-    private string Root => Path.Combine(config.ResolvePath(config.Paths.Logs), "jobs");
+    private string Root
+    {
+        get
+        {
+            var logsFolder = config.ResolvePath(config.Paths.Logs);
+            return Path.Combine(logsFolder, "jobs");
+        }
+    }
 
     public JobRun Begin(JobRequest request)
     {
         var stamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        return new JobRun(Path.Combine(Root, $"{stamp}-{request.Repo.Replace('/', '-')}-{request.Number}-{request.Type}"), log);
+        var folderName = $"{stamp}-{request.Repo.Replace('/', '-')}-{request.Number}-{request.Type}";
+
+        var runFolder = Path.Combine(Root, folderName);
+
+        return new JobRun(runFolder, logger);
     }
 
     /// <summary>Deletes run folders older than logRetentionDays.</summary>
     public void Cleanup()
     {
-        if (!Directory.Exists(Root)) return;
+        if (!Directory.Exists(Root))
+        {
+            return;
+        }
+
         var limit = DateTime.Now.AddDays(-config.LogRetentionDays);
-        foreach (var dir in Directory.EnumerateDirectories(Root).Where(d => Directory.GetCreationTime(d) < limit))
-            if (!FileSystem.DeleteDirectory(dir))
-                log.LogWarning("Could not delete old log {Dir}", dir);
+        var oldFolders = Directory.EnumerateDirectories(Root)
+            .Where(folder => Directory.GetCreationTime(folder) < limit);
+
+        foreach (var oldFolder in oldFolders)
+        {
+            if (!FileSystem.DeleteDirectory(oldFolder))
+            {
+                logger.LogWarning("Could not delete old log {Dir}", oldFolder);
+            }
+        }
     }
 }

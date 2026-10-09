@@ -21,11 +21,17 @@ public static class Markers
         var start = Start(name);
         var end = End(name);
 
-        var s = text.LastIndexOf(start, StringComparison.Ordinal);
-        if (s < 0) return null;
-        var from = s + start.Length;
-        var e = text.IndexOf(end, from, StringComparison.Ordinal);
-        return e < 0 ? null : text[from..e].Trim();
+        var startIndex = text.LastIndexOf(start, StringComparison.Ordinal);
+
+        if (startIndex < 0)
+        {
+            return null;
+        }
+
+        var from = startIndex + start.Length;
+        var endIndex = text.IndexOf(end, from, StringComparison.Ordinal);
+
+        return endIndex < 0 ? null : text[from..endIndex].Trim();
     }
 
     /// <summary>
@@ -33,9 +39,18 @@ public static class Markers
     /// issue and PR text can steer, so its HTML comments are neutralised: it cannot fake a block marker or
     /// a context-upto tag that the runner would trust later.
     /// </summary>
-    public static string Wrap(string inner, string name) =>
-        $"{Start(name)}\n{inner.Trim().Replace("<!--", "&lt;!--", StringComparison.Ordinal)}\n{End(name)}";
+    public static string Wrap(string blockText, string name) =>
+        $"{Start(name)}\n{blockText.Trim().Replace("<!--", "&lt;!--", StringComparison.Ordinal)}\n{End(name)}";
 
-    public static bool Contains(string? text, string name) =>
-        text is not null && text.Contains(Start(name), StringComparison.Ordinal);
+    public static bool Contains(string? text, string name)
+    {
+        if (text is null)
+        {
+            return false;
+        }
+
+        var start = Start(name);
+
+        return text.Contains(start, StringComparison.Ordinal);
+    }
 }

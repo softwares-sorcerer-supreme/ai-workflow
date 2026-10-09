@@ -8,11 +8,28 @@ namespace AiRunner.Jobs;
 /// <summary>What a writing agent (implement, review fix) is asked to do and how its output file is checked.</summary>
 /// <param name="Workflow">repos.yml workflow name, for the model.</param>
 /// <param name="FirstRound">Name of round 1 in the round lines, e.g. "implement".</param>
-/// <param name="OutputFile">The file the agent writes for the runner (PR_BODY.md, REPLY.md).</param>
+/// <param name="OutputFile">The file the agent writes for the runner (PR_BODY.md).</param>
 /// <param name="Problems">Checks the output file (null = missing); empty when it is complete.</param>
 /// <param name="DiffBase">diff.patch of a fix round shows the changes since this ref.</param>
-public sealed record AgentTask(string Agent, string Workflow, string FirstRound, string Prompt, string FixPrompt, string OutputFile,
-    Func<string?, IReadOnlyList<string>> Problems, string DiffBase);
+public sealed record AgentTask(
+    string Agent,
+    string Workflow,
+    string FirstRound,
+    string Prompt,
+    string FixPrompt,
+    string OutputFile,
+    Func<string?, IReadOnlyList<string>> Problems,
+    string DiffBase)
+{
+    /// <summary>Files for the --attachment flag; only round 1 gets them, later rounds can open them from disk.</summary>
+    public IReadOnlyList<string> Attachments { get; init; } = [];
+}
+
+/// <summary>Where an agent runs: the repo it works on, its clone, and the log of the job.</summary>
+public sealed record AgentRunContext(RepoConfig Repo, string Directory, JobRun Run);
+
+/// <summary>Work in the clone that gets committed and pushed to a branch.</summary>
+public sealed record WorkToSave(string Directory, string Message, string Branch);
 
 /// <summary>A command the runner ran after the agent stopped.</summary>
 public sealed record CheckRun(string Command, ProcessResult Result);
@@ -20,10 +37,14 @@ public sealed record CheckRun(string Command, ProcessResult Result);
 /// <param name="FirstFailure">Copilot failed in round 1; the job decides what to save. Null otherwise.</param>
 /// <param name="OutputText">The output file after the last round, or null.</param>
 /// <param name="Rounds">One line per Copilot call, for the PR body or the reply.</param>
-public sealed record AgentResult(JobFailedException? FirstFailure, IReadOnlyList<CheckRun> Checks, string? OutputText,
-    IReadOnlyList<string> OutputProblems, IReadOnlyList<string> Rounds)
+public sealed record AgentResult(
+    JobFailedException? FirstFailure,
+    IReadOnlyList<CheckRun> Checks,
+    string? OutputText,
+    IReadOnlyList<string> OutputProblems,
+    IReadOnlyList<string> Rounds)
 {
-    public bool Failing => Checks.Any(c => !c.Result.Ok);
+    public bool Failing => Checks.Any(check => !check.Result.Ok);
 }
 
 /// <summary>
@@ -38,20 +59,33 @@ public sealed class AgentSession(
     IWorkspace workspace,
     IGitClient git,
     ICopilotRunner copilot,
-    IProcessRunner processes)
+    IProcessRunner processRunner)
 {
     /// <summary>Setup, then per round Copilot and the checks (each up to the same timeout); the repo with the most fix rounds counts.</summary>
-    public static TimeSpan JobTimeout(RunnerConfig config) =>
-        TimeSpan.FromMinutes(config.Copilot.ImplementTimeoutMinutes *
-                             (2 + 2 * config.Repos.Select(r => Math.Max(0, r.Implement.MaxFixRounds)).DefaultIfEmpty(0).Max()) + 10);
-
-    public async Task<AgentResult> RunAsync(AgentTask task, string repoName, RepoConfig repo, string dir, JobRun run, CancellationToken ct)
+    public static TimeSpan JobTimeout(RunnerConfig config)
     {
+        var mostFixRounds = config.Repos
+            .Select(repoConfig => Math.Max(0, repoConfig.Implement.MaxFixRounds))
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return TimeSpan.FromMinutes(config.Copilot.ImplementTimeoutMinutes * (2 + 2 * mostFixRounds) + 10);
+    }
+
+    public async Task<AgentResult> RunAsync(
+        AgentTask task,
+        AgentRunContext context,
+        CancellationToken cancellationToken)
+    {
+        var (repo, directory, run) = context;
         var timeout = TimeSpan.FromMinutes(config.Copilot.ImplementTimeoutMinutes);
+
         async Task<ProcessResult> RunCommandAsync(string command, string logName)
         {
-            var result = await processes.RunAsync(ProcessSpec.Shell(command, dir, timeout), ct);
-            run.Save(logName, result.Report(command));
+            var processSpec = ProcessSpec.Shell(command, directory, timeout);
+            var result = await processRunner.RunAsync(processSpec, cancellationToken);
+            var report = result.Report(command);
+            run.Save(logName, report);
             run.Info($"'{command}': exit {result.ExitCode}");
             return result;
         }
@@ -59,19 +93,27 @@ public sealed class AgentSession(
         // Dependencies first: the work folder was cleaned, so node_modules, .venv etc. are gone.
         if (!string.IsNullOrWhiteSpace(repo.Commands.Setup))
         {
-            var setup = await RunCommandAsync(repo.Commands.Setup.Trim(), "setup.txt");
+            var setupCommand = repo.Commands.Setup.Trim();
+            var setup = await RunCommandAsync(setupCommand, "setup.txt");
             if (!setup.Ok)
-                throw new JobFailedException($"The setup command `{repo.Commands.Setup}` {Status(setup)}: {setup.Tail(600)}");
+            {
+                throw new JobFailedException(
+                    $"The setup command `{repo.Commands.Setup}` {Status(setup)}: {setup.Tail(600)}");
+            }
         }
 
-        var gitConfig = git.ConfigFingerprint(dir);
+        var gitConfig = git.ConfigFingerprint(directory);
 
         // The agent and the checks run code in this clone. If .git/config changed, git itself could be
         // made to run that code or send the token elsewhere: run no more git here, throw the clone away.
         void GuardGitConfig()
         {
-            if (git.ConfigFingerprint(dir) == gitConfig) return;
-            workspace.Discard(repoName);
+            if (git.ConfigFingerprint(directory) == gitConfig)
+            {
+                return;
+            }
+
+            workspace.Discard(repo.FullName);
             throw new JobFailedException("Something in the work folder changed .git/config during the run. " +
                                          "I deleted the clone and pushed nothing. Please check the agent output in the log.");
         }
@@ -79,23 +121,27 @@ public sealed class AgentSession(
         // Returns the failure instead of throwing: round 1 is the job's call, a failed fix round still ends well.
         var model = repo.ModelFor(task.Workflow);
         var allowTools = AllowTools(repo.Commands);
+
         async Task<JobFailedException?> RunAgentAsync(string prompt, int round)
         {
             JobFailedException? failure = null;
             try
             {
+                var transcriptFile = Path.Combine(run.Dir, $"round-{round}-transcript.md");
                 await copilot.RunCopilotAsync(
-                    new CopilotRequest(dir, prompt, task.Agent, model, timeout)
+                    new CopilotRequest(directory, prompt, task.Agent, model, timeout)
                     {
                         AllowTools = allowTools,
                         DenyTools = DenyTools,
-                        TranscriptFile = Path.Combine(run.Dir, $"round-{round}-transcript.md"),
-                    }, run, ct, $"round-{round}-copilot");
+                        TranscriptFile = transcriptFile,
+                        Attachments = round == 1 ? task.Attachments : [],
+                    }, run, cancellationToken, $"round-{round}-copilot");
             }
-            catch (JobFailedException e)
+            catch (JobFailedException exception)
             {
-                failure = e;
+                failure = exception;
             }
+
             GuardGitConfig();
             return failure;
         }
@@ -110,18 +156,24 @@ public sealed class AgentSession(
             {
                 var result = await RunCommandAsync(command, $"round-{round}-check-{checks.Count + 1}.txt");
                 checks.Add(new CheckRun(command, result));
-                if (!result.Ok && buildFirst && checks.Count == 1) break;
+                if (!result.Ok && buildFirst && checks.Count == 1)
+                {
+                    break;
+                }
             }
+
             GuardGitConfig();
             return checks;
         }
 
-        var outputFile = Path.Combine(dir, task.OutputFile);
+        var outputFile = Path.Combine(directory, task.OutputFile);
 
         // The agent verifies, reviews and writes its output file itself. The runner checks the result on its
         // own (the agent's claim is not enough) and, while fix rounds are left, sends back what is wrong.
         if (await RunAgentAsync(task.Prompt, 1) is { } firstFailure)
+        {
             return new AgentResult(firstFailure, [], null, [], []);
+        }
 
         var rounds = new List<string>();
         string? fixFailure = null;
@@ -131,12 +183,19 @@ public sealed class AgentSession(
         IReadOnlyList<string> problems;
         for (var round = 1; ; round++)
         {
-            // A fix round that changed no code (only the output file, or Copilot failed early) keeps the checks it had.
-            if (diffBeforeFix is null || await git.StageAndDiffAsync(dir, task.DiffBase, ct) != diffBeforeFix)
+            // A fix round that changed no code (only the output file, or Copilot failed early)
+            // keeps the checks it had.
+            if (diffBeforeFix is null ||
+                await git.StageAndDiffAsync(directory, task.DiffBase, cancellationToken) != diffBeforeFix)
+            {
                 checks = await RunChecksAsync(round);
+            }
             else
+            {
                 run.Info($"round {round}: no code changed, the checks of round {round - 1} still hold");
-            outputText = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, ct) : null;
+            }
+
+            outputText = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, cancellationToken) : null;
             problems = task.Problems(outputText);
             rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " +
                        (fixFailure is null ? "" : $"Copilot failed ({fixFailure}); ") +
@@ -144,25 +203,42 @@ public sealed class AgentSession(
                        $"{task.OutputFile} {(problems.Count == 0 ? "complete" : $"{problems.Count} problem(s)")}");
 
             var timeLeft = ImplementGate.TimeForAnotherRound(run.TimeLeft, timeout);
-            var step = ImplementGate.Decide(checks.All(c => c.Result.Ok), problems.Count, round - 1,
-                repo.Implement.MaxFixRounds, canRunAgain: fixFailure is null && timeLeft);
+            var checksOk = checks.All(check => check.Result.Ok);
+            var progress = new ImplementProgress(
+                ChecksOk: checksOk,
+                PrBodyProblems: problems.Count,
+                FixRoundsUsed: round - 1,
+                MaxFixRounds: repo.Implement.MaxFixRounds,
+                CanRunAgain: fixFailure is null && timeLeft);
+            var step = ImplementGate.Decide(progress);
             if (step != ImplementStep.Fix)
             {
                 if (step == ImplementStep.OutOfRounds && !timeLeft)
+                {
                     run.Info($"round {round}: too little job time left for another fix round");
+                }
+
                 break;
             }
 
             var next = round + 1;
-            var failures = checks.Where(c => !c.Result.Ok)
-                .Select(c => new CheckFailure(c.Command, Status(c.Result), c.Result.Tail(3000)))
+            var failures = checks.Where(check => !check.Result.Ok)
+                .Select(check => new CheckFailure(check.Command, Status(check.Result), check.Result.Tail(3000)))
                 .ToList();
-            var fix = ContextBuilder.ForFix(next, failures, task.OutputFile, problems);
-            diffBeforeFix = await git.StageAndDiffAsync(dir, task.DiffBase, ct);
-            await File.WriteAllTextAsync(Path.Combine(dir, "fix.md"), fix, ct);
-            await File.WriteAllTextAsync(Path.Combine(dir, "diff.patch"), diffBeforeFix, ct);
+            var fixInput = new FixRoundInput(
+                Round: next,
+                Failures: failures,
+                OutputFile: task.OutputFile,
+                OutputProblems: problems);
+            var fix = ContextBuilder.ForFix(fixInput);
+            diffBeforeFix = await git.StageAndDiffAsync(directory, task.DiffBase, cancellationToken);
+            var fixFile = Path.Combine(directory, "fix.md");
+            await File.WriteAllTextAsync(fixFile, fix, cancellationToken);
+            var diffFile = Path.Combine(directory, "diff.patch");
+            await File.WriteAllTextAsync(diffFile, diffBeforeFix, cancellationToken);
             run.Save($"fix-{next}.md", fix);
             run.Info($"{rounds[^1]}; starting fix round {next}");
+
             if (await RunAgentAsync(task.FixPrompt, next) is { } failed)
             {
                 // Often the quota or the timeout: no more rounds, but what exists is still saved.
@@ -179,47 +255,88 @@ public sealed class AgentSession(
     /// Commits everything the agent wrote and pushes it to the branch (never forced), so the work is not lost.
     /// Returns what was saved, or null when nothing changed. A rejected push throws InvalidOperationException.
     /// </summary>
-    public async Task<IReadOnlyList<DiffStat>?> SaveWorkAsync(string dir, string message, string branch, JobRun run, CancellationToken ct)
+    public async Task<IReadOnlyList<DiffStat>?> SaveWorkAsync(
+        WorkToSave work,
+        JobRun run,
+        CancellationToken cancellationToken)
     {
-        var stats = await git.StageAllAsync(dir, ct);
-        run.Save("numstat.txt", string.Join("\n", stats.Select(s => $"{s.Added}\t{s.Deleted}\t{s.Path}")));
-        if (stats.Count == 0) return null;
+        var (directory, message, branch) = work;
+        var stats = await git.StageAllAsync(directory, cancellationToken);
+        var statLines = stats.Select(stat => $"{stat.Added}\t{stat.Deleted}\t{stat.Path}");
+        var numstat = string.Join("\n", statLines);
+        run.Save("numstat.txt", numstat);
+        if (stats.Count == 0)
+        {
+            return null;
+        }
 
-        await git.CommitAsync(dir, message, ct);
-        await git.PushAsync(dir, "HEAD", branch, ct);
-        run.Info($"pushed {branch}: {stats.Count} files, {stats.Sum(s => s.Lines)} lines");
+        await git.CommitAsync(directory, message, cancellationToken);
+        await git.PushAsync(directory, "HEAD", branch, cancellationToken);
+        run.Info($"pushed {branch}: {stats.Count} files, {stats.Sum(stat => stat.Lines)} lines");
+
         return stats;
     }
 
     /// <summary>The tools of the configured commands with any arguments, plus allowShell; never git (see ShellPermissions).</summary>
     public static List<string> AllowTools(CommandsConfig commands) =>
-        ["write", .. commands.AllowedForAgent().SelectMany(ShellPermissions.For).Distinct(),
-         .. commands.AllowShell.Select(p => $"shell({p})")];
+    [
+        "write",
+        .. commands.AllowedForAgent().SelectMany(ShellPermissions.For).Distinct(),
+        .. commands.AllowShell.Select(pattern => $"shell({pattern})"),
+    ];
 
     /// <summary>Deny wins over allow in Copilot CLI, so git stays blocked whatever allowShell says.</summary>
     public static readonly string[] DenyTools = ["shell(git)", "shell(git:*)", "write(.ai-workflow)"];
 
-    public static string Status(ProcessResult r) => r.Ok ? "passed" : r.TimedOut ? "timed out" : $"failed (exit {r.ExitCode})";
+    public static string Status(ProcessResult result) =>
+        result.Ok ? "passed" : result.TimedOut ? "timed out" : $"failed (exit {result.ExitCode})";
 
-    private static string ChecksSummary(List<CheckRun> checks) =>
-        checks.Count == 0 ? "no checks configured" : string.Join(", ", checks.Select(c => $"`{c.Command}` {Status(c.Result)}"));
+    private static string ChecksSummary(List<CheckRun> checks)
+    {
+        if (checks.Count == 0)
+        {
+            return "no checks configured";
+        }
+
+        var summaries = checks.Select(check => $"`{check.Command}` {Status(check.Result)}");
+
+        return string.Join(", ", summaries);
+    }
 
     /// <summary>"Checks run by ai-runner", "Rounds by ai-runner" and the output file problems left (under problemsTitle), for a PR body or a reply.</summary>
-    public static void AppendReport(StringBuilder sb, AgentResult result, string problemsTitle)
+    public static void AppendReport(StringBuilder builder, AgentResult result, string problemsTitle)
     {
-        sb.AppendLine("### Checks run by ai-runner");
-        if (result.Checks.Count == 0) sb.AppendLine("None configured (repos.yml `commands`).");
-        foreach (var (command, r) in result.Checks)
-            sb.AppendLine($"- `{command}`: {Status(r)}");
-        var failed = result.Checks.FirstOrDefault(c => !c.Result.Ok);
+        builder.AppendLine("### Checks run by ai-runner");
+        if (result.Checks.Count == 0)
+        {
+            builder.AppendLine("None configured (repos.yml `commands`).");
+        }
+
+        foreach (var (command, commandResult) in result.Checks)
+        {
+            builder.AppendLine($"- `{command}`: {Status(commandResult)}");
+        }
+
+        var failed = result.Checks.FirstOrDefault(check => !check.Result.Ok);
         if (failed is not null)
-            sb.AppendLine().AppendLine("```").AppendLine(failed.Result.Tail(2000)).AppendLine("```");
-        sb.AppendLine().AppendLine("### Rounds by ai-runner");
-        foreach (var r in result.Rounds) sb.AppendLine($"- {r}");
+        {
+            var failedOutput = failed.Result.Tail(2000);
+            builder.AppendLine().AppendLine("```").AppendLine(failedOutput).AppendLine("```");
+        }
+
+        builder.AppendLine().AppendLine("### Rounds by ai-runner");
+        foreach (var roundLine in result.Rounds)
+        {
+            builder.AppendLine($"- {roundLine}");
+        }
+
         if (result.OutputProblems.Count > 0)
         {
-            sb.AppendLine().AppendLine($"### {problemsTitle} (left after the last round)");
-            foreach (var p in result.OutputProblems) sb.AppendLine($"- {p}");
+            builder.AppendLine().AppendLine($"### {problemsTitle} (left after the last round)");
+            foreach (var problem in result.OutputProblems)
+            {
+                builder.AppendLine($"- {problem}");
+            }
         }
     }
 }

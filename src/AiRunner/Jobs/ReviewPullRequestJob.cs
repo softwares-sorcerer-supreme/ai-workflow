@@ -10,12 +10,13 @@ namespace AiRunner.Jobs;
 /// </summary>
 public sealed class ReviewPullRequestJob(
     RunnerConfig config,
-    IGitBucketClient gitBucket,
+    IGitBucketClient gitBucketClient,
+    JobLoader jobLoader,
     IWorkspace workspace,
     IGitClient git,
     ICopilotRunner copilot,
-    IStateStore state,
-    RunnerIdentity identity) : IJob
+    IStateStore stateStore,
+    AttachmentFetcher attachmentFetcher) : IJob
 {
     public const string Agent = "pr-review";
     public const string Prompt =
@@ -23,70 +24,116 @@ public sealed class ReviewPullRequestJob(
 
     public JobType Type => JobType.ReviewPullRequest;
 
-    public JobInfo Info => new(Workflows.Review, "AI review", TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes + 10),
-        OnPullRequest: true);
+    public JobInfo Info
+    {
+        get
+        {
+            var timeout = TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes + 10);
+            return new(
+                Workflows.Review,
+                "AI review",
+                timeout,
+                OnPullRequest: true);
+        }
+    }
 
     /// <summary>Remember the failed commit, so it is not retried on every poll; the next commit is reviewed again.</summary>
     public void OnFailed(JobRequest request) =>
-        state.SetReview(request.Repo, request.Number, new ReviewState(request.Payload ?? "", null, "failed"));
+        stateStore.SetReview(request.Repo, request.Number, new ReviewState(request.Payload ?? "", null, "failed"));
 
-    public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken ct)
+    public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
     {
         // A review fix asked for since the poll goes first.
-        var (repo, pull, _, decision) = await gitBucket.LoadPullAsync(config, state, identity, request, ct);
+        var (repo, pull, readComments, decision) = await jobLoader.LoadPullAsync(request, cancellationToken);
         if (decision.Job?.Type != Type)
+        {
             return JobOutcome.NotNeeded(decision.Reason);
-        var previous = state.GetReview(request.Repo, pull.Number);
+        }
+
+        var previous = stateStore.GetReview(request.Repo, pull.Number);
         var sha = pull.Head.Sha;
 
-        var dir = await workspace.PrepareAsync(request.Repo, sha, null,
-            [Branches.PullHead(pull.Number)], ct);
+        var pullHead = Branches.PullHead(pull.Number);
+        var workspaceRequest = new WorkspaceRequest(
+            Repo: request.Repo,
+            StartPoint: sha,
+            NewBranch: null,
+            ExtraFetch: [pullHead]);
+        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var baseRef = Branches.Remote(pull.Base.Ref);
-        var files = await git.ChangedFilesAsync(dir, baseRef, sha, ct);
+        var files = await git.ChangedFilesAsync(directory, baseRef, sha, cancellationToken);
 
         if (files.Count == 0 || PathGlob.AllMatch(files, repo.Review.SkipPaths))
         {
-            state.SetReview(request.Repo, pull.Number, new ReviewState(sha, previous?.CommentId, "skipped"));
-            return new JobOutcome("skipped", files.Count == 0 ? "no changed files" : "only skipPaths files changed", Quiet: true);
+            stateStore.SetReview(request.Repo, pull.Number, new ReviewState(sha, previous?.CommentId, "skipped"));
+            return new JobOutcome(
+                "skipped", files.Count == 0 ? "no changed files" : "only skipPaths files changed", Quiet: true);
         }
 
-        var diff = await git.DiffAsync(dir, baseRef, sha, ct);
-        await File.WriteAllTextAsync(Path.Combine(dir, "diff.patch"), diff, ct);
-        await File.WriteAllLinesAsync(Path.Combine(dir, "changed-files.txt"), files, ct);
+        var diff = await git.DiffAsync(directory, baseRef, sha, cancellationToken);
+        var diffFile = Path.Combine(directory, "diff.patch");
+        await File.WriteAllTextAsync(diffFile, diff, cancellationToken);
+        var changedFilesFile = Path.Combine(directory, "changed-files.txt");
+        await File.WriteAllLinesAsync(changedFilesFile, files, cancellationToken);
 
-        var linked = await gitBucket.LinkedIssueAsync(request.Repo, pull, run, ct);
-        var context = ContextBuilder.ForPull(pull, files, linked.Number, linked.Analysis, linked.Spec);
-        await File.WriteAllTextAsync(Path.Combine(dir, "context.md"), context, ct);
+        var linked = await gitBucketClient.LinkedIssueAsync(request.Repo, pull, run, cancellationToken);
+
+        // The people's comments are part of the review input; the planner only read them when a fix was possible.
+        var pullComments = readComments
+            ?? await gitBucketClient.ListCommentsAsync(request.Repo, pull.Number, cancellationToken);
+        var description = new AttachmentSource("the PR description", pull.Body);
+        var attachmentRequest = AttachmentRequest.Of(directory, description, pullComments);
+        var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
+
+        var humanComments = ContextBuilder.HumanComments(pullComments, "## Comments on the pull request (oldest first)");
+        var context = ContextBuilder.ForPull(pull, files, linked) + humanComments + fetched.Section;
+        var contextFile = Path.Combine(directory, "context.md");
+        await File.WriteAllTextAsync(contextFile, context, cancellationToken);
         run.Save("context.md", context);
         run.Save("diff.patch", diff);
 
+        var model = repo.ModelFor(Workflows.Review);
+        var timeout = TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes);
         var output = await copilot.RunCopilotAsync(
-            new CopilotRequest(dir, Prompt, Agent, repo.ModelFor(Workflows.Review),
-                TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes))
+            new CopilotRequest(directory, Prompt, Agent, model, timeout)
             {
                 DenyTools = ["write", "shell"],
-            }, run, ct);
+                Attachments = fetched.ForCopilot,
+            }, run, cancellationToken);
 
         var review = JobSupport.RequireBlock(output, Markers.Review, run);
         var parsed = JobSupport.Parse(() => ReviewParser.Parse(review), "The review");
 
         // A newer commit arrived while Copilot was running: drop this review, the next poll reviews the new head.
-        var current = await gitBucket.GetPullAsync(request.Repo, pull.Number, ct);
+        var current = await gitBucketClient.GetPullAsync(request.Repo, pull.Number, cancellationToken);
         if (current.Head.Sha != sha)
+        {
             return new JobOutcome("outdated", $"head moved to {Text.ShortSha(current.Head.Sha)} during the review");
+        }
 
         var body = Markers.Wrap(review, Markers.Review);
-        var commentId = previous?.CommentId
-            ?? BotComments.Latest(await gitBucket.ListCommentsAsync(request.Repo, pull.Number, ct), Markers.Review)?.Id;
+        var commentId = previous?.CommentId ?? BotComments.Latest(pullComments, Markers.Review)?.Id;
+
         GbComment posted;
         if (commentId is not null)
         {
-            try { posted = await gitBucket.UpdateCommentAsync(request.Repo, commentId.Value, body, ct); }
-            catch (GitBucketException) { posted = await gitBucket.AddCommentAsync(request.Repo, pull.Number, body, ct); }
+            try
+            {
+                posted = await gitBucketClient.UpdateCommentAsync(
+                    request.Repo, commentId.Value, body, cancellationToken);
+            }
+            catch (GitBucketException)
+            {
+                posted = await gitBucketClient.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
+            }
         }
-        else posted = await gitBucket.AddCommentAsync(request.Repo, pull.Number, body, ct);
+        else
+        {
+            posted = await gitBucketClient.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
+        }
 
-        state.SetReview(request.Repo, pull.Number, new ReviewState(sha, posted.Id, parsed.Verdict));
+        stateStore.SetReview(request.Repo, pull.Number, new ReviewState(sha, posted.Id, parsed.Verdict));
+
         var detail = $"{parsed.Verdict}: {parsed.Bugs} bug, {parsed.Risks} risk, {parsed.Style} style";
         run.Info(detail);
         return JobOutcome.Ok(detail);

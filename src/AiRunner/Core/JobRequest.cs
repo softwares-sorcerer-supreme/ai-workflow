@@ -1,6 +1,9 @@
 namespace AiRunner.Core;
 
-public enum JobType { AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues, FixReview }
+public enum JobType
+{
+    AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues, FixReview
+}
 
 /// <summary>
 /// One unit of work, small enough to persist in SQLite. Number is the issue or PR number.

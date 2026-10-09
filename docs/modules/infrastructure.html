@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infrastructure - ai-runner docs</title>
+<meta name="description" content="Every side effect behind a small interface: GitBucket REST, git, Copilot, child processes, the work folder, SQLite, logs and costs. No business decisions live here.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html">Planning (Core)</a>
+<a href="../modules/hosting.html">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="../modules/implement.html">Implement and AgentSession</a>
+<a href="../modules/review-fix.html">PR review and review fix</a>
+<a href="../modules/infrastructure.html" class="current" aria-current="page">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Infrastructure</h1>
+<p class="summary">Every side effect behind a small interface: GitBucket REST, git, Copilot, child processes, the work folder, SQLite, logs and costs. No business decisions live here.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#flow-workspace">Flow 1: prepare a clean clone</a><a href="#flow-process">Flow 2: running a child process</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p>The <code>Infrastructure/</code> folder is the only place that talks to the outside world. Each capability has an interface, so jobs and the planner can be tested with fakes (<code>tests/AiRunner.Tests/Fakes/</code>).
+A GitBucket or CLI quirk is fixed in <em>exactly one</em> class (<code>CLAUDE.md</code>). No decision about "what should happen" is made here.</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+classDiagram
+  class IGitBucketClient {
+    &lt;&lt;interface&gt;&gt;
+    ListOpenIssuesAsync()
+    GetIssueAsync()
+    ListCommentsAsync()
+    AddCommentAsync()
+    UpdateCommentAsync()
+    AddLabelsAsync()
+    ListPullsAsync()
+    CreatePullAsync()
+  }
+  class GitBucketClient
+  class ICopilotRunner {
+    &lt;&lt;interface&gt;&gt;
+    RunAsync(CopilotRequest)
+  }
+  class CopilotRunner
+  class IProcessRunner {
+    &lt;&lt;interface&gt;&gt;
+    RunAsync(ProcessSpec)
+  }
+  class ProcessRunner
+  class IGitClient {
+    &lt;&lt;interface&gt;&gt;
+    CloneOrFetchAsync()
+    CheckoutCleanAsync()
+    StageAllAsync()
+    CommitAsync()
+    PushAsync()
+    DiffAsync()
+    ConfigFingerprint()
+  }
+  class GitClient
+  class IWorkspace {
+    &lt;&lt;interface&gt;&gt;
+    PrepareAsync()
+    Discard()
+  }
+  class Workspace
+  class IStateStore {
+    &lt;&lt;interface&gt;&gt;
+    fingerprints, cursor, review, jobs, cost
+  }
+  class SqliteStateStore
+  class ICostLog {
+    &lt;&lt;interface&gt;&gt;
+    Record()
+  }
+  class CostLog
+  IGitBucketClient &lt;|.. GitBucketClient
+  ICopilotRunner &lt;|.. CopilotRunner
+  IProcessRunner &lt;|.. ProcessRunner
+  IGitClient &lt;|.. GitClient
+  IWorkspace &lt;|.. Workspace
+  IStateStore &lt;|.. SqliteStateStore
+  ICostLog &lt;|.. CostLog
+  CopilotRunner --> IProcessRunner : starts copilot
+  GitClient --> IProcessRunner : starts git
+  Workspace --> IGitClient : clone, reset
+  CostLog --> IStateStore : cost_log table
+</pre></div>
+<figcaption>Interfaces and their implementations (<code>Program.cs:33-54</code> registers them as singletons). <code>JobLog</code>/<code>JobRun</code>, <code>AgentInstaller</code>, <code>RunnerIdentity</code> and <code>FileSystem</code> are concrete helpers without an interface.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>GitBucketClient.cs</code></td><td>REST client. <code>AsciiSanitizer</code> on all text, bot marker on every comment, paging, snake_case JSON, <code>GitBucketException</code> with status and raw reply.</td></tr>
+<tr><td><code>CopilotRunner.cs</code></td><td>Builds the <code>copilot -p ...</code> arguments, logs, and detects quota-like errors (<code>LooksLikeQuotaError</code>).</td></tr>
+<tr><td><code>ProcessRunner.cs</code></td><td>Starts a child process with no stdin, captures output, kills the tree on timeout, removes secret variables. <code>ProcessSpec.Shell</code> wraps a repo command for the OS shell.</td></tr>
+<tr><td><code>GitClient.cs</code></td><td>All git commands. Credentials and hardening through <code>GIT_CONFIG_*</code> environment variables. Never forces a push.</td></tr>
+<tr><td><code>Workspace.cs</code></td><td>One persistent clone per repo, reset before each job. Writes <code>.git/info/exclude</code> and copies templates.</td></tr>
+<tr><td><code>SqliteStateStore.cs</code></td><td>The five tables and every query (<a href="../data-model.html">Data model</a>).</td></tr>
+<tr><td><code>JobLog.cs</code></td><td><code>JobLog.Begin</code> creates a <code>JobRun</code> (log folder, <code>Save</code>, <code>Info</code>, <code>Deadline</code>, <code>TimeLeft</code>). <code>Cleanup</code> deletes old folders.</td></tr>
+<tr><td><code>CostLog.cs</code></td><td>One row in SQLite and one line in <code>logs/cost.csv</code>. Never throws.</td></tr>
+<tr><td><code>AgentInstaller.cs</code></td><td>Copies <code>agents/</code> and <code>skills/</code> to <code>~/.copilot/</code> at start.</td></tr>
+<tr><td><code>FileSystem.cs</code></td><td><code>DeleteDirectory</code> that also removes read-only files (git objects on Windows).</td></tr>
+<tr><td><code>RunnerIdentity.cs</code></td><td>The bot's <code>Login</code> (from <code>GET /user</code>) and <code>GitSecret</code>.</td></tr>
+</tbody></table></div>
+
+<h2 id="flow-workspace">Flow 1: prepare a clean clone</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant J as Job
+  participant WS as Workspace
+  participant GIT as GitClient
+  participant PR as ProcessRunner
+  J->>WS: PrepareAsync(repo, startPoint, newBranch, extraFetch)
+  WS->>GIT: CloneOrFetchAsync(repo, work/owner/name)
+  alt clone exists
+    GIT->>PR: git fetch --prune origin +refs/heads/*:refs/remotes/origin/*
+  else first time
+    GIT->>PR: git clone --no-tags url dir
+  end
+  loop each extra refspec (e.g. PR head)
+    WS->>GIT: FetchAsync (failure ignored)
+  end
+  WS->>GIT: RefExistsAsync(startPoint)
+  GIT-->>WS: false: throw "does not exist"
+  WS->>GIT: CheckoutCleanAsync
+  GIT->>PR: git reset --hard
+  GIT->>PR: git clean -fdx
+  GIT->>PR: git checkout --detach (or -B branch) startPoint
+  WS->>WS: write .git/info/exclude (runner files)
+  WS->>WS: copy templates to .ai-workflow/templates
+  WS-->>J: folder path
+</pre></div>
+<figcaption><code>Workspace.PrepareAsync</code> (<code>Workspace.cs:41-60</code>) and <code>GitClient</code> (<code>GitClient.cs:51-68</code>). Not every GitBucket version has <code>refs/pull/*</code>, so a failure fetching it is ignored.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>Clone path: <code>work/&lt;owner&gt;/&lt;name&gt;</code> next to <code>repos.yml</code> (<code>Workspace.cs:32-33</code>). The remote URL is <code>{baseUrl}/git/{repo}.git</code> (<code>GitClient.cs:49</code>).</li>
+  <li><code>git clean -fdx</code> deletes <em>ignored</em> files too, which is why <code>commands.setup</code> must reinstall dependencies for every job.</li>
+  <li>The runner's own files (<code>context.md</code>, <code>plan.md</code>, <code>PR_BODY.md</code>, <code>fix.md</code>, <code>diff.patch</code>, <code>changed-files.txt</code>, <code>review-fix.md</code>, <code>REPLY.md</code>, <code>.ai-workflow/</code>) are listed in <code>.git/info/exclude</code>, so <code>git add -A</code> never commits them (<code>Workspace.cs:28-30, 54-56</code>).</li>
+</ol>
+
+<h2 id="flow-process">Flow 2: running a child process</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  a(["ProcessRunner.RunAsync(spec)"]) --> b["build ProcessStartInfo<br/>no shell execute, stdin redirected"]
+  b --> c["remove secret variables from the environment"]
+  c --> d["add spec.SetEnv (for git)"]
+  d --> e["start, close stdin, read stdout and stderr by line"]
+  e --> f{"Exited event or timeout?"}
+  f -->|"timeout"| g["Kill(entireProcessTree), mark TimedOut"]
+  f -->|"exited"| h["wait up to 15 s for the output pipes"]
+  g --> h
+  h --> i{"runner is stopping?"}
+  i -->|"yes"| j["throw OperationCanceledException"]
+  i -->|"no"| k["return ProcessResult: exit code, stdout, stderr, duration, TimedOut"]
+</pre></div>
+<figcaption><code>ProcessRunner.RunAsync</code> (<code>ProcessRunner.cs:63-123</code>). It waits for the <code>Exited</code> event, not <code>WaitForExitAsync</code>, because a grandchild process (build server, test host) can hold the output pipe open forever.</figcaption>
+</figure>
+
+<h3>How git gets its credentials</h3>
+<pre><code class="language-text">GIT_TERMINAL_PROMPT=0
+GIT_CONFIG_COUNT=6
+GIT_CONFIG_KEY_0=http.extraHeader     GIT_CONFIG_VALUE_0=Authorization: Basic base64(login:secret)
+GIT_CONFIG_KEY_1=credential.helper    GIT_CONFIG_VALUE_1=            (empty: never ask the Windows credential store)
+GIT_CONFIG_KEY_2=core.hooksPath       GIT_CONFIG_VALUE_2=work/.no-hooks   (a folder that does not exist)
+GIT_CONFIG_KEY_3=core.fsmonitor       GIT_CONFIG_VALUE_3=false
+GIT_CONFIG_KEY_4=core.autocrlf        GIT_CONFIG_VALUE_4=false
+GIT_CONFIG_KEY_5=core.longpaths       GIT_CONFIG_VALUE_5=true</code></pre>
+<p>From <code>GitClient.RunAsync</code> (<code>GitClient.cs:141-164</code>). The token never reaches a command line or <code>.git/config</code>. Hooks and fsmonitor are off, so code that the agent writes into the clone does not run when the runner calls git. Commits use <code>-c user.name/user.email</code> from <code>git.userName/userEmail</code> and <code>--no-verify</code> (l.97-99).</p>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Detail</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>ASCII only</td><td>Titles, bodies, comments, label descriptions are cleaned. Vietnamese loses accents, emoji and unknown symbols are dropped.</td><td><code>GitBucketClient.cs:83, 115, 128, 138</code></td></tr>
+<tr><td>Marker on every comment</td><td><code>&lt;!-- ai-runner --&gt;</code> and <code>**[ai-runner]**</code> are added unless the body already has the marker. PR bodies too.</td><td><code>GitBucketClient.cs:136-142</code></td></tr>
+<tr><td>Paging</td><td><code>per_page=100&amp;page=n</code> until a page has no new key. Max 50 pages.</td><td><code>GitBucketClient.cs:45, 150-163</code></td></tr>
+<tr><td>PR creation</td><td>Only the PR number of the reply is trusted. The PR is read back.</td><td><code>GitBucketClient.cs:124-132</code></td></tr>
+<tr><td>Secrets stripped</td><td><code>GITBUCKET_TOKEN</code>, <code>GitBucket__Token</code>, <code>GitBucket__GitPassword</code>, <code>GH_TOKEN</code>, <code>GITHUB_TOKEN</code>, <code>AIRUNNER_GITHUB_TOKEN</code>. <code>COPILOT_GITHUB_TOKEN</code> is kept on purpose.</td><td><code>ProcessRunner.cs:51-55</code></td></tr>
+<tr><td>Push is never forced</td><td><code>git push origin source:refs/heads/branch</code>. A rejected push throws <code>InvalidOperationException</code>.</td><td><code>GitClient.cs:101-102, 133-139</code></td></tr>
+<tr><td>Cost log never throws</td><td>A locked <code>cost.csv</code> (open in Excel) only logs a warning. The row is still in SQLite.</td><td><code>CostLog.cs:21-45</code></td></tr>
+<tr><td>Log folder is lazy</td><td>Created on the first write. A job that writes nothing leaves nothing.</td><td><code>JobLog.cs:37</code></td></tr>
+<tr><td>Shell commands</td><td><code>cmd.exe /d /s /c "&lt;command&gt;"</code> (raw argument string for cmd quoting) or <code>/bin/sh -c</code>.</td><td><code>ProcessRunner.cs:13-16</code></td></tr>
+</tbody></table></div>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> <code>Configuration/RunnerConfig</code>, and Core types (<code>GbIssue</code>, <code>JobRequest</code>, <code>AsciiSanitizer</code>, <code>BotComments</code>, <code>Text</code>).</li>
+  <li><strong>Used by:</strong> all Jobs and the Hosting classes.</li>
+  <li><strong>Tests:</strong> <code>GitBucketClientTests</code> (7, with a fake HTTP handler), <code>GitWorkspaceTests</code> (5, real git on a <code>file://</code> bare repo), <code>ProcessRunnerTests</code> (3). <code>LabelSetup</code>, <code>AgentInstaller</code> and <code>CopilotSelfTest</code> have no test (<a href="../findings.html">finding F8</a>).</li>
+</ul>
+
+<div class="callout gotcha"><span class="title">Gotcha</span>
+Git object files are read-only on Windows, so a plain <code>Directory.Delete</code> fails. Always use <code>FileSystem.DeleteDirectory</code>, which clears the attributes first (<code>FileSystem.cs:9-23</code>).</div>
+<div class="callout warning"><span class="title">Warning</span>
+<code>SendAsync</code> returns <code>default!</code> for an empty reply body (<code>GitBucketClient.cs:176</code>). For a record type that is <code>null</code>, so a surprising empty reply shows up later as a <code>NullReferenceException</code> (<a href="../findings.html">finding F15</a>).</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

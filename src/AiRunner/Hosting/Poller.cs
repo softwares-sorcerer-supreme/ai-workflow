@@ -16,70 +16,118 @@ namespace AiRunner.Hosting;
 /// </summary>
 public sealed class Poller(
     RunnerConfig config,
-    IGitBucketClient gitBucket,
-    IStateStore state,
+    IGitBucketClient gitBucketClient,
+    JobLoader jobLoader,
+    IStateStore stateStore,
     JobQueue queue,
     RunnerIdentity identity,
-    ILogger<Poller> log) : BackgroundService
+    ILogger<Poller> logger) : BackgroundService
 {
     /// <summary>Print the decisions only; queue nothing and keep the local state unchanged.</summary>
     public bool DryRun { get; set; }
 
-    protected override async Task ExecuteAsync(CancellationToken ct)
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(config.PollIntervalSeconds));
+        var pollInterval = TimeSpan.FromSeconds(config.PollIntervalSeconds);
+        using var timer = new PeriodicTimer(pollInterval);
+
         do
         {
-            await PollOnceAsync(ct);
+            await PollOnceAsync(cancellationToken);
         }
-        while (await timer.WaitForNextTickAsync(ct));
+        while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
-    public async Task PollOnceAsync(CancellationToken ct)
+    public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
         foreach (var repo in config.Repos)
         {
-            try { await PollRepoAsync(repo, ct); }
-            catch (Exception ex) when (!ct.IsCancellationRequested) // an HTTP timeout is also an OperationCanceledException
+            try
             {
-                log.LogError("{Repo}: poll failed: {Message}", repo, ex.Message);
+                await PollRepoAsync(repo, cancellationToken);
+            }
+            // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogError("{Repo}: poll failed: {Message}", repo, exception.Message);
             }
         }
-        if (DryRun) log.LogInformation("Dry run: no job was queued.");
+
+        if (DryRun)
+        {
+            logger.LogInformation("Dry run: no job was queued.");
+        }
     }
 
-    private async Task PollRepoAsync(RepoConfig repo, CancellationToken ct)
+    private async Task PollRepoAsync(RepoConfig repo, CancellationToken cancellationToken)
     {
         // Scope guard: only issues with the scope label or assigned to the runner's user.
-        var labelled = await gitBucket.ListOpenIssuesAsync(repo.FullName, config.ScopeLabel, null, ct);
-        var assigned = (await gitBucket.ListOpenIssuesAsync(repo.FullName, null, identity.Login, ct))
-            .Where(i => i.IsAssignedTo(identity.Login)); // in case the server ignores "assignee"
-        var issues = labelled.Concat(assigned).DistinctBy(i => i.Number).OrderBy(i => i.Number).ToList();
+        var labelled = await gitBucketClient.ListOpenIssuesAsync(
+            repo.FullName,
+            config.ScopeLabel,
+            null,
+            cancellationToken);
+        var assignedToRunner = await gitBucketClient.ListOpenIssuesAsync(
+            repo.FullName,
+            null,
+            identity.Login,
+            cancellationToken);
 
-        var seen = state.GetIssueFingerprints(repo.FullName);
-        var fingerprints = issues.ToDictionary(i => i.Number, i => i.Fingerprint());
-        var changed = issues.Count(i => seen.GetValueOrDefault(i.Number) != fingerprints[i.Number]);
-        log.LogInformation("{Repo}: {Total} open issues in scope, {Changed} to check", repo, issues.Count, changed);
+        // Filtered again in case the server ignores "assignee".
+        var assigned = assignedToRunner.Where(issue => issue.IsAssignedTo(identity.Login));
+
+        var issues = labelled.Concat(assigned)
+            .DistinctBy(issue => issue.Number)
+            .OrderBy(issue => issue.Number)
+            .ToList();
+
+        var seenFingerprints = stateStore.GetIssueFingerprints(repo.FullName);
+        var fingerprints = issues.ToDictionary(issue => issue.Number, issue => issue.Fingerprint());
+        var changedCount = issues.Count(
+            issue => seenFingerprints.GetValueOrDefault(issue.Number) != fingerprints[issue.Number]);
+
+        logger.LogInformation("{Repo}: {Total} open issues in scope, {Changed} to check", repo, issues.Count, changedCount);
 
         foreach (var issue in issues)
         {
-            var isChanged = seen.GetValueOrDefault(issue.Number) != fingerprints[issue.Number];
+            var isChanged = seenFingerprints.GetValueOrDefault(issue.Number) != fingerprints[issue.Number];
+
             // Labels decide most jobs; comments are read only when the analysis decision needs them.
-            var decision = JobPlanner.PlanIssue(repo, issue, null, 0);
+            var planInput = new IssuePlanInput(repo, issue, Comments: null, LastHandledCommentId: 0);
+            var decision = JobPlanner.PlanIssue(planInput);
             if (decision.NeedsComments && isChanged)
-                decision = JobPlanner.PlanIssue(repo, issue, await gitBucket.ListCommentsAsync(repo.FullName, issue.Number, ct),
-                    state.GetLastHandledComment(repo.FullName, issue.Number));
+            {
+                var comments = await gitBucketClient.ListCommentsAsync(repo.FullName, issue.Number, cancellationToken);
+                var lastHandledComment = stateStore.GetLastHandledComment(repo.FullName, issue.Number);
+                var planInputWithComments = planInput with
+                {
+                    Comments = comments,
+                    LastHandledCommentId = lastHandledComment
+                };
+                decision = JobPlanner.PlanIssue(planInputWithComments);
+            }
+
             Handle(decision, $"issue #{issue.Number} \"{issue.Title}\" [{string.Join(", ", issue.LabelNames())}]");
+
             if (!DryRun && decision.Job is null && isChanged)
-                state.SetIssueFingerprint(repo.FullName, issue.Number, fingerprints[issue.Number]);
+            {
+                stateStore.SetIssueFingerprint(repo.FullName, issue.Number, fingerprints[issue.Number]);
+            }
         }
 
-        if (!repo.IsEnabled(Workflows.Review) && !repo.IsEnabled(Workflows.Fix)) return;
-        foreach (var pull in await gitBucket.ListPullsAsync(repo.FullName, "open", ct))
+        if (!repo.IsEnabled(Workflows.Review) && !repo.IsEnabled(Workflows.Fix))
+        {
+            return;
+        }
+
+        foreach (var pull in await gitBucketClient.ListPullsAsync(repo.FullName, "open", cancellationToken))
         {
             // Only PRs a review fix can touch need their comments; PRs have no fingerprint, so this is one call per poll each.
-            var decision = (await gitBucket.PlanPullAsync(config, state, identity, repo, pull, ct)).Decision;
-            Handle(decision, $"PR #{pull.Number} \"{pull.Title}\" {pull.Head.Ref} -> {pull.Base.Ref} @ {Text.ShortSha(pull.Head.Sha)}");
+            var plannedPull = await jobLoader.PlanPullAsync(repo, pull, cancellationToken);
+            var decision = plannedPull.Decision;
+            var shortSha = Text.ShortSha(pull.Head.Sha);
+
+            Handle(decision, $"PR #{pull.Number} \"{pull.Title}\" {pull.Head.Ref} -> {pull.Base.Ref} @ {shortSha}");
         }
     }
 
@@ -87,16 +135,19 @@ public sealed class Poller(
     {
         if (DryRun)
         {
-            log.LogInformation("  {What} -> {Decision}", what, decision);
+            logger.LogInformation("  {What} -> {Decision}", what, decision);
             return;
         }
+
         if (decision.Job is null)
         {
-            log.LogDebug("  {What} -> {Decision}", what, decision);
+            logger.LogDebug("  {What} -> {Decision}", what, decision);
             return;
         }
+
         var added = queue.Enqueue(decision.Job);
         var level = added && !decision.Routine ? LogLevel.Information : LogLevel.Debug;
-        log.Log(level, "  {What} -> {Decision}{Queued}", what, decision, added ? " queued" : " already queued");
+
+        logger.Log(level, "  {What} -> {Decision}{Queued}", what, decision, added ? " queued" : " already queued");
     }
 }

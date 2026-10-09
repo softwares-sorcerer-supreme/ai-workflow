@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implement and AgentSession - ai-runner docs</title>
+<meta name="description" content="Workflow 2: Copilot writes code on a branch and checks itself; the runner re-checks build, test and lint, sends failures back for fix rounds, then pushes and opens the PR.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html">Planning (Core)</a>
+<a href="../modules/hosting.html">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="../modules/implement.html" class="current" aria-current="page">Implement and AgentSession</a>
+<a href="../modules/review-fix.html">PR review and review fix</a>
+<a href="../modules/infrastructure.html">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Implement and AgentSession</h1>
+<p class="summary">Workflow 2: Copilot writes code on a branch and checks itself; the runner re-checks build, test and lint, sends failures back for fix rounds, then pushes and opens the PR.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#flow-job">Flow 1: the whole implement job</a><a href="#flow-session">Flow 2: the agent session and fix rounds</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p>A human adds <code>ai-implement</code> to a simple, analysed issue (or a sub-issue). <code>ImplementIssueJob</code> prepares a branch and a <code>plan.md</code>, and hands the work to <code>AgentSession</code>.
+The agent goes through five stages by itself: understand, change and test, verify, review and simplify (with the read-only <code>code-reviewer</code> subagent), and write <code>PR_BODY.md</code>.
+The runner does not trust the agent's claim. It runs build, test and lint again, checks <code>PR_BODY.md</code>, and sends the problems back for up to <code>implement.maxFixRounds</code> follow-up rounds. Then it commits, pushes (never forced) and opens the PR.
+The agent never runs git and never merges.</p>
+<p><code>AgentSession</code> is shared with the review fix job (<a href="review-fix.html">PR review and review fix</a>).</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph job["ImplementIssueJob"]
+    IJ["RunAsync<br/>plan, branch, label, PR"]
+    SW["SaveWorkAsync wrapper"]
+  end
+  subgraph session["AgentSession"]
+    AS["RunAsync<br/>setup, agent rounds, checks"]
+    SV["SaveWorkAsync<br/>stage, commit, push"]
+    AT["AllowTools, DenyTools"]
+  end
+  subgraph core["Core"]
+    IG["ImplementGate<br/>Decide, TimeForAnotherRound"]
+    PB["PrBodyParser<br/>Problems"]
+    SP["ShellPermissions<br/>For"]
+    CB["ContextBuilder<br/>PlanFromSpec, PlanFromSubIssue, ForFix"]
+    SBd["SubIssueBody"]
+  end
+  subgraph infra["Infrastructure"]
+    WS["IWorkspace"]
+    GIT["IGitClient"]
+    CP["ICopilotRunner"]
+    PR["IProcessRunner"]
+    GB["IGitBucketClient"]
+  end
+  IJ --> CB
+  IJ --> SBd
+  IJ --> WS
+  IJ --> GB
+  IJ --> AS
+  IJ --> SW --> SV
+  AS --> IG
+  AS --> PB
+  AS --> AT --> SP
+  AS --> CP
+  AS --> PR
+  AS --> GIT
+  SV --> GIT
+</pre></div>
+<figcaption>The job owns what happens around the agent (branch, labels, size limit, PR). <code>AgentSession</code> owns the agent loop. <code>ImplementGate</code> owns the "another round?" decision.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>Jobs/ImplementIssueJob.cs</code></td><td>Plan and branch selection (l.45-70), existing PR check (l.72-81), continue saved work (l.83-96), labels and start comment (l.101-103), size limit and PR (l.116-162).</td></tr>
+<tr><td><code>Jobs/AgentSession.cs</code></td><td><code>RunAsync</code> (l.48-176), <code>SaveWorkAsync</code> (l.182-192), <code>AllowTools</code> / <code>DenyTools</code> (l.195-200), <code>JobTimeout</code> (l.44-46), <code>AppendReport</code> (l.208-224).</td></tr>
+<tr><td><code>Core/ImplementGate.cs</code></td><td><code>Decide</code> returns Done, Fix or OutOfRounds. <code>TimeForAnotherRound</code> needs <code>left &gt;= 2 x perCallTimeout</code>.</td></tr>
+<tr><td><code>Core/PrBodyParser.cs</code></td><td>Lists problems in <code>PR_BODY.md</code> (it does not throw): missing headings, empty sections, no checkboxes, unchecked criteria without a reason, count differs from the plan.</td></tr>
+<tr><td><code>Core/ShellPermissions.cs</code></td><td>Turns <code>dotnet build X.sln</code> into <code>shell(dotnet:*)</code>. Launchers keep the exact command. Git gets none.</td></tr>
+<tr><td><code>Core/ContextBuilder.cs</code></td><td><code>PlanFromSpec</code>, <code>PlanFromSubIssue</code>, <code>ForFix</code> (builds <code>fix.md</code>).</td></tr>
+<tr><td><code>agents/implement-issue.agent.md</code></td><td>The agent's stages, follow-up round, definition of done and "Never" list.</td></tr>
+</tbody></table></div>
+
+<h2 id="flow-job">Flow 1: the whole implement job</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant W as JobWorker
+  participant J as ImplementIssueJob
+  participant GB as GitBucket
+  participant WS as Workspace
+  participant S as AgentSession
+  W->>J: RunAsync(ImplementIssue)
+  J->>GB: LoadIssueAsync (re-plan)
+  alt not ai:ready + ai:simple
+    J->>GB: comment "I did not start: ..." and remove ai-implement
+    J-->>W: rejected
+  end
+  J->>J: choose base branch, work branch, plan.md
+  alt sub-issue and previous one not done
+    J->>GB: comment and remove ai-implement
+    J-->>W: rejected
+  end
+  J->>GB: list open PRs
+  alt PR from this branch exists
+    J->>GB: label ai:implementing, comment, remove ai-implement
+    J-->>W: already-open
+  end
+  J->>WS: PrepareAsync(origin/base, branch)
+  J->>J: continue saved work only if all commits are the runner's
+  J->>J: write plan.md
+  J->>GB: add ai:implementing, comment "Copilot started on branch"
+  J->>S: RunAsync(AgentTask)
+  S-->>J: AgentResult
+  J->>S: SaveWorkAsync (commit and push)
+  alt over size limit
+    J->>GB: comment (code saved, no PR), remove labels
+    J-->>W: too-big
+  else
+    J->>GB: CreatePull (WIP title if checks fail)
+    J->>GB: remove ai-implement, comment "opened PR"
+    J-->>W: ok or wip
+  end
+</pre></div>
+<figcaption><code>ImplementIssueJob.RunAsync</code> and <code>ImplementAsync</code> (<code>ImplementIssueJob.cs:36-162</code>). On any exception the job removes <code>ai:implementing</code> so a human can retry after removing <code>ai:failed</code> (l.104-113).</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li><strong>Choose branches and plan.</strong> A sub-issue builds on <code>feat/issue-P</code> into <code>ai/issue-P-K</code> and its plan is its own body. A normal issue builds on the default branch into <code>ai/issue-N</code> and its plan is the latest SPEC block (l.46-70). Working on the base branch itself is refused (l.69-70).</li>
+  <li><strong>Order check for sub-issues.</strong> The previous sub-issue must be done. The list comes from the parent's hidden <code>SUBISSUES</code> marker (l.168-180).</li>
+  <li><strong>No second PR.</strong> If an open PR from the branch to the base exists, the job only fixes the labels and says so (l.72-81).</li>
+  <li><strong>Continue saved work.</strong> If the remote branch has commits that the base lacks, all of them must have the runner's author email. Otherwise a person may be working there, and the job fails (l.83-96).</li>
+  <li><strong>Run the agent session</strong> (next flow), then <strong>commit and push first, judge size second</strong>: too big or not, the code is on the branch (l.134-137).</li>
+  <li><strong>Size limit.</strong> More than <code>maxChangedFiles</code> files or <code>maxDiffLines</code> changed lines: no PR, a comment explains, labels are removed (l.138-149).</li>
+  <li><strong>Open the PR.</strong> The title gets <code>[WIP - checks failing]</code> when a check still fails. The body is the agent's <code>PR_BODY.md</code> plus the runner's check report and rounds, ending with <code>Closes #N</code> (l.151-155, 189-198).</li>
+</ol>
+
+<h2 id="flow-session">Flow 2: the agent session and fix rounds</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["AgentSession.RunAsync"]) --> setup{"commands.setup set?"}
+  setup -->|"yes"| runsetup["run setup (fail the job if it fails)"]
+  setup -->|"no"| fp
+  runsetup --> fp["fingerprint .git/config"]
+  fp --> r1["Round 1: copilot with the first prompt"]
+  r1 --> f1{"Copilot failed?"}
+  f1 -->|"yes"| ret1["return FirstFailure (job decides what to save)"]
+  f1 -->|"no"| loop["checks: build, then test and lint"]
+  loop --> out["read PR_BODY.md, Problems()"]
+  out --> dec{"ImplementGate.Decide"}
+  dec -->|"Done"| fin["save output file copy, return result"]
+  dec -->|"OutOfRounds"| fin
+  dec -->|"Fix"| mk["write fix.md and diff.patch"]
+  mk --> rn["next round: copilot with the follow-up prompt"]
+  rn --> g{"config changed?"}
+  g -->|"yes"| bad["discard clone, fail: .git/config changed"]
+  g -->|"no"| same{"code diff changed?"}
+  same -->|"yes"| loop
+  same -->|"no"| keep["keep earlier check results"] --> out
+</pre></div>
+<figcaption><code>AgentSession.RunAsync</code> (<code>AgentSession.cs:48-176</code>). The loop runs the checks again only if the diff changed. A fix round that only touched <code>PR_BODY.md</code> reuses the old check results (l.134-138).</figcaption>
+</figure>
+
+<h3>When does another fix round start?</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  d(["ImplementGate.Decide(checksOk, prBodyProblems,<br/>fixRoundsUsed, maxFixRounds, canRunAgain)"]) --> a{"checksOk and no body problems?"}
+  a -->|"yes"| done["Done: open the PR"]
+  a -->|"no"| b{"canRunAgain is false<br/>or rounds used at the max?"}
+  b -->|"yes"| oor["OutOfRounds: open the PR<br/>(WIP if a check fails)"]
+  b -->|"no"| c{"checks pass and one round already used?<br/>(only PR_BODY.md is wrong)"}
+  c -->|"yes"| oor
+  c -->|"no"| fix["Fix: run Copilot again with fix.md"]
+</pre></div>
+<figcaption><code>ImplementGate.Decide</code> (<code>Core/ImplementGate.cs:24-28</code>). <code>canRunAgain</code> is false when the last Copilot call failed or less than twice the per-call timeout is left in the job.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li><strong>Setup.</strong> <code>commands.setup</code> runs first, because the work folder was cleaned and <code>node_modules</code> or <code>.venv</code> are gone. A failing setup fails the job (l.60-65).</li>
+  <li><strong>Guard.</strong> After every Copilot run and every check, the hash of <code>.git/config</code> is compared with the start value. If it changed, the clone is deleted and the job fails, so nothing is pushed (l.67-77).</li>
+  <li><strong>Checks.</strong> Build first. If the build fails, test and lint are skipped because they would repeat its errors. Otherwise test and lint both run, so one fix round gets every failure (l.103-117).</li>
+  <li><strong>Fix input.</strong> <code>fix.md</code> lists failing commands with the last 3000 characters of output and the <code>PR_BODY.md</code> problems. <code>diff.patch</code> holds everything changed so far (l.156-165).</li>
+  <li><strong>A failed fix round</strong> (quota, timeout) stops the loop but the PR is still opened from what exists. Only a <em>round 1</em> Copilot failure fails the job (l.123-124, 166-171).</li>
+</ol>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Detail</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>Permissions</td><td>Allowed: <code>write</code>, the tool of each setup/build/test/lint command with any arguments, <code>commands.allowShell</code>. Denied: <code>shell(git)</code>, <code>shell(git:*)</code>, <code>write(.ai-workflow)</code>. Deny wins over allow.</td><td><code>AgentSession.cs:194-200</code></td></tr>
+<tr><td>Job timeout</td><td><code>implementTimeout x (2 + 2 x maxFixRounds) + 10</code> minutes for the repo with the most fix rounds.</td><td><code>AgentSession.cs:44-46</code></td></tr>
+<tr><td>Partial work is saved</td><td>If round 1 fails, whatever the agent wrote is committed and pushed (no PR) and the failure message tells the human to remove <code>ai:failed</code> to continue from it.</td><td><code>ImplementIssueJob.cs:122-130</code></td></tr>
+<tr><td>No change at all</td><td>"Copilot finished without changing any file" fails the job.</td><td><code>ImplementIssueJob.cs:135-136</code></td></tr>
+<tr><td>PR body check</td><td>Four headings (<code>What changed</code>, <code>How it was tested</code>, <code>Acceptance criteria</code>, <code>Open points</code>). Criteria need <code>- [x]</code> or <code>- [ ]</code>. An unchecked one needs ` - reason`. The count must equal the numbered criteria of <code>plan.md</code>. Headings <code>##</code> / <code>####</code> are accepted as <code>###</code>.</td><td><code>PrBodyParser.cs:12-46</code>, <code>MarkdownSections.cs:32</code></td></tr>
+<tr><td>Shell permission examples</td><td><code>CI=1 npm test</code> gives <code>shell(npm:*)</code>. <code>cmd /c build.bat</code> keeps the exact text. <code>a &amp;&amp; b</code> allows both tools.</td><td><code>ShellPermissions.cs:27-47</code></td></tr>
+<tr><td>WIP PR</td><td>Opened when a check still fails after the last round. Title prefix <code>[WIP - checks failing]</code> and a bold note in the body.</td><td><code>ImplementIssueJob.cs:153-159, 193</code></td></tr>
+</tbody></table></div>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> <code>IGitBucketClient</code>, <code>IWorkspace</code>, <code>IGitClient</code>, <code>ICopilotRunner</code>, <code>IProcessRunner</code>, <code>IStateStore</code>; Core: <code>ImplementGate</code>, <code>PrBodyParser</code>, <code>ShellPermissions</code>, <code>ContextBuilder</code>, <code>SubIssueBody</code>.</li>
+  <li><strong>Used by:</strong> <code>JobWorker</code>. The PR it opens is picked up by <a href="review-fix.html">PR review</a> (branch <code>ai/*</code>, author = the bot).</li>
+  <li><strong>Tests:</strong> <code>ImplementIssueJobTests</code> (21), <code>ImplementCoreTests</code> (22), <code>GuardRailTests</code> (8).</li>
+</ul>
+
+<div class="callout warning"><span class="title">Warning</span>
+The setup, build, test and lint commands run code the agent wrote, as you, with your files visible. The <code>.git/config</code> guard and the missing tokens limit the damage but it is not a sandbox (<a href="../findings.html#f-code-runs">finding F2</a>).</div>
+<div class="callout gotcha"><span class="title">Gotcha</span>
+A "fix round" here means an extra Copilot run started by the <em>runner</em> after its own checks failed. It is not the same as a "review fix", which is a reply to an <code>@ai</code> comment on a PR. They share <code>AgentSession</code> and the <code>maxFixRounds</code> setting.</div>
+<div class="callout note"><span class="title">Note</span>
+Each fix round costs at least one premium request. With <code>maxFixRounds: 0</code> the PR is opened as WIP at once when a check fails (<code>repos.yml:45-47</code>).</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

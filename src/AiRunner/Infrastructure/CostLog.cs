@@ -14,36 +14,52 @@ public interface ICostLog
 /// logs/cost.csv, so premium request use can be read per repo and workflow after a month.
 /// The CSV is often open in Excel, which locks it; then the row is only in SQLite.
 /// </summary>
-public sealed class CostLog(RunnerConfig config, IStateStore state, ILogger<CostLog> log) : ICostLog
+public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger<CostLog> logger) : ICostLog
 {
     private static readonly object Gate = new();
 
-    public void Record(CostEntry e)
+    public void Record(CostEntry entry)
     {
-        try { state.AddCost(e); }
-        catch (Exception ex) { log.LogWarning("Could not write the cost row to the database: {Message}", ex.Message); }
+        try
+        {
+            stateStore.AddCost(entry);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Could not write the cost row to the database: {Message}", exception.Message);
+        }
 
-        var file = Path.Combine(config.ResolvePath(config.Paths.Logs), "cost.csv");
+        var logsFolder = config.ResolvePath(config.Paths.Logs);
+        var file = Path.Combine(logsFolder, "cost.csv");
+
         try
         {
             lock (Gate)
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                var csvFolder = Path.GetDirectoryName(file)!;
+                Directory.CreateDirectory(csvFolder);
                 if (!File.Exists(file))
+                {
                     File.WriteAllText(file, "date,repo,number,workflow,duration_s,result,detail\n");
-                File.AppendAllText(file, string.Join(",",
-                    e.At.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                    Csv(e.Repo), e.Number, e.Workflow,
-                    e.DurationSeconds.ToString("F0", CultureInfo.InvariantCulture),
-                    Csv(e.Result), Csv(e.Detail)) + "\n");
+                }
+
+                var timestamp = entry.At.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                var csvRepo = Csv(entry.Repo);
+                var duration = entry.DurationSeconds.ToString("F0", CultureInfo.InvariantCulture);
+                var csvResult = Csv(entry.Result);
+                var csvDetail = Csv(entry.Detail);
+                var row = string.Join(",", timestamp, csvRepo, entry.Number, entry.Workflow, duration, csvResult, csvDetail);
+                File.AppendAllText(file, row + "\n");
             }
         }
-        catch (IOException ex)
+        catch (IOException exception)
         {
-            log.LogWarning("Could not append to {File} (open in Excel?): {Message}", file, ex.Message);
+            logger.LogWarning("Could not append to {File} (open in Excel?): {Message}", file, exception.Message);
         }
     }
 
-    private static string Csv(string s) =>
-        s.IndexOfAny([',', '"', '\n', '\r']) < 0 ? s : "\"" + s.Replace("\"", "\"\"").Replace('\n', ' ').Replace('\r', ' ') + "\"";
+    private static string Csv(string value) =>
+        value.IndexOfAny([',', '"', '\n', '\r']) < 0
+            ? value
+            : "\"" + value.Replace("\"", "\"\"").Replace('\n', ' ').Replace('\r', ' ') + "\"";
 }

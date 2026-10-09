@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poller, queue, worker - ai-runner docs</title>
+<meta name="description" content="How work is found (Poller), stored (JobQueue) and run (JobWorker). Scheduling and lifetime only: no business decisions.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html">Planning (Core)</a>
+<a href="../modules/hosting.html" class="current" aria-current="page">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="../modules/implement.html">Implement and AgentSession</a>
+<a href="../modules/review-fix.html">PR review and review fix</a>
+<a href="../modules/infrastructure.html">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Poller, queue, worker</h1>
+<p class="summary">How work is found (Poller), stored (JobQueue) and run (JobWorker). Scheduling and lifetime only: no business decisions.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#poll-flow">Flow 1: one poll of one repo</a><a href="#worker-flow">Flow 2: the worker runs a job</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p>The <code>Hosting/</code> folder turns the pure planner into a running service. <code>Poller</code> finds work, <code>JobQueue</code> remembers it across restarts, and <code>JobWorker</code> runs one job at a time with a timeout, a log folder, a cost row and a failure report.
+It makes no decisions about <em>what</em> to do. That belongs to <code>Core</code> (<code>CLAUDE.md</code> "Architecture").</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph hosting["Hosting"]
+    Poller["Poller<br/>(BackgroundService)"]
+    Queue["JobQueue<br/>Channel + jobs table"]
+    Worker["JobWorker<br/>(BackgroundService)"]
+    Labels["LabelSetup<br/>(--setup-labels)"]
+    Self["CopilotSelfTest<br/>(--copilot-test)"]
+  end
+  Planner["JobPlanner (Core)"]
+  Factory["JobFactory"]
+  Jobs["IJob implementations"]
+  State[("IStateStore")]
+  GB["IGitBucketClient"]
+  Log["JobLog / JobRun"]
+  Cost["ICostLog"]
+  Poller -->|"PlanIssue, PlanPull"| Planner
+  Poller -->|"Enqueue"| Queue
+  Poller --> GB
+  Poller -->|"fingerprints"| State
+  Queue --> State
+  Worker -->|"DequeueAsync"| Queue
+  Worker --> Factory
+  Factory --> Jobs
+  Worker --> Log
+  Worker --> Cost
+  Worker -->|"failure comment, ai:failed"| GB
+  Worker --> State
+  Labels --> GB
+</pre></div>
+<figcaption>Hosting classes and what they touch. The worker never switches on job type: <code>JobFactory</code> finds the right <code>IJob</code>.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>Hosting/Poller.cs</code></td><td>Timer loop, per-repo poll, fingerprint check, <code>Handle</code> (log or enqueue). Has <code>DryRun</code>.</td></tr>
+<tr><td><code>Hosting/JobQueue.cs</code></td><td><code>Enqueue</code> (one pending per key), <code>DequeueAsync</code>, <code>TryDequeue</code>, <code>Recover</code>, <code>MaxAttempts = 2</code>.</td></tr>
+<tr><td><code>Hosting/JobWorker.cs</code></td><td><code>RunOneAsync</code> (timeout, outcome, failure), <code>DrainAsync</code> (for <code>--once</code>), <code>ReportFailureAsync</code>, <code>Record</code> (cost).</td></tr>
+<tr><td><code>Hosting/LabelSetup.cs</code></td><td>Creates every label from <code>Labels.All</code> in every repo.</td></tr>
+<tr><td><code>Hosting/CopilotSelfTest.cs</code></td><td>Two Copilot calls in a temp folder to prove Copilot starts from .NET.</td></tr>
+<tr><td><code>Jobs/IJob.cs</code></td><td><code>IJob</code>, <code>JobInfo</code>, <code>JobOutcome</code>, <code>JobFailedException</code>, <code>JobFactory</code>.</td></tr>
+</tbody></table></div>
+
+<h2 id="poll-flow">Flow 1: one poll of one repo</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant P as Poller
+  participant GB as IGitBucketClient
+  participant ST as IStateStore
+  participant PL as JobPlanner
+  participant Q as JobQueue
+  P->>GB: ListOpenIssues(label = scopeLabel)
+  P->>GB: ListOpenIssues(assignee = bot login)
+  Note over P: merge, distinct by number, order by number
+  P->>ST: GetIssueFingerprints(repo)
+  loop each issue
+    P->>PL: PlanIssue(issue, no comments)
+    alt NeedsComments and issue changed
+      P->>GB: ListComments(issue)
+      P->>ST: GetLastHandledComment
+      P->>PL: PlanIssue(issue, comments)
+    end
+    alt decision has a job
+      P->>Q: Enqueue(job)
+    else no job and issue changed
+      P->>ST: SetIssueFingerprint
+    end
+  end
+  P->>GB: ListPulls(open)
+  loop each open PR (only if review or fix is on)
+    P->>GB: PlanPullAsync (comments only if a fix is possible)
+    P->>Q: Enqueue(job) if any
+  end
+</pre></div>
+<figcaption><code>Poller.PollRepoAsync</code> (<code>Poller.cs:52-85</code>). In dry-run mode only the log lines happen: no enqueue and no fingerprint is stored.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>Two issue lists are merged: issues with the scope label, and issues assigned to the bot. The server may ignore the <code>assignee</code> filter, so the result is filtered again with <code>IsAssignedTo</code> (<code>Poller.cs:54-57</code>).</li>
+  <li><code>seen</code> holds the stored fingerprints. An issue is "changed" when its <code>updated_at + labels</code> differ (<code>Poller.cs:59-62</code>).</li>
+  <li>Labels decide most jobs, so the first plan uses no comments (<code>Poller.cs:68</code>). Comments are fetched only when the plan needs them <em>and</em> the issue changed.</li>
+  <li>If there is a job, it is enqueued. Nothing is remembered, so a job that fails without being able to tell anyone (VPN down) is planned again on the next poll (<code>Poller.cs:12-15</code>).</li>
+  <li>If there is no job and the issue changed, the new fingerprint is stored. The issue is then not read again until it changes.</li>
+  <li>PRs are listed only when <code>review</code> or <code>fix</code> is enabled. They have no fingerprint, so each in-scope PR costs one comment list per poll (<code>Poller.cs:77-83</code>).</li>
+</ol>
+
+<h3>The fingerprint decision</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  a["issue from the list"] --> b["decision = PlanIssue with no comments"]
+  b --> c{"NeedsComments and fingerprint changed?"}
+  c -->|"yes"| d["read comments, plan again"]
+  c -->|"no"| e["keep decision"]
+  d --> f{"decision.Job?"}
+  e --> f
+  f -->|"yes"| g["Enqueue. Do NOT store the fingerprint."]
+  f -->|"no"| h{"fingerprint changed?"}
+  h -->|"yes"| i["store fingerprint"]
+  h -->|"no"| j["nothing"]
+</pre></div>
+<figcaption>Why a job decision never stores the fingerprint: the issue must keep being planned until the job has really run.</figcaption>
+</figure>
+
+<h2 id="worker-flow">Flow 2: the worker runs a job</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant Q as JobQueue
+  participant W as JobWorker
+  participant F as JobFactory
+  participant J as IJob
+  participant ST as IStateStore
+  participant GB as IGitBucketClient
+  participant C as ICostLog
+  W->>Q: DequeueAsync (waits)
+  Q-->>W: StoredJob (status pending)
+  W->>F: Get(request.Type)
+  W->>ST: SetJobStatus(running)
+  W->>W: JobLog.Begin, deadline = now + Info.Timeout
+  W->>J: RunAsync(request, run, linked token)
+  alt Quiet outcome
+    W->>ST: DeleteJob
+    W->>W: delete log folder
+  else outcome ok, wip, too-big, rejected, ...
+    W->>ST: SetJobStatus(done)
+    W->>C: Record(cost row)
+  else exception
+    W->>ST: SetJobStatus(failed, message)
+    W->>C: Record(failed)
+    W->>J: OnFailed(request)
+    W->>GB: AddComment(failure text)
+    W->>GB: AddLabels(ai:failed) for issues
+  end
+</pre></div>
+<figcaption><code>JobWorker.RunOneAsync</code> (<code>JobWorker.cs:49-101</code>). The failure text says how to retry: remove <code>ai:failed</code> on issues, "I will try again on the next commit" on PRs, or the job's own <code>Retry</code> text.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>The job's <code>Info.Timeout</code> becomes both a deadline on <code>JobRun</code> (jobs read <code>TimeLeft</code>) and a <code>CancelAfter</code> on the token (<code>JobWorker.cs:57-60</code>).</li>
+  <li>A cancellation caused by the host stopping is <em>not</em> a failure. The job stays <code>running</code> and is re-queued once at the next start (<code>JobWorker.cs:76-80</code>).</li>
+  <li>The error text depends on the cause: <code>JobFailedException</code> message, "did not finish within N minutes", "A call to GitBucket timed out (VPN or server down?)", or <code>TypeName: short message</code> (<code>JobWorker.cs:83-90</code>).</li>
+  <li><code>error.txt</code> with the full exception is saved in the job's log folder and the failure comment points to that folder (<code>JobWorker.cs:94, 114</code>).</li>
+</ol>
+
+<h3>Restart recovery</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["Start: JobWorker.RecoverAsync"]) --> prune["PruneJobs older than logRetentionDays"]
+  prune --> rec["JobQueue.Recover"]
+  rec --> l1{"each job still 'running'"}
+  l1 -->|"attempts below 2"| p["set pending again"]
+  l1 -->|"attempts 2 or more"| f["set failed: interrupted twice"]
+  f --> rep["comment: stopped twice while this job was running"]
+  p --> w["write all pending ids into the channel"]
+  rep --> w
+</pre></div>
+<figcaption><code>JobQueue.Recover</code> (<code>JobQueue.cs:64-83</code>) and <code>JobWorker.RecoverAsync</code> (<code>JobWorker.cs:103-109</code>). <code>DrainAsync</code> (used by <code>--once</code>) recovers first too.</figcaption>
+</figure>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<ul>
+  <li><strong>One pending job per key.</strong> A second request with the same key updates the payload and returns <code>false</code> (<code>JobQueue.cs:26-31</code>). A job may be pending while another with the same key runs. The second run re-reads GitBucket and does nothing if the first did the work.</li>
+  <li><strong>One job at a time.</strong> Cost is predictable and the shared <code>work/</code> clone is never used by two jobs at once.</li>
+  <li><strong>PR failures add no label.</strong> The job itself remembers the failed commit (review) or marks the <code>@ai</code> comment handled (fix), so a PR is not retried on every poll (<code>IJob.cs:31-34</code>).</li>
+  <li><strong>Per-repo isolation.</strong> A poll error in one repo is logged and the next repo is still polled. The catch ignores real shutdown but treats an HTTP timeout (also an <code>OperationCanceledException</code>) as an error (<code>Poller.cs:40-47</code>).</li>
+  <li><strong>Log levels.</strong> A newly queued, non-routine job logs at Information. Routine and "already queued" go to Debug (<code>Poller.cs:99-100</code>).</li>
+  <li><strong>Cost row:</strong> written for every non-quiet outcome and for failures: date, repo, number, workflow, seconds, result, detail (<code>JobWorker.cs:133-135</code>).</li>
+</ul>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> <code>JobPlanner</code> (Core), <code>IGitBucketClient</code>, <code>IStateStore</code>, <code>JobLog</code>, <code>ICostLog</code>, <code>JobFactory</code> and the <code>IJob</code>s.</li>
+  <li><strong>Used by:</strong> <code>Program.cs</code> only (registered as singletons, hosted services only in loop mode).</li>
+  <li><strong>Tests:</strong> <code>PollerTests</code> (6), <code>JobWorkerTests</code> (5), <code>JobQueueAndWorkerTests</code> (2), all with <code>Fakes/</code>.</li>
+</ul>
+
+<div class="callout gotcha"><span class="title">Gotcha</span>
+The poller never writes to GitBucket. Only jobs and the worker's failure report do. If you add a write to the poller, dry-run would no longer be safe.</div>
+<div class="callout warning"><span class="title">Warning</span>
+<code>SequenceSubIssuesJob</code> is planned on <em>every</em> poll for every <code>ai:parent</code> issue. It usually ends "Quiet", but only after several API calls, including a list of all closed PRs. See <a href="../findings.html#f-poll-cost">finding F6</a>.</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

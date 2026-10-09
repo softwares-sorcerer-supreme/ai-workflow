@@ -17,7 +17,14 @@ public sealed record StoredJob(long Id, JobRequest Request, string Status, int A
 
 public sealed record ReviewState(string HeadSha, long? CommentId, string Result);
 
-public sealed record CostEntry(DateTimeOffset At, string Repo, int Number, string Workflow, double DurationSeconds, string Result, string Detail);
+public sealed record CostEntry(
+    DateTimeOffset At,
+    string Repo,
+    int Number,
+    string Workflow,
+    double DurationSeconds,
+    string Result,
+    string Detail);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -35,18 +42,21 @@ public interface IStateStore
     long GetLastHandledComment(string repo, int issue);
     void SetLastHandledComment(string repo, int issue, long commentId);
 
-    ReviewState? GetReview(string repo, int pr);
-    void SetReview(string repo, int pr, ReviewState state);
+    ReviewState? GetReview(string repo, int pullNumber);
+    void SetReview(string repo, int pullNumber, ReviewState reviewState);
 
     long AddJob(JobRequest request);
     StoredJob? GetJob(long id);
     StoredJob? FindJob(string key, string status);
     IReadOnlyList<StoredJob> ListJobs(string status);
     void UpdateJobPayload(long id, string? payload);
+
     /// <summary>Running also counts an attempt.</summary>
     void SetJobStatus(long id, string status, string? error = null);
+
     /// <summary>Deletes finished jobs older than the given time.</summary>
     void PruneJobs(DateTimeOffset finishedBefore);
+
     /// <summary>For a job that found nothing to do: no row is kept.</summary>
     void DeleteJob(long id);
 
@@ -81,60 +91,109 @@ public sealed class SqliteStateStore : IStateStore
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)
     {
-        using var conn = Open();
-        using var cmd = Command(conn, "SELECT issue, fingerprint FROM issue_seen WHERE repo = $repo", ("$repo", repo));
-        using var r = cmd.ExecuteReader();
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            "SELECT issue, fingerprint FROM issue_seen WHERE repo = $repo",
+            ("$repo", repo));
+        using var reader = command.ExecuteReader();
+
         var result = new Dictionary<int, string>();
-        while (r.Read()) result[r.GetInt32(0)] = r.GetString(1);
+        while (reader.Read())
+        {
+            result[reader.GetInt32(0)] = reader.GetString(1);
+        }
+
         return result;
     }
 
     public void SetIssueFingerprint(string repo, int issue, string fingerprint) =>
-        Execute("""
+        Execute(
+            """
             INSERT INTO issue_seen (repo, issue, fingerprint) VALUES ($repo, $issue, $fp)
             ON CONFLICT(repo, issue) DO UPDATE SET fingerprint = $fp
-            """, ("$repo", repo), ("$issue", issue), ("$fp", fingerprint));
+            """,
+            ("$repo", repo),
+            ("$issue", issue),
+            ("$fp", fingerprint));
 
     public long GetLastHandledComment(string repo, int issue) =>
-        Scalar("SELECT last_handled_comment FROM issue_state WHERE repo = $repo AND issue = $issue",
-            ("$repo", repo), ("$issue", issue)) is long id ? id : 0;
+        Scalar(
+            "SELECT last_handled_comment FROM issue_state WHERE repo = $repo AND issue = $issue",
+            ("$repo", repo),
+            ("$issue", issue)) is long id ? id : 0;
 
     public void SetLastHandledComment(string repo, int issue, long commentId) =>
-        Execute("""
+        Execute(
+            """
             INSERT INTO issue_state (repo, issue, last_handled_comment) VALUES ($repo, $issue, $id)
             ON CONFLICT(repo, issue) DO UPDATE SET last_handled_comment = MAX(last_handled_comment, $id)
-            """, ("$repo", repo), ("$issue", issue), ("$id", commentId));
+            """,
+            ("$repo", repo),
+            ("$issue", issue),
+            ("$id", commentId));
 
-    public ReviewState? GetReview(string repo, int pr)
+    public ReviewState? GetReview(string repo, int pullNumber)
     {
-        using var conn = Open();
-        using var cmd = Command(conn, "SELECT head_sha, comment_id, result FROM review_state WHERE repo = $repo AND pr = $pr",
-            ("$repo", repo), ("$pr", pr));
-        using var r = cmd.ExecuteReader();
-        return r.Read() ? new ReviewState(r.GetString(0), r.IsDBNull(1) ? null : r.GetInt64(1), r.GetString(2)) : null;
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            "SELECT head_sha, comment_id, result FROM review_state WHERE repo = $repo AND pr = $pr",
+            ("$repo", repo),
+            ("$pr", pullNumber));
+        using var reader = command.ExecuteReader();
+
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var headSha = reader.GetString(0);
+        long? commentId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+        var result = reader.GetString(2);
+
+        return new ReviewState(headSha, commentId, result);
     }
 
-    public void SetReview(string repo, int pr, ReviewState state) =>
-        Execute("""
+    public void SetReview(string repo, int pullNumber, ReviewState reviewState) =>
+        Execute(
+            """
             INSERT INTO review_state (repo, pr, head_sha, comment_id, result) VALUES ($repo, $pr, $sha, $cid, $result)
             ON CONFLICT(repo, pr) DO UPDATE SET head_sha = $sha, comment_id = COALESCE($cid, comment_id), result = $result
-            """, ("$repo", repo), ("$pr", pr), ("$sha", state.HeadSha), ("$cid", state.CommentId), ("$result", state.Result));
+            """,
+            ("$repo", repo),
+            ("$pr", pullNumber),
+            ("$sha", reviewState.HeadSha),
+            ("$cid", reviewState.CommentId),
+            ("$result", reviewState.Result));
 
-    public long AddJob(JobRequest request) =>
-        (long)Scalar("""
+    public long AddJob(JobRequest request)
+    {
+        var typeName = request.Type.ToString();
+        var now = Time(DateTimeOffset.UtcNow);
+
+        return (long)Scalar(
+            """
             INSERT INTO jobs (key, type, repo, number, payload, status, created_at)
             VALUES ($key, $type, $repo, $number, $payload, 'pending', $now);
             SELECT last_insert_rowid();
             """,
-            ("$key", request.Key), ("$type", request.Type.ToString()), ("$repo", request.Repo),
-            ("$number", request.Number), ("$payload", request.Payload), ("$now", Time(DateTimeOffset.UtcNow)))!;
+            ("$key", request.Key),
+            ("$type", typeName),
+            ("$repo", request.Repo),
+            ("$number", request.Number),
+            ("$payload", request.Payload),
+            ("$now", now))!;
+    }
 
     public StoredJob? GetJob(long id) => QueryJobs("WHERE id = $id", ("$id", id)).FirstOrDefault();
 
     public StoredJob? FindJob(string key, string status) =>
-        QueryJobs("WHERE key = $key AND status = $status ORDER BY id", ("$key", key), ("$status", status)).FirstOrDefault();
+        QueryJobs("WHERE key = $key AND status = $status ORDER BY id", ("$key", key), ("$status", status))
+            .FirstOrDefault();
 
-    public IReadOnlyList<StoredJob> ListJobs(string status) => QueryJobs("WHERE status = $status ORDER BY id", ("$status", status));
+    public IReadOnlyList<StoredJob> ListJobs(string status) =>
+        QueryJobs("WHERE status = $status ORDER BY id", ("$status", status));
 
     public void UpdateJobPayload(long id, string? payload) =>
         Execute("UPDATE jobs SET payload = $payload WHERE id = $id", ("$id", id), ("$payload", payload));
@@ -142,74 +201,125 @@ public sealed class SqliteStateStore : IStateStore
     public void SetJobStatus(long id, string status, string? error = null)
     {
         var now = Time(DateTimeOffset.UtcNow);
+
         if (status == JobStatus.Running)
-            Execute("UPDATE jobs SET status = $s, attempts = attempts + 1, started_at = $now WHERE id = $id",
-                ("$id", id), ("$s", status), ("$now", now));
+        {
+            Execute(
+                "UPDATE jobs SET status = $s, attempts = attempts + 1, started_at = $now WHERE id = $id",
+                ("$id", id),
+                ("$s", status),
+                ("$now", now));
+        }
         else if (status == JobStatus.Pending)
+        {
             Execute("UPDATE jobs SET status = $s WHERE id = $id", ("$id", id), ("$s", status));
+        }
         else
-            Execute("UPDATE jobs SET status = $s, finished_at = $now, error = $err WHERE id = $id",
-                ("$id", id), ("$s", status), ("$now", now), ("$err", error));
+        {
+            Execute(
+                "UPDATE jobs SET status = $s, finished_at = $now, error = $err WHERE id = $id",
+                ("$id", id),
+                ("$s", status),
+                ("$now", now),
+                ("$err", error));
+        }
     }
 
     public void DeleteJob(long id) => Execute("DELETE FROM jobs WHERE id = $id", ("$id", id));
 
-    public void PruneJobs(DateTimeOffset finishedBefore) =>
-        Execute("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < $t", ("$t", Time(finishedBefore)));
+    public void PruneJobs(DateTimeOffset finishedBefore)
+    {
+        var finishedBeforeText = Time(finishedBefore);
+        Execute(
+            "DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < $t",
+            ("$t", finishedBeforeText));
+    }
 
-    public void AddCost(CostEntry e) =>
-        Execute("""
+    public void AddCost(CostEntry entry)
+    {
+        var at = Time(entry.At);
+        Execute(
+            """
             INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail)
             VALUES ($at, $repo, $number, $wf, $d, $result, $detail)
-            """, ("$at", Time(e.At)), ("$repo", e.Repo), ("$number", e.Number), ("$wf", e.Workflow),
-            ("$d", e.DurationSeconds), ("$result", e.Result), ("$detail", e.Detail));
+            """,
+            ("$at", at),
+            ("$repo", entry.Repo),
+            ("$number", entry.Number),
+            ("$wf", entry.Workflow),
+            ("$d", entry.DurationSeconds),
+            ("$result", entry.Result),
+            ("$detail", entry.Detail));
+    }
 
     // ---- helpers ----
 
     private List<StoredJob> QueryJobs(string where, params (string, object?)[] args)
     {
-        using var conn = Open();
-        using var cmd = Command(conn, $"SELECT id, type, repo, number, payload, status, attempts FROM jobs {where}", args);
-        using var r = cmd.ExecuteReader();
-        var list = new List<StoredJob>();
-        while (r.Read())
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            $"SELECT id, type, repo, number, payload, status, attempts FROM jobs {where}",
+            args);
+        using var reader = command.ExecuteReader();
+
+        var jobs = new List<StoredJob>();
+        while (reader.Read())
         {
-            var request = new JobRequest(Enum.Parse<JobType>(r.GetString(1)), r.GetString(2), r.GetInt32(3),
-                r.IsDBNull(4) ? null : r.GetString(4));
-            list.Add(new StoredJob(r.GetInt64(0), request, r.GetString(5), r.GetInt32(6)));
+            var typeName = reader.GetString(1);
+            var jobType = Enum.Parse<JobType>(typeName);
+            var repo = reader.GetString(2);
+            var number = reader.GetInt32(3);
+            var payload = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var request = new JobRequest(jobType, repo, number, payload);
+            var id = reader.GetInt64(0);
+            var status = reader.GetString(5);
+            var attempts = reader.GetInt32(6);
+            jobs.Add(new StoredJob(id, request, status, attempts));
         }
-        return list;
+
+        return jobs;
     }
 
     private SqliteConnection Open()
     {
-        var conn = new SqliteConnection(_connectionString);
-        conn.Open();
-        return conn;
+        var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        return connection;
     }
 
-    private static SqliteCommand Command(SqliteConnection conn, string sql, params (string Name, object? Value)[] args)
+    private static SqliteCommand Command(
+        SqliteConnection connection,
+        string sql,
+        params (string Name, object? Value)[] args)
     {
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
-        foreach (var (name, value) in args) cmd.Parameters.AddWithValue(name, value ?? DBNull.Value);
-        return cmd;
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var (name, value) in args)
+        {
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        }
+
+        return command;
     }
 
     private void Execute(string sql, params (string, object?)[] args)
     {
-        using var conn = Open();
-        using var cmd = Command(conn, sql, args);
-        cmd.ExecuteNonQuery();
+        using var connection = Open();
+        using var command = Command(connection, sql, args);
+        command.ExecuteNonQuery();
     }
 
     private object? Scalar(string sql, params (string, object?)[] args)
     {
-        using var conn = Open();
-        using var cmd = Command(conn, sql, args);
-        var v = cmd.ExecuteScalar();
-        return v is DBNull ? null : v;
+        using var connection = Open();
+        using var command = Command(connection, sql, args);
+        var value = command.ExecuteScalar();
+
+        return value is DBNull ? null : value;
     }
 
-    private static string Time(DateTimeOffset t) => t.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+    private static string Time(DateTimeOffset time) =>
+        time.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 }

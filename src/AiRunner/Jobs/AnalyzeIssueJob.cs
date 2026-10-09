@@ -10,10 +10,12 @@ namespace AiRunner.Jobs;
 /// </summary>
 public sealed class AnalyzeIssueJob(
     RunnerConfig config,
-    IGitBucketClient gitBucket,
+    IGitBucketClient gitBucketClient,
+    JobLoader jobLoader,
     IWorkspace workspace,
     ICopilotRunner copilot,
-    IStateStore state) : IJob
+    IStateStore stateStore,
+    AttachmentFetcher attachmentFetcher) : IJob
 {
     public const string Agent = "grill-issue";
     public const string Prompt =
@@ -21,47 +23,78 @@ public sealed class AnalyzeIssueJob(
 
     public JobType Type => JobType.AnalyzeIssue;
 
-    public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes + 10));
-
-    public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken ct)
+    public JobInfo Info
     {
-        var (repo, issue, comments, decision) = await gitBucket.LoadIssueAsync(config, state, request, ct);
-        if (decision.Job?.Type != Type)
-            return JobOutcome.NotNeeded(decision.Reason);
+        get
+        {
+            var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes + 10);
+            return new(Workflows.Analyze, "Issue analysis", timeout);
+        }
+    }
 
-        var (round, limitReached) = JobPlanner.NextRound(repo, comments);
+    public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
+    {
+        var (repo, issue, comments, decision) = await jobLoader.LoadIssueAsync(request, cancellationToken);
+        if (decision.Job?.Type != Type)
+        {
+            return JobOutcome.NotNeeded(decision.Reason);
+        }
+
+        // The local cursor only matters for Trigger, which the planner already used.
+        var thread = AtAiThread.Of(comments, Markers.Analysis, 0);
+        var (round, limitReached) = thread.Next(repo.Limits.MaxAnalysisRounds);
         if (limitReached)
+        {
             throw new JobFailedException(
                 $"{repo.Limits.MaxAnalysisRounds} analysis rounds reached. Please clarify this issue in a call " +
                 "and update the issue text; the bot will not ask more questions here.");
-        var readUpTo = comments.Count == 0 ? 0 : comments.Max(c => c.Id);
+        }
 
-        var defaultBranch = await gitBucket.DefaultBranchAsync(request.Repo, ct);
-        var dir = await workspace.PrepareAsync(request.Repo, Branches.Remote(defaultBranch), null, [], ct);
-        var context = ContextBuilder.ForIssue(issue, comments, round);
-        await File.WriteAllTextAsync(Path.Combine(dir, "context.md"), context, ct);
+        var defaultBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
+        var startPoint = Branches.Remote(defaultBranch);
+        var workspaceRequest = new WorkspaceRequest(
+            Repo: request.Repo,
+            StartPoint: startPoint,
+            NewBranch: null,
+            ExtraFetch: []);
+        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+
+        var issueBody = new AttachmentSource("the issue body", issue.Body);
+        var attachmentRequest = AttachmentRequest.Of(directory, issueBody, comments);
+        var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
+
+        var context = ContextBuilder.ForIssue(issue, comments, round) + fetched.Section;
+        var contextFile = Path.Combine(directory, "context.md");
+        await File.WriteAllTextAsync(contextFile, context, cancellationToken);
         run.Save("context.md", context);
 
+        var model = repo.ModelFor(Workflows.Analyze);
+        var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);
         var output = await copilot.RunCopilotAsync(
-            new CopilotRequest(dir, Prompt, Agent, repo.ModelFor(Workflows.Analyze),
-                TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes))
+            new CopilotRequest(directory, Prompt, Agent, model, timeout)
             {
                 DenyTools = ["write", "shell"],
-            }, run, ct);
+                Attachments = fetched.ForCopilot,
+            }, run, cancellationToken);
 
         // Check everything before posting anything, so a bad answer is never half-applied.
         var analysis = JobSupport.RequireBlock(output, Markers.Analysis, run);
         var parsed = JobSupport.Parse(() => AnalysisParser.Parse(analysis), "The analysis");
         var spec = parsed.Status == AnalysisStatus.Ready ? JobSupport.RequireBlock(output, Markers.Spec, run) : null;
 
-        await gitBucket.AddCommentAsync(request.Repo, issue.Number,
-            BotComments.WithUpto(analysis, Markers.Analysis, readUpTo), ct);
-        await gitBucket.ApplyLabelsAsync(request.Repo, issue.Number, parsed.LabelsToAdd, parsed.LabelsToRemove, ct);
+        var reply = thread.Reply(analysis);
+        await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, reply, cancellationToken);
+        var labelChange = new LabelChange(Add: parsed.LabelsToAdd, Remove: parsed.LabelsToRemove);
+        await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
         if (spec is not null)
-            await gitBucket.AddCommentAsync(request.Repo, issue.Number, Markers.Wrap(spec, Markers.Spec), ct);
+        {
+            var specComment = Markers.Wrap(spec, Markers.Spec);
+            await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, specComment, cancellationToken);
+        }
 
-        state.SetLastHandledComment(request.Repo, issue.Number, readUpTo);
+        stateStore.SetLastHandledComment(request.Repo, issue.Number, thread.ReadUpTo);
         run.Info($"round {round}: {parsed.Status}, {parsed.Complexity}");
+
         return JobOutcome.Ok($"round {round}, {parsed.Status}, {parsed.Complexity}");
     }
 }

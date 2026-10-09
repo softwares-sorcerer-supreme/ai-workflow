@@ -1,8 +1,14 @@
 namespace AiRunner.Core;
 
-public enum AnalysisStatus { QuestionsOpen, Ready }
+public enum AnalysisStatus
+{
+    QuestionsOpen, Ready
+}
 
-public enum Complexity { Simple, Complex }
+public enum Complexity
+{
+    Simple, Complex
+}
 
 public sealed record AnalysisResult(
     AnalysisStatus Status,
@@ -23,21 +29,25 @@ public static class AnalysisParser
         {
             "questions-open" => AnalysisStatus.QuestionsOpen,
             "ready" => AnalysisStatus.Ready,
-            var v => throw new FormatException($"Status must be 'questions-open' or 'ready', got '{v}'"),
+            var value => throw new FormatException($"Status must be 'questions-open' or 'ready', got '{value}'"),
         };
+
         var complexity = MarkdownSections.ReadField(block, "Complexity") switch
         {
             "simple" => Complexity.Simple,
             "complex" => Complexity.Complex,
-            var v => throw new FormatException($"Complexity must be 'simple' or 'complex', got '{v}'"),
+            var value => throw new FormatException($"Complexity must be 'simple' or 'complex', got '{value}'"),
         };
 
         if (status == AnalysisStatus.QuestionsOpen)
+        {
             return new(status, complexity, [Labels.QuestionsOpen], [Labels.Ready, Labels.Simple, Labels.Complex]);
+        }
 
-        var (add, other) = complexity == Complexity.Simple
+        var (labelToAdd, labelToRemove) = complexity == Complexity.Simple
             ? (Labels.Simple, Labels.Complex)
             : (Labels.Complex, Labels.Simple);
-        return new(status, complexity, [Labels.Ready, add], [Labels.QuestionsOpen, other]);
+
+        return new(status, complexity, [Labels.Ready, labelToAdd], [Labels.QuestionsOpen, labelToRemove]);
     }
 }

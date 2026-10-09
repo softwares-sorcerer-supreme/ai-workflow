@@ -10,6 +10,18 @@ public enum ImplementStep
     OutOfRounds,
 }
 
+/// <summary>Where the implement loop stands after the agent stopped and the runner re-ran the checks.</summary>
+/// <param name="CanRunAgain">
+/// False when the last Copilot call failed (quota, timeout) or the job has too little time left:
+/// then the PR is opened from what exists rather than risking the work.
+/// </param>
+public sealed record ImplementProgress(
+    bool ChecksOk,
+    int PrBodyProblems,
+    int FixRoundsUsed,
+    int MaxFixRounds,
+    bool CanRunAgain);
+
 /// <summary>
 /// The runner's safety net after the agent stopped. The agent is told to verify, review and write
 /// PR_BODY.md itself; the runner only checks the result and decides whether one more round is worth a premium request.
@@ -17,15 +29,18 @@ public enum ImplementStep
 public static class ImplementGate
 {
     /// <summary>
-    /// <paramref name="canRunAgain"/> is false when the last Copilot call failed (quota, timeout) or the job
-    /// has too little time left: then the PR is opened from what exists rather than risking the work.
+    /// When <see cref="ImplementProgress.CanRunAgain"/> is false, the PR is opened from what exists.
     /// When only PR_BODY.md is wrong (checks pass), one fix round is enough; the PR lists what is still missing.
     /// </summary>
-    public static ImplementStep Decide(bool checksOk, int prBodyProblems, int fixRoundsUsed, int maxFixRounds, bool canRunAgain) =>
-        checksOk && prBodyProblems == 0 ? ImplementStep.Done
-        : !canRunAgain || fixRoundsUsed >= maxFixRounds ? ImplementStep.OutOfRounds
-        : checksOk && fixRoundsUsed >= 1 ? ImplementStep.OutOfRounds
-        : ImplementStep.Fix;
+    public static ImplementStep Decide(ImplementProgress progress)
+    {
+        var (checksOk, prBodyProblems, fixRoundsUsed, maxFixRounds, canRunAgain) = progress;
+
+        return checksOk && prBodyProblems == 0 ? ImplementStep.Done
+            : !canRunAgain || fixRoundsUsed >= maxFixRounds ? ImplementStep.OutOfRounds
+            : checksOk && fixRoundsUsed >= 1 ? ImplementStep.OutOfRounds
+            : ImplementStep.Fix;
+    }
 
     /// <summary>
     /// A fix round runs Copilot and the checks again, each up to the per-call timeout. Starting one with

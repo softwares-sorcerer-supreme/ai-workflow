@@ -29,14 +29,26 @@ public static class AsciiSanitizer
 
     public static string Clean(string text)
     {
-        var sb = new StringBuilder(text.Length);
-        foreach (var ch in text.Normalize(NormalizationForm.FormD))
+        var builder = new StringBuilder(text.Length);
+
+        foreach (var character in text.Normalize(NormalizationForm.FormD))
         {
-            if (ch < 128) { sb.Append(ch); continue; }
-            if (Map.TryGetValue(ch, out var replacement)) { sb.Append(replacement); continue; }
+            if (character < 128)
+            {
+                builder.Append(character);
+                continue;
+            }
+
+            if (Map.TryGetValue(character, out var replacement))
+            {
+                builder.Append(replacement);
+                continue;
+            }
+
             // Everything else is dropped: accent marks (after FormD they are separate chars,
             // so "tiếng" becomes "tieng"), emoji (surrogate pairs) and other symbols.
         }
-        return sb.ToString();
+
+        return builder.ToString();
     }
 }

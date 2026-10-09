@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning (Core) - ai-runner docs</title>
+<meta name="description" content="The pure decision logic: which job does an issue need, which @ai comment is new, and which sub-issue starts next. No I/O, no DI, no async.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html" class="current" aria-current="page">Planning (Core)</a>
+<a href="../modules/hosting.html">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="../modules/implement.html">Implement and AgentSession</a>
+<a href="../modules/review-fix.html">PR review and review fix</a>
+<a href="../modules/infrastructure.html">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Planning (Core)</h1>
+<p class="summary">The pure decision logic: which job does an issue need, which @ai comment is new, and which sub-issue starts next. No I/O, no DI, no async.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#plan-issue">Flow 1: what does an issue need?</a><a href="#thread">Flow 2: which comment is new?</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p>All "should this run?" rules live in one place: <code>Core/JobPlanner.cs</code>. The poller asks it to decide what to queue, and every job asks it again on fresh data before doing anything.
+That makes the planner the single source of truth, so duplicate or late jobs are harmless.
+Helpers decide which <code>@ai</code> comment is new (<code>AtAiThread</code>) and which sub-issue starts next (<code>SubIssueSequencer</code>).
+All of this is pure: it takes data in and returns a decision, so tests need no fakes (<code>CLAUDE.md</code> "Architecture").</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  subgraph callers["Callers"]
+    Poller["Poller"]
+    JS["JobSupport<br/>LoadIssueAsync, PlanPullAsync"]
+    Jobs["Jobs (WhyNot... checks)"]
+  end
+  subgraph core["Core"]
+    JP["JobPlanner<br/>PlanIssue, PlanPull, WhyNotFix"]
+    AT["AtAiThread<br/>Trigger, Next, Reply"]
+    BC["BotComments<br/>IsBot, MentionsAi, Latest"]
+    MK["Markers<br/>Wrap, Extract"]
+    LB["Labels, Branches"]
+    SQ["SubIssueSequencer<br/>Decide"]
+    SB["SubIssueBody<br/>IsDone, FindList"]
+  end
+  cfg["RepoConfig<br/>workflows, limits, review"]
+  Poller --> JP
+  JS --> JP
+  Jobs --> JP
+  Jobs --> SQ
+  JP --> AT
+  JP --> LB
+  JP --> cfg
+  AT --> BC
+  BC --> MK
+  SQ --> SB
+  SQ --> LB
+  SB --> BC
+</pre></div>
+<figcaption>Planning classes and who uses them. Everything in the <code>core</code> box has no side effects.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>Core/JobPlanner.cs</code></td><td><code>PlanIssue</code> (l.17-77), <code>PlanPull</code> (l.101-128), <code>WhyNotImplement</code>, <code>WhyNotBreakdown</code>, <code>WhyNotFix</code> (l.135-148), review scope <code>InScope</code> (l.164-166).</td></tr>
+<tr><td><code>Core/JobRequest.cs</code></td><td><code>JobType</code> enum, <code>JobRequest</code> (key = <code>Type:Repo#Number</code>), <code>PlanDecision</code> (<code>Run</code> / <code>Skip</code>, <code>Routine</code>, <code>NeedsComments</code>).</td></tr>
+<tr><td><code>Core/AtAiThread.cs</code></td><td>The one place that writes and reads the <code>context-upto</code> tag, counts replies, and decides what is new.</td></tr>
+<tr><td><code>Core/BotComments.cs</code></td><td>Marker constants, <code>IsBot</code>, <code>MentionsAi</code> (regex <code>(^|[^\w])@ai\b</code>, case-insensitive), <code>Latest</code>, <code>Count</code>.</td></tr>
+<tr><td><code>Core/Markers.cs</code></td><td><code>Wrap</code> and <code>Extract</code> for <code>&lt;!-- NAME_START --&gt;</code> blocks.</td></tr>
+<tr><td><code>Core/Labels.cs</code></td><td>All label names and colours (<code>Labels</code>), branch names (<code>Branches</code>).</td></tr>
+<tr><td><code>Core/SubIssueSequencer.cs</code></td><td><code>Decide</code>: Wait, StartNext or OpenFinalPr.</td></tr>
+<tr><td><code>Core/SubIssueBody.cs</code></td><td>Builds and parses sub-issue bodies, <code>IsDone</code>, the hidden <code>SUBISSUES</code> list.</td></tr>
+<tr><td><code>Core/GitBucketModels.cs</code></td><td>Records <code>GbIssue</code>, <code>GbPull</code>, <code>GbComment</code> and helpers (<code>LabelNames</code>, <code>Fingerprint</code>, <code>IsMerged</code>).</td></tr>
+</tbody></table></div>
+
+<h2 id="plan-issue">Flow 1: what does an issue need?</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["PlanIssue(repo, issue, comments, lastHandled)"]) --> c1{"closed, ai:failed,<br/>needs-cloud-agent or ai:on-github?"}
+  c1 -->|"yes"| skip["Skip (with the reason)"]
+  c1 -->|"no"| c4{"label ai-implement?"}
+  c4 -->|"yes, workflow on, not implementing"| r1["Run ImplementIssue<br/>(refused later if not ready + simple)"]
+  c4 -->|"yes, workflow off or implementing"| skip
+  c4 -->|"no"| c5{"label ai-breakdown?"}
+  c5 -->|"yes, workflow on, not ai:parent"| r2["Run BreakdownIssue<br/>(refused later if not ready + complex)"]
+  c5 -->|"yes, workflow off or already parent"| skip
+  c5 -->|"no"| c6{"label ai:parent?"}
+  c6 -->|"yes, breakdown workflow on"| r3["Run SequenceSubIssues (Routine)"]
+  c6 -->|"no"| next["analysis decision (next diagram)"]
+</pre></div>
+<figcaption>Part 1: the label checks of <code>JobPlanner.PlanIssue</code> (<code>JobPlanner.cs:22-53</code>). The order matters: <code>ai-implement</code> is checked before <code>ai-breakdown</code>, and both before analysis.</figcaption>
+</figure>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["No special label: analysis candidate"]) --> c7{"analyze workflow on?"}
+  c7 -->|"no"| skip["Skip"]
+  c7 -->|"comments not read"| nc["Skip + NeedsComments"]
+  c7 -->|"comments read"| c8{"AtAiThread: replies and trigger"}
+  c8 -->|"no reply yet<br/>(a sub-issue also needs @ai)"| r4["Run AnalyzeIssue: round 1"]
+  c8 -->|"reply exists and new @ai"| r5["Run AnalyzeIssue: round N<br/>(the job stops it at the limit)"]
+  c8 -->|"reply exists, no new @ai"| skip
+</pre></div>
+<figcaption>Part 2: the analysis decision (<code>JobPlanner.cs:55-76</code>). Without comments the planner cannot tell round 1 from a later round.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>A closed issue, an issue with <code>ai:failed</code>, or one marked for the (unbuilt) cloud fallback is always skipped.</li>
+  <li><code>ai-implement</code> becomes an <code>ImplementIssue</code> job <em>even if it will be refused</em>. The job posts the reason and removes the label, so the human learns why (<code>JobPlanner.cs:33-36</code>).</li>
+  <li><code>ai-breakdown</code> works the same way. An issue that already has <code>ai:parent</code> is skipped as "already broken down".</li>
+  <li>An <code>ai:parent</code> issue gets a <em>routine</em> sequencing job on every poll.</li>
+  <li>Everything else is an analysis candidate. Without comments the planner cannot tell round 1 from a later round, so it answers "skip + <code>NeedsComments</code>" and the poller reads them (only if the issue changed).</li>
+  <li>With comments, <code>AtAiThread.Of(comments, Markers.Analysis, lastHandled)</code> counts replies and finds the trigger. No reply yet means round 1. Otherwise a new <code>@ai</code> comment is needed.</li>
+</ol>
+
+<h2 id="thread">Flow 2: which comment is new?</h2>
+<p><code>AtAiThread</code> answers "is there an <code>@ai</code> comment nobody has answered yet?" without relying on the database.
+Each reply carries a hidden tag <code>context-upto=N</code>: the newest comment id the job had read when it started. A comment written <em>while Copilot was running</em> has an id above N, so it still counts as new.</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  participant H as Human
+  participant GB as GitBucket comments
+  participant R as Runner job
+  participant CP as Copilot
+  H->>GB: comment 10: "Q1: CSV only. @ai"
+  R->>GB: list comments (newest id = 10)
+  Note over R: ReadUpTo = 10
+  R->>CP: analysis round 2
+  H->>GB: comment 11: "also keep the header. @ai"
+  CP-->>R: analysis block
+  R->>GB: reply comment 12 with context-upto=10
+  Note over R: local cursor = 10
+  R->>GB: next poll lists comments
+  Note over R: reply cursor = 10, answered-up-to = max(10, 10)
+  Note over R: Trigger = comment 11 (id above 10, mentions @ai)
+  R->>CP: analysis round 3
+</pre></div>
+<figcaption>Why the tag exists: comment 11 arrived after the job read the thread but before it replied. Without the tag (reply id 12 as cursor) it would be lost.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>Constructor (<code>AtAiThread.cs:21-30</code>): the cursor of the last reply is its <code>context-upto</code> value, or its own id for an old reply without the tag. <code>AnsweredUpTo = max(local cursor, reply cursor)</code>.</li>
+  <li><code>Trigger</code> (l.50-51): the newest non-bot comment with an id above <code>AnsweredUpTo</code> that mentions <code>@ai</code>.</li>
+  <li><code>RequestsSinceReply</code> (l.57): comments after the last <em>reply</em>, ignoring the local cursor on purpose. A failed fix marks its comment as handled, but its requests were never applied and must reach the next fix.</li>
+  <li><code>Next(limit)</code> (l.60): <code>(Done + 1, Done &gt;= limit)</code>.</li>
+  <li><code>Reply(inner)</code> (l.63): the block from <code>Markers.Wrap</code> plus the tag with <code>ReadUpTo</code> (the newest id in the comments passed in).</li>
+</ol>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Detail</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>Implement needs <code>ai:ready</code> + <code>ai:simple</code></td><td>Otherwise refused with a comment, and the label is removed.</td><td><code>JobPlanner.cs:80-84</code></td></tr>
+<tr><td>Breakdown needs <code>ai:ready</code> + <code>ai:complex</code></td><td>Same refusal style.</td><td><code>JobPlanner.cs:87-91</code></td></tr>
+<tr><td>Sub-issue analysis only on request</td><td>A sub-issue with no reply yet and no <code>@ai</code> is skipped. Its scope already came from the breakdown.</td><td><code>JobPlanner.cs:65-67</code></td></tr>
+<tr><td>Round limit</td><td>The planner still returns a job when the limit is reached; the job fails with a clear message. This way a human sees the reason.</td><td><code>JobPlanner.cs:73-76</code>, <code>AnalyzeIssueJob.cs:35-38</code></td></tr>
+<tr><td>PR skipped when</td><td>closed (or merged), draft, or title starts with <code>[skip-ai]</code>.</td><td><code>JobPlanner.cs:105-110</code></td></tr>
+<tr><td>Review fix goes before review</td><td>A new <code>@ai</code> on an in-scope PR is planned first, so the review of the fixed head covers both.</td><td><code>JobPlanner.cs:112-127</code></td></tr>
+<tr><td>Scope</td><td>PR is in scope if it has the scope label, or its head branch is <code>ai/*</code> or <code>feat/issue-*</code> <em>and</em> its author is the bot. Fix scope is always this "scoped" rule, even when <code>review.scope: all</code>.</td><td><code>JobPlanner.cs:112-113, 164-166</code></td></tr>
+<tr><td>Fix refusals</td><td>Limit reached; PR head is the default branch; the PR branch is missing or not at the PR head in our clone.</td><td><code>JobPlanner.cs:135-148</code></td></tr>
+<tr><td>Sub-issue is done</td><td>The issue is closed, or a PR from <code>ai/issue-P-K</code> into <code>feat/issue-P</code> is merged.</td><td><code>SubIssueBody.cs:70-72</code></td></tr>
+<tr><td>Next sub-issue starts</td><td>When the previous is done and this one is not in progress (<code>ai-implement</code>, <code>ai:implementing</code>, <code>ai:failed</code>) and is <code>ai:simple</code>.</td><td><code>SubIssueSequencer.cs:29-35</code></td></tr>
+</tbody></table></div>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> only <code>Configuration/RunnerConfig.cs</code> POCOs (<code>RepoConfig</code>, <code>Workflows</code>).</li>
+  <li><strong>Used by:</strong> <code>Hosting/Poller</code>, <code>Jobs/JobSupport</code>, every job (for the <code>WhyNot...</code> checks and <code>AtAiThread</code>), <code>SequenceSubIssuesJob</code> (for <code>SubIssueSequencer</code>).</li>
+  <li><strong>Tests:</strong> <code>JobPlannerTests</code> (23), <code>AtAiThreadTests</code> (13), <code>SubIssueSequencerTests</code> (6).</li>
+</ul>
+
+<div class="callout gotcha"><span class="title">Gotcha</span>
+<code>PlanIssue</code> is called <em>twice</em> by the poller: first with <code>comments: null</code>, then with the real comments (<code>Poller.cs:68-71</code>). The first call must never throw or assume comments exist, and a <code>null</code> comment list is a valid input that returns <code>NeedsComments</code>.</div>
+<div class="callout warning"><span class="title">Warning</span>
+Planner rules must stay the single source of "should this run" (<code>CLAUDE.md</code>). Do not add a check only inside a job. A job that disagrees with the planner will loop: the poller keeps queueing it and the job keeps saying "not needed".</div>
+<div class="callout note"><span class="title">Note</span>
+<code>Markers.Wrap</code> replaces <code>&lt;!--</code> with <code>&amp;lt;!--</code> inside agent text, so agent output can never fake a block marker or a <code>context-upto</code> tag (<code>Markers.cs:36-37</code>).</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

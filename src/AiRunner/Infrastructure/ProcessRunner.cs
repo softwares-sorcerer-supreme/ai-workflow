@@ -23,8 +23,8 @@ public sealed record ProcessResult(int ExitCode, string StdOut, string StdErr, T
     /// <summary>Last part of the output, for a log line or a comment.</summary>
     public string Tail(int chars = 1500)
     {
-        var all = (StdOut + "\n" + StdErr).Trim();
-        return all.Length <= chars ? all : "..." + all[^chars..];
+        var output = (StdOut + "\n" + StdErr).Trim();
+        return output.Length <= chars ? output : "..." + output[^chars..];
     }
 
     /// <summary>The command, its exit code and its full output, for the job's log folder.</summary>
@@ -33,7 +33,7 @@ public sealed record ProcessResult(int ExitCode, string StdOut, string StdErr, T
 
 public interface IProcessRunner
 {
-    Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct);
+    Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -60,9 +60,9 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
     /// </summary>
     private readonly TimeSpan _drainTimeout = drainTimeout ?? TimeSpan.FromSeconds(15);
 
-    public async Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+    public async Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken cancellationToken)
     {
-        var psi = new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = spec.FileName,
             WorkingDirectory = spec.WorkDir,
@@ -73,11 +73,32 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
-        if (spec.RawArguments is not null) psi.Arguments = spec.RawArguments;
-        else foreach (var a in spec.Args) psi.ArgumentList.Add(a);
-        foreach (var name in psi.Environment.Keys.Where(k => SecretVars.Contains(k, StringComparer.OrdinalIgnoreCase)).ToList())
-            psi.Environment.Remove(name);
-        foreach (var (k, v) in spec.SetEnv) psi.Environment[k] = v;
+
+        if (spec.RawArguments is not null)
+        {
+            startInfo.Arguments = spec.RawArguments;
+        }
+        else
+        {
+            foreach (var argument in spec.Args)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+        }
+
+        var secretNames = startInfo.Environment.Keys
+            .Where(environmentKey => SecretVars.Contains(environmentKey, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var name in secretNames)
+        {
+            startInfo.Environment.Remove(name);
+        }
+
+        foreach (var (variableName, variableValue) in spec.SetEnv)
+        {
+            startInfo.Environment[variableName] = variableValue;
+        }
 
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
@@ -87,44 +108,86 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
         // The Exited event, not WaitForExitAsync: with async output reading, WaitForExitAsync also
         // waits for the end of the output, which a grandchild holding the pipe delays forever.
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var sw = Stopwatch.StartNew();
-        using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        proc.Exited += (_, _) => exited.TrySetResult();
-        proc.OutputDataReceived += (_, e) => Collect(stdout, stdoutDone, e.Data);
-        proc.ErrorDataReceived += (_, e) => Collect(stderr, stderrDone, e.Data);
-        if (!proc.Start())
-            throw new InvalidOperationException($"Could not start '{spec.FileName}'");
-        proc.StandardInput.Close(); // never wait for keyboard input
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
-        if (proc.HasExited) exited.TrySetResult();
+        var stopwatch = Stopwatch.StartNew();
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(spec.Timeout);
+        using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        process.Exited += (_, _) => exited.TrySetResult();
+        process.OutputDataReceived += (_, eventArgs) => Collect(stdout, stdoutDone, eventArgs.Data);
+        process.ErrorDataReceived += (_, eventArgs) => Collect(stderr, stderrDone, eventArgs.Data);
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException($"Could not start '{spec.FileName}'");
+        }
+
+        process.StandardInput.Close(); // never wait for keyboard input
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        if (process.HasExited)
+        {
+            exited.TrySetResult();
+        }
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(spec.Timeout);
         var timedOut = false;
+
         try
         {
-            await exited.Task.WaitAsync(cts.Token);
+            await exited.Task.WaitAsync(timeoutSource.Token);
         }
         catch (OperationCanceledException)
         {
-            timedOut = !ct.IsCancellationRequested;
-            try { proc.Kill(entireProcessTree: true); } catch (InvalidOperationException) { /* already exited */ }
-            await exited.Task.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+            timedOut = !cancellationToken.IsCancellationRequested;
+
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process had already exited.
+            }
+
+            var exitGracePeriod = TimeSpan.FromSeconds(30);
+            await exited.Task.WaitAsync(exitGracePeriod, CancellationToken.None);
         }
 
-        try { await Task.WhenAll(stdoutDone.Task, stderrDone.Task).WaitAsync(_drainTimeout, CancellationToken.None); }
-        catch (TimeoutException) { /* keep what was read */ }
+        try
+        {
+            await Task.WhenAll(stdoutDone.Task, stderrDone.Task).WaitAsync(_drainTimeout, CancellationToken.None);
+        }
+        catch (TimeoutException)
+        {
+            // Keep what was read so far.
+        }
 
-        string Text(StringBuilder sb) { lock (sb) return sb.ToString(); }
-        var result = new ProcessResult(proc.ExitCode, Text(stdout), Text(stderr), sw.Elapsed, timedOut);
-        ct.ThrowIfCancellationRequested(); // runner is stopping: do not treat as a job result
+        string Text(StringBuilder buffer)
+        {
+            lock (buffer)
+            {
+                return buffer.ToString();
+            }
+        }
+
+        var stdoutText = Text(stdout);
+        var stderrText = Text(stderr);
+        var result = new ProcessResult(process.ExitCode, stdoutText, stderrText, stopwatch.Elapsed, timedOut);
+        cancellationToken.ThrowIfCancellationRequested(); // runner is stopping: do not treat as a job result
         return result;
     }
 
-    private static void Collect(StringBuilder sb, TaskCompletionSource done, string? line)
+    private static void Collect(StringBuilder buffer, TaskCompletionSource done, string? line)
     {
-        if (line is null) { done.TrySetResult(); return; }
-        lock (sb) sb.Append(line).Append('\n');
+        if (line is null)
+        {
+            done.TrySetResult();
+            return;
+        }
+
+        lock (buffer)
+        {
+            buffer.Append(line).Append('\n');
+        }
     }
 }

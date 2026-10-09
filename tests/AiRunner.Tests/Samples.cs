@@ -3,13 +3,24 @@ namespace AiRunner.Tests;
 /// <summary>Filled templates, as an agent would write them, and small GitBucket objects for Core tests.</summary>
 public static class Samples
 {
-    public static GbIssue Issue(int number, params string[] labels) =>
-        new(number, $"Issue {number}", null, new GbUser("alice"), labels.Select(l => new GbLabel(l)).ToList(),
-            DateTimeOffset.UtcNow, null, "open");
+    public static GbIssue Issue(int number, params string[] labels)
+    {
+        var issueLabels = labels.Select(label => new GbLabel(label)).ToList();
+        return new(
+            number,
+            $"Issue {number}",
+            null,
+            new GbUser("alice"),
+            issueLabels,
+            DateTimeOffset.UtcNow,
+            null,
+            "open");
+    }
 
     public static GbComment Human(long id, string body) => new(id, body, new GbUser("alice"), DateTimeOffset.UtcNow);
 
-    public static GbComment Bot(long id, string body) => new(id, BotComments.Marker + "\n" + body, new GbUser("bot"), DateTimeOffset.UtcNow);
+    public static GbComment Bot(long id, string body) =>
+        new(id, BotComments.Marker + "\n" + body, new GbUser("bot"), DateTimeOffset.UtcNow);
 
     public static string Analysis(string status, string complexity, string breakdown = "None") => $"""
         ## AI analysis - round 1
@@ -73,20 +84,8 @@ public static class Samples
         - None
         """;
 
-    /// <summary>A REPLY.md as the fix-review agent writes it (templates/review-reply.md).</summary>
-    public static string ReviewReply(string replies = "- 1: fixed - added the null check (`src/a.cs`)\n- 2: not changed - skipped as asked") => $"""
-        ### Replies
-        {replies}
-
-        ### How it was tested
-        - `make build` and `make test` pass.
-
-        ### Open points
-        - None
-        """;
-
     /// <summary>The body of a review fix reply that read the comments up to that id.</summary>
-    public static string FixReply(long upTo) => BotComments.WithUpto("## AI fix 1", Markers.ReviewFix, upTo);
+    public static string FixReply(long upTo) => AtAiThread.ReplyBody("## AI fix 1", Markers.ReviewFix, upTo);
 
     public static string AgentOutput(string analysis, string? spec = null) =>
         "Thinking... reading files\n" +

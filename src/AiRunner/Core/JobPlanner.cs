@@ -12,74 +12,123 @@ public static class JobPlanner
 {
     private const string SkipAiPrefix = "[skip-ai]";
 
-    /// <param name="comments">Null when the comments were not read; the decision then says NeedsComments if it needs them.</param>
-    /// <param name="lastHandledCommentId">Newest @ai comment an analysis already answered (local state, 0 = none).</param>
-    public static PlanDecision PlanIssue(RepoConfig repo, GbIssue issue, IReadOnlyList<GbComment>? comments, long lastHandledCommentId)
+    public static PlanDecision PlanIssue(IssuePlanInput input)
     {
+        var (repo, issue, comments, lastHandledCommentId) = input;
         var labels = issue.LabelNames();
-        var job = (JobType type) => new JobRequest(type, repo.FullName, issue.Number);
+        var createJob = (JobType type) => new JobRequest(type, repo.FullName, issue.Number);
 
         if (!issue.IsOpen())
+        {
             return PlanDecision.Skip("closed");
+        }
+
         if (labels.Contains(Labels.Failed))
+        {
             return PlanDecision.Skip($"{Labels.Failed} - a human must read the log and remove the label to retry");
+        }
+
         if (labels.Contains(Labels.NeedsCloudAgent) || labels.Contains(Labels.OnGitHub))
+        {
             return PlanDecision.Skip("cloud fallback (Workflow 4) is not built yet");
+        }
 
         if (labels.Contains(Labels.Implement))
         {
-            if (!repo.IsEnabled(Workflows.Implement)) return PlanDecision.Skip("implement workflow is off for this repo");
-            if (labels.Contains(Labels.Implementing)) return PlanDecision.Skip("already implementing");
+            if (!repo.IsEnabled(Workflows.Implement))
+            {
+                return PlanDecision.Skip("implement workflow is off for this repo");
+            }
+
+            if (labels.Contains(Labels.Implementing))
+            {
+                return PlanDecision.Skip("already implementing");
+            }
+
             // A refused request still becomes a job: the job explains why and removes the label.
-            return PlanDecision.Run(job(JobType.ImplementIssue), WhyNotImplement(labels) is { } why
-                ? $"label {Labels.Implement}, will be refused: {why}"
-                : $"label {Labels.Implement}");
+            var implementJob = createJob(JobType.ImplementIssue);
+            var implementRefusal = WhyNotImplement(labels);
+            var implementReason = implementRefusal is null
+                ? $"label {Labels.Implement}"
+                : $"label {Labels.Implement}, will be refused: {implementRefusal}";
+            return PlanDecision.Run(implementJob, implementReason);
         }
 
         if (labels.Contains(Labels.Breakdown))
         {
-            if (!repo.IsEnabled(Workflows.Breakdown)) return PlanDecision.Skip("breakdown workflow is off for this repo");
-            if (labels.Contains(Labels.Parent)) return PlanDecision.Skip("already broken down");
-            return PlanDecision.Run(job(JobType.BreakdownIssue), WhyNotBreakdown(labels) is { } why
-                ? $"label {Labels.Breakdown}, will be refused: {why}"
-                : $"label {Labels.Breakdown}");
+            if (!repo.IsEnabled(Workflows.Breakdown))
+            {
+                return PlanDecision.Skip("breakdown workflow is off for this repo");
+            }
+
+            if (labels.Contains(Labels.Parent))
+            {
+                return PlanDecision.Skip("already broken down");
+            }
+
+            var breakdownJob = createJob(JobType.BreakdownIssue);
+            var breakdownRefusal = WhyNotBreakdown(labels);
+            var breakdownReason = breakdownRefusal is null
+                ? $"label {Labels.Breakdown}"
+                : $"label {Labels.Breakdown}, will be refused: {breakdownRefusal}";
+            return PlanDecision.Run(breakdownJob, breakdownReason);
         }
 
         if (labels.Contains(Labels.Parent))
         {
-            return repo.IsEnabled(Workflows.Breakdown)
-                ? PlanDecision.Run(job(JobType.SequenceSubIssues), "check sub-issue progress") with { Routine = true }
-                : PlanDecision.Skip("breakdown workflow is off for this repo");
+            if (!repo.IsEnabled(Workflows.Breakdown))
+            {
+                return PlanDecision.Skip("breakdown workflow is off for this repo");
+            }
+
+            var sequenceJob = createJob(JobType.SequenceSubIssues);
+            var sequenceDecision = PlanDecision.Run(sequenceJob, "check sub-issue progress");
+
+            return sequenceDecision with
+            {
+                Routine = true
+            };
         }
 
         if (!repo.IsEnabled(Workflows.Analyze))
+        {
             return PlanDecision.Skip("analyze workflow is off for this repo");
+        }
+
         if (comments is null)
-            return PlanDecision.Skip("comments not read (no change since last poll)") with { NeedsComments = true };
+        {
+            return PlanDecision.Skip("comments not read (no change since last poll)") with
+            {
+                NeedsComments = true
+            };
+        }
 
-        var trigger = BotComments.NewAtAi(comments, BotComments.AnsweredUpTo(comments, Markers.Analysis, lastHandledCommentId));
+        var thread = AtAiThread.Of(comments, Markers.Analysis, lastHandledCommentId);
+        var trigger = thread.Trigger;
 
-        if (BotComments.Count(comments, Markers.Analysis) == 0)
+        if (thread.Done == 0)
         {
             // Sub-issues come with their scope from the breakdown; they are analyzed only on request.
             if (labels.Contains(Labels.SubIssue) && trigger is null)
+            {
                 return PlanDecision.Skip("sub-issue - write @ai to analyze it");
-            return PlanDecision.Run(job(JobType.AnalyzeIssue), "round 1");
+            }
+
+            var firstRoundJob = createJob(JobType.AnalyzeIssue);
+            return PlanDecision.Run(firstRoundJob, "round 1");
         }
 
         if (trigger is null)
+        {
             return PlanDecision.Skip("wait for a new comment with @ai");
-        var round = NextRound(repo, comments);
-        return PlanDecision.Run(job(JobType.AnalyzeIssue), round.LimitReached
+        }
+
+        var round = thread.Next(repo.Limits.MaxAnalysisRounds);
+
+        var analyzeJob = createJob(JobType.AnalyzeIssue);
+        return PlanDecision.Run(analyzeJob, round.LimitReached
             ? $"round limit {repo.Limits.MaxAnalysisRounds} reached - the job will stop it"
             : $"round {round.Number}, @ai comment {trigger.Id}");
-    }
-
-    /// <summary>The number of the next analysis round, and whether it is over the limit.</summary>
-    public static (int Number, bool LimitReached) NextRound(RepoConfig repo, IEnumerable<GbComment> comments)
-    {
-        var done = BotComments.Count(comments, Markers.Analysis);
-        return (done + 1, done >= repo.Limits.MaxAnalysisRounds);
     }
 
     /// <summary>Why ai-implement cannot run on an issue with these labels, or null when it can.</summary>
@@ -101,80 +150,120 @@ public static class JobPlanner
     /// the fixed head covers both. Without comments the review decision is returned with NeedsComments
     /// when a fix is possible.
     /// </summary>
-    /// <param name="reviewedSha">Head commit already reviewed (local state), or null.</param>
-    /// <param name="comments">The PR's comments, or null when they were not read.</param>
-    /// <param name="lastHandledCommentId">Newest @ai comment a review fix already answered (local state, 0 = none).</param>
-    public static PlanDecision PlanPull(RepoConfig repo, GbPull pull, string? reviewedSha, string botLogin, string scopeLabel,
-        IReadOnlyList<GbComment>? comments = null, long lastHandledCommentId = 0)
+    public static PlanDecision PlanPull(PullPlanInput input)
     {
+        var (repo, pull, _, botLogin, scopeLabel, comments, lastHandledCommentId) = input;
+
         // A job planned while the PR was open may run after the merge: never push to or review a closed PR.
         if (!pull.IsOpen())
+        {
             return PlanDecision.Skip("closed");
+        }
+
         if (pull.Draft == true)
+        {
             return PlanDecision.Skip("draft");
+        }
+
         if (pull.Title.TrimStart().StartsWith(SkipAiPrefix, StringComparison.OrdinalIgnoreCase))
+        {
             return PlanDecision.Skip(SkipAiPrefix);
+        }
 
         // Fix scope is the scoped review rule whatever review.scope says: the fix pushes to the PR's branch.
         var fixPossible = repo.IsEnabled(Workflows.Fix) && InScope(pull, botLogin, scopeLabel);
+
         if (fixPossible && comments is not null)
         {
-            var trigger = BotComments.NewAtAi(comments, BotComments.AnsweredUpTo(comments, Markers.ReviewFix, lastHandledCommentId));
-            if (trigger is not null)
+            var thread = AtAiThread.Of(comments, Markers.ReviewFix, lastHandledCommentId);
+
+            if (thread.Trigger is { } trigger)
             {
-                var fix = NextFix(repo, comments);
+                var nextFix = thread.Next(repo.Limits.MaxReviewFixes);
+                var triggerCommentId = trigger.Id.ToString(CultureInfo.InvariantCulture);
+
                 return PlanDecision.Run(
-                    new JobRequest(JobType.FixReview, repo.FullName, pull.Number, trigger.Id.ToString(CultureInfo.InvariantCulture)),
-                    fix.LimitReached
+                    new JobRequest(
+                        JobType.FixReview,
+                        repo.FullName,
+                        pull.Number,
+                        triggerCommentId),
+                    nextFix.LimitReached
                         ? $"review fix limit {repo.Limits.MaxReviewFixes} reached - the job will say so"
-                        : $"review fix {fix.Number}, @ai comment {trigger.Id}");
+                        : $"review fix {nextFix.Number}, @ai comment {trigger.Id}");
             }
         }
-        return PlanReview(repo, pull, reviewedSha, botLogin, scopeLabel) with { NeedsComments = fixPossible && comments is null };
-    }
 
-    /// <summary>The number of the next review fix on a PR, and whether it is over the limit.</summary>
-    public static (int Number, bool LimitReached) NextFix(RepoConfig repo, IEnumerable<GbComment> comments)
-    {
-        var done = BotComments.Count(comments, Markers.ReviewFix);
-        return (done + 1, done >= repo.Limits.MaxReviewFixes);
+        return PlanReview(input) with
+        {
+            NeedsComments = fixPossible && comments is null
+        };
     }
 
     /// <summary>
-    /// Why a planned review fix must not start, or null: the limit is reached, or the push target is not the
-    /// PR's own branch at the PR head (the default branch, a fork's branch name, deleted, or moved since).
+    /// Why a planned review fix must not start, or null: no build, test or lint command to check it with, the
+    /// limit is reached, or the push target is not the PR's own branch at the PR head (the default branch, a
+    /// fork's branch name, deleted, or moved since).
     /// </summary>
-    /// <param name="branchSha">What origin/{head ref} points to in the clone, or null when it does not exist.</param>
-    public static string? WhyNotFix(RepoConfig repo, GbPull pull, IEnumerable<GbComment> comments, string defaultBranch, string? branchSha)
+    public static string? WhyNotFix(FixCheckInput input)
     {
-        if (NextFix(repo, comments).LimitReached)
+        var (repo, pull, comments, defaultBranch, branchSha) = input;
+
+        if (!repo.Commands.Verification().Any())
+        {
+            return "No build, test or lint command is configured for this repo (repos.yml `commands`), so I cannot check a fix " +
+                   "before pushing it. Set `commands.build` or `commands.test`, then write @ai again.";
+        }
+
+        if (AtAiThread.Of([.. comments], Markers.ReviewFix, 0).Next(repo.Limits.MaxReviewFixes).LimitReached)
+        {
             return $"{repo.Limits.MaxReviewFixes} review fixes reached on this PR (limits.maxReviewFixes). Please finish it by hand.";
+        }
+
         if (pull.Head.Ref == defaultBranch)
+        {
             return $"This PR comes from the default branch `{pull.Head.Ref}`; I never push to it.";
+        }
+
         if (!string.Equals(branchSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
+        {
             return $"Branch `{pull.Head.Ref}` in this repository is " +
                    (branchSha is null
                        ? "missing (a PR from a fork, or a deleted branch)"
                        : $"at {Text.ShortSha(branchSha)}, not at the PR head {Text.ShortSha(pull.Head.Sha)}") +
                    ". I only push to the PR's own branch here. If someone just pushed, write @ai again.";
+        }
+
         return null;
     }
 
-    private static PlanDecision PlanReview(RepoConfig repo, GbPull pull, string? reviewedSha, string botLogin, string scopeLabel)
+    private static PlanDecision PlanReview(PullPlanInput input)
     {
-        if (!repo.IsEnabled(Workflows.Review))
-            return PlanDecision.Skip("review workflow is off for this repo");
-        if (repo.Review.IsScoped && !InScope(pull, botLogin, scopeLabel))
-            return PlanDecision.Skip("out of review scope (review.scope: scoped)");
-        if (string.Equals(reviewedSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
-            return PlanDecision.Skip("head already reviewed");
+        var (repo, pull, reviewedSha, botLogin, scopeLabel, _, _) = input;
 
-        return PlanDecision.Run(new JobRequest(JobType.ReviewPullRequest, repo.FullName, pull.Number, pull.Head.Sha),
+        if (!repo.IsEnabled(Workflows.Review))
+        {
+            return PlanDecision.Skip("review workflow is off for this repo");
+        }
+
+        if (repo.Review.IsScoped && !InScope(pull, botLogin, scopeLabel))
+        {
+            return PlanDecision.Skip("out of review scope (review.scope: scoped)");
+        }
+
+        if (string.Equals(reviewedSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
+        {
+            return PlanDecision.Skip("head already reviewed");
+        }
+
+        return PlanDecision.Run(
+            new JobRequest(JobType.ReviewPullRequest, repo.FullName, pull.Number, pull.Head.Sha),
             reviewedSha is null ? "new PR" : "new head commit");
     }
 
     /// <summary>A human opts a PR in with the scope label; PRs this runner opened itself are always in.</summary>
     private static bool InScope(GbPull pull, string botLogin, string scopeLabel) =>
         pull.LabelNames().Contains(scopeLabel) ||
-        (Branches.IsAiBranch(pull.Head.Ref) && string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase));
+        (Branches.IsAiBranch(pull.Head.Ref) &&
+         string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase));
 }

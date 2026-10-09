@@ -10,7 +10,7 @@ namespace AiRunner.Hosting;
 /// newest PR head). A job for the same key may be pending while another one runs: the
 /// second run re-reads GitBucket and does nothing if the first one already did the work.
 /// </summary>
-public sealed class JobQueue(IStateStore state, ILogger<JobQueue> log)
+public sealed class JobQueue(IStateStore stateStore, ILogger<JobQueue> logger)
 {
     /// <summary>A job interrupted this many times (runner stopped, laptop slept) is given up.</summary>
     public const int MaxAttempts = 2;
@@ -23,26 +23,35 @@ public sealed class JobQueue(IStateStore state, ILogger<JobQueue> log)
     {
         lock (_gate)
         {
-            var pending = state.FindJob(request.Key, JobStatus.Pending);
+            var pending = stateStore.FindJob(request.Key, JobStatus.Pending);
             if (pending is not null)
             {
                 if (pending.Request.Payload != request.Payload)
-                    state.UpdateJobPayload(pending.Id, request.Payload);
+                {
+                    stateStore.UpdateJobPayload(pending.Id, request.Payload);
+                }
+
                 return false;
             }
-            var id = state.AddJob(request);
+
+            var id = stateStore.AddJob(request);
             _ids.Writer.TryWrite(id);
-            log.LogDebug("Queued job {Id}: {Request}", id, request);
+            logger.LogDebug("Queued job {Id}: {Request}", id, request);
+
             return true;
         }
     }
 
-    public async Task<StoredJob> DequeueAsync(CancellationToken ct)
+    public async Task<StoredJob> DequeueAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
-            var job = Load(await _ids.Reader.ReadAsync(ct));
-            if (job is not null) return job;
+            var id = await _ids.Reader.ReadAsync(cancellationToken);
+            var job = Load(id);
+            if (job is not null)
+            {
+                return job;
+            }
         }
     }
 
@@ -51,8 +60,12 @@ public sealed class JobQueue(IStateStore state, ILogger<JobQueue> log)
         while (_ids.Reader.TryRead(out var id))
         {
             job = Load(id);
-            if (job is not null) return true;
+            if (job is not null)
+            {
+                return true;
+            }
         }
+
         job = null;
         return false;
     }
@@ -64,27 +77,32 @@ public sealed class JobQueue(IStateStore state, ILogger<JobQueue> log)
     public IReadOnlyList<StoredJob> Recover()
     {
         var givenUp = new List<StoredJob>();
-        foreach (var job in state.ListJobs(JobStatus.Running))
+
+        foreach (var job in stateStore.ListJobs(JobStatus.Running))
         {
             if (job.Attempts >= MaxAttempts)
             {
-                state.SetJobStatus(job.Id, JobStatus.Failed, "interrupted twice");
+                stateStore.SetJobStatus(job.Id, JobStatus.Failed, "interrupted twice");
                 givenUp.Add(job);
             }
             else
             {
-                state.SetJobStatus(job.Id, JobStatus.Pending);
-                log.LogInformation("Re-queued interrupted job {Request}", job.Request);
+                stateStore.SetJobStatus(job.Id, JobStatus.Pending);
+                logger.LogInformation("Re-queued interrupted job {Request}", job.Request);
             }
         }
-        foreach (var job in state.ListJobs(JobStatus.Pending))
+
+        foreach (var job in stateStore.ListJobs(JobStatus.Pending))
+        {
             _ids.Writer.TryWrite(job.Id);
+        }
+
         return givenUp;
     }
 
     private StoredJob? Load(long id)
     {
-        var job = state.GetJob(id);
+        var job = stateStore.GetJob(id);
         return job?.Status == JobStatus.Pending ? job : null;
     }
 }

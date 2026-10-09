@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR review and review fix - ai-runner docs</title>
+<meta name="description" content="Workflow 3 writes one AI review comment per pull request. Workflow 3b lets a person write @ai on the PR so Copilot changes the PR branch and replies point by point.">
+<link rel="stylesheet" href="../assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="../assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="../index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="../index.html">Home</a>
+<a href="../overview.html">Overview</a>
+<a href="../getting-started.html">Getting started</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../data-model.html">Data model</a>
+<a href="../api.html">CLI and API</a>
+<a href="../integrations-infra.html">Integrations and infra</a>
+<a href="../findings.html">Findings</a>
+<a href="../glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="../modules/planning.html">Planning (Core)</a>
+<a href="../modules/hosting.html">Poller, queue, worker</a>
+<a href="../modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="../modules/implement.html">Implement and AgentSession</a>
+<a href="../modules/review-fix.html" class="current" aria-current="page">PR review and review fix</a>
+<a href="../modules/infrastructure.html">Infrastructure</a>
+<a href="../modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>PR review and review fix</h1>
+<p class="summary">Workflow 3 writes one AI review comment per pull request. Workflow 3b lets a person write @ai on the PR so Copilot changes the PR branch and replies point by point.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#purpose">Purpose</a><a href="#components">Components</a><a href="#who">Which PRs are reviewed or fixed?</a><a href="#flow-review">Flow 1: reviewing a pull request</a><a href="#flow-fix">Flow 2: a review fix</a><a href="#rules">Business rules and edge cases</a><a href="#deps">Dependencies</a></nav>
+</div></header>
+<main class="content">
+<h2 id="purpose">Purpose</h2>
+<p><strong>PR review</strong> (<code>ReviewPullRequestJob</code>) gives a first-pass review before a human looks. It writes <em>one</em> comment per PR and updates it in place on each new head commit. It is advice and never blocks a merge.
+<strong>Review fix</strong> (<code>FixReviewJob</code>) answers a person's <code>@ai</code> comment on a PR: Copilot reads the latest review and the comments since the last fix, changes the code on the PR's own branch with the same stages and runner checks as <a href="implement.html">Workflow 2</a>, and the runner adds a commit, pushes it, and replies. The new head is then reviewed again.</p>
+
+<h2 id="components">Components</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph jobs["Jobs"]
+    RJ["ReviewPullRequestJob"]
+    FJ["FixReviewJob"]
+    AS["AgentSession (shared with implement)"]
+    JS["JobSupport<br/>LoadPullAsync, LinkedIssueAsync"]
+  end
+  subgraph core["Core"]
+    JP["JobPlanner<br/>PlanPull, WhyNotFix"]
+    RP["ReviewParser"]
+    RR["ReviewReplyParser"]
+    CB["ContextBuilder<br/>ForPull, ForReviewFix"]
+    PG["PathGlob"]
+    AT["AtAiThread"]
+  end
+  subgraph infra["Infrastructure"]
+    WS["IWorkspace"]
+    GIT["IGitClient"]
+    CP["ICopilotRunner"]
+    GB["IGitBucketClient"]
+    ST["IStateStore<br/>review_state, issue_state"]
+  end
+  RJ --> JS
+  FJ --> JS
+  JS --> JP
+  RJ --> CB
+  RJ --> RP
+  RJ --> PG
+  RJ --> WS
+  RJ --> GIT
+  RJ --> CP
+  RJ --> ST
+  FJ --> AT
+  FJ --> CB
+  FJ --> AS
+  FJ --> RR
+  FJ --> WS
+  FJ --> ST
+  AS --> CP
+  JS --> GB
+</pre></div>
+<figcaption>Review is read-only and uses Copilot directly. Review fix reuses <code>AgentSession</code> for its write-and-check loop.</figcaption>
+</figure>
+
+<h3>Key files and classes</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>Jobs/ReviewPullRequestJob.cs</code></td><td>Agent <code>pr-review</code>, denies <code>write</code> and <code>shell</code>. <code>OnFailed</code> remembers the failed head (l.30-31). <code>RunAsync</code> (l.33-93).</td></tr>
+<tr><td><code>Jobs/FixReviewJob.cs</code></td><td>Agent <code>fix-review</code>. <code>OnFailed</code> marks the <code>@ai</code> comment handled (l.38-42). <code>RunAsync</code> (l.44-93), <code>RefuseAsync</code> (l.110-114), <code>PostReplyAsync</code> (l.117-121).</td></tr>
+<tr><td><code>Core/JobPlanner.cs</code></td><td><code>PlanPull</code> (l.101-128) and <code>WhyNotFix</code> (l.135-148).</td></tr>
+<tr><td><code>Core/ReviewParser.cs</code></td><td>Checks <code>Verdict</code> (<code>looks good</code>, <code>needs changes</code>, <code>needs discussion</code>) and the Findings table (severity <code>bug</code>, <code>risk</code>, <code>style</code>) and counts them.</td></tr>
+<tr><td><code>Core/ReviewReplyParser.cs</code></td><td>Problems in <code>REPLY.md</code>: headings <code>Replies</code>, <code>How it was tested</code>, <code>Open points</code> and a list under <code>Replies</code>.</td></tr>
+<tr><td><code>Core/ContextBuilder.cs</code></td><td><code>ForPull</code> (l.45-69) writes <code>context.md</code>; <code>ForReviewFix</code> (l.90-117) writes <code>review-fix.md</code>.</td></tr>
+<tr><td><code>Core/PathGlob.cs</code></td><td>Matches <code>review.skipPaths</code> (<code>**</code>, <code>*</code>, <code>?</code>).</td></tr>
+<tr><td><code>Jobs/JobSupport.cs</code></td><td><code>LinkedIssueAsync</code> finds the issue a PR closes and its analysis and SPEC (l.79-101).</td></tr>
+</tbody></table></div>
+
+<h2 id="who">Which PRs are reviewed or fixed?</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["PlanPull(repo, pull, reviewedSha, botLogin, comments)"]) --> a{"open, not draft,<br/>title not [skip-ai]?"}
+  a -->|"no"| s1["Skip"]
+  a -->|"yes"| fp{"fix workflow on and PR in scope?"}
+  fp -->|"yes, comments read"| t{"new @ai comment?"}
+  t -->|"yes"| fx["Run FixReview<br/>(payload = comment id)"]
+  t -->|"no"| rv
+  fp -->|"no"| rv{"review workflow on?"}
+  fp -->|"yes, comments not read"| nc["review decision + NeedsComments"]
+  nc --> rv
+  rv -->|"no"| s2["Skip"]
+  rv -->|"yes"| sc{"scope scoped and PR out of scope?"}
+  sc -->|"yes"| s3["Skip: out of review scope"]
+  sc -->|"no"| h{"head sha already reviewed?"}
+  h -->|"yes"| s4["Skip"]
+  h -->|"no"| rr["Run ReviewPullRequest<br/>(payload = head sha)"]
+</pre></div>
+<figcaption><code>JobPlanner.PlanPull</code> and <code>PlanReview</code> (<code>JobPlanner.cs:101-128, 150-161</code>). "In scope" means: the PR has the scope label, or its branch is <code>ai/*</code> / <code>feat/issue-*</code> and the bot opened it.</figcaption>
+</figure>
+
+<h2 id="flow-review">Flow 1: reviewing a pull request</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant J as ReviewPullRequestJob
+  participant GB as GitBucket
+  participant WS as Workspace
+  participant GIT as git
+  participant CP as Copilot (pr-review)
+  participant ST as review_state
+  J->>GB: LoadPullAsync (re-plan, fix goes first)
+  J->>WS: PrepareAsync(head sha, fetch refs/pull/N/head)
+  J->>GIT: ChangedFiles(base...head)
+  alt no files or only skipPaths files
+    J->>ST: SetReview(sha, skipped)
+    J-->>J: Quiet outcome skipped
+  end
+  J->>GIT: Diff(base...head)
+  J->>J: write diff.patch, changed-files.txt, context.md
+  J->>GB: LinkedIssueAsync (analysis, SPEC)
+  J->>CP: copilot -p (write and shell denied)
+  CP-->>J: REVIEW block
+  J->>J: ReviewParser.Parse
+  J->>GB: GetPull (did the head move?)
+  alt head moved while Copilot ran
+    J-->>J: outcome outdated, nothing posted
+  end
+  alt known comment id
+    J->>GB: PATCH comment
+  else none known
+    J->>GB: find latest REVIEW comment or add a new one
+  end
+  J->>ST: SetReview(sha, comment id, verdict)
+</pre></div>
+<figcaption><code>ReviewPullRequestJob.RunAsync</code> (<code>ReviewPullRequestJob.cs:33-93</code>). The diff is made with <code>git</code> on the clone, because GitBucket has no <code>/pulls/{n}/files</code>.</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li><code>context.md</code> says whether the PR "was created by Workflow 2" (<code>ai/issue-*</code> branch) so the agent fills the stricter <code>Spec check</code> section (<code>ContextBuilder.cs:53</code>).</li>
+  <li>A PR with no changed files, or whose files all match <code>review.skipPaths</code> (for example <code>docs/**</code>, <code>**/*.md</code>), is recorded as <code>skipped</code> and ends quietly (l.47-51).</li>
+  <li>The review comment is updated in place. If the update fails (the comment was removed), a new comment is added (l.78-87).</li>
+  <li>On failure <code>OnFailed</code> stores the failed head sha, so the same commit is not retried on every poll. The next commit is reviewed again (l.29-31).</li>
+</ol>
+
+<h2 id="flow-fix">Flow 2: a review fix</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant H as Human
+  participant GB as GitBucket
+  participant J as FixReviewJob
+  participant WS as Workspace
+  participant S as AgentSession
+  participant GIT as git
+  H->>GB: comment on the PR: "1: fix, 2: skip. @ai"
+  J->>GB: LoadPullAsync (re-plan, comments)
+  J->>WS: PrepareAsync(head sha, branch = PR branch)
+  J->>J: WhyNotFix (limit, default branch, branch at head?)
+  alt refused
+    J->>GB: reply "AI fix - not started" + why
+    J->>J: mark comment handled, outcome rejected
+  end
+  J->>GB: LinkedIssueAsync (SPEC as plan.md)
+  J->>J: write plan.md and review-fix.md
+  J->>S: RunAsync(fix-review, REPLY.md, ReviewReplyParser)
+  S-->>J: AgentResult
+  alt round 1 Copilot failed
+    J-->>J: throw "Nothing was pushed"
+  end
+  J->>S: SaveWorkAsync (commit, push, never forced)
+  alt push rejected
+    J-->>J: throw "someone pushed while Copilot worked"
+  end
+  J->>GB: reply with commit, REPLY.md, checks, rounds
+  J->>J: mark comment handled (read-up-to)
+</pre></div>
+<figcaption><code>FixReviewJob.RunAsync</code> (<code>FixReviewJob.cs:44-93</code>). A fix that changes nothing still gets its reply ("no code change").</figcaption>
+</figure>
+<ol class="flow-steps">
+  <li>The PR head is checked out as a local branch with the PR's branch name, and <code>refs/pull/N/head</code> is fetched too, so a fork PR gets a clear refusal instead of a git error (l.54-56).</li>
+  <li><code>WhyNotFix</code> refuses when the review fix limit is reached, when the PR comes from the default branch, or when <code>origin/&lt;branch&gt;</code> is missing or not at the PR head (<code>JobPlanner.cs:135-148</code>). The refusal is itself a reply, so the trigger is answered.</li>
+  <li><code>review-fix.md</code> has the latest <code>REVIEW</code> block, the last fix reply (so "undo 1" makes sense) and every human comment since that reply, oldest first (<code>ContextBuilder.cs:90-117</code>).</li>
+  <li>Round 1 failure means <strong>nothing is pushed</strong>. Half-done work is not put on a PR someone is reviewing (l.74-76).</li>
+  <li>The reply starts <code>## AI fix N - commit &lt;sha&gt;, K changed files on &lt;branch&gt;</code>, then the agent's <code>REPLY.md</code>, the runner's checks and rounds (l.95-107).</li>
+  <li>The reply carries the <code>context-upto</code> tag, and the local cursor is stored (l.117-121). A failure marks the trigger handled in <code>OnFailed</code>, with the text "Write a new comment with @ai to try again." (l.34-42).</li>
+</ol>
+
+<h2 id="rules">Business rules and edge cases</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Detail</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>Review opt-in</td><td>Default <code>review.scope: scoped</code>. <code>all</code> reviews every open PR, including old ones at first start, and each runner pointed at the repo reviews it again.</td><td><code>RunnerConfig.cs:170-182</code></td></tr>
+<tr><td>Stop reviews</td><td>Remove the <code>ai</code> label, start the title with <code>[skip-ai]</code>, or make it a draft.</td><td><code>JobPlanner.cs:107-110</code></td></tr>
+<tr><td>Skip paths</td><td>A PR that changes only matching files is not reviewed. An empty glob list never skips.</td><td><code>PathGlob.cs:13-14</code></td></tr>
+<tr><td>One review comment</td><td>Updated in place with <code>PATCH</code> (GitBucket cannot delete comments).</td><td><code>ReviewPullRequestJob.cs:78-87</code></td></tr>
+<tr><td>Outdated review</td><td>If a newer commit arrived while Copilot ran, the review is dropped and the next poll reviews the new head.</td><td><code>ReviewPullRequestJob.cs:73-76</code></td></tr>
+<tr><td>Fix limit</td><td><code>limits.maxReviewFixes</code> (default 5), counted from <code>REVIEW_FIX</code> replies.</td><td><code>JobPlanner.cs:119-124, 137-138</code></td></tr>
+<tr><td>Fix pushes</td><td>Only to the PR's own branch, never forced, never to the default branch.</td><td><code>JobPlanner.cs:139-146</code>, <code>GitClient.cs:101-102</code></td></tr>
+<tr><td>Concurrent fix</td><td>A fix queued while another runs waits, then sees the new head and re-plans.</td><td><code>CLAUDE.md</code>, <code>JobSupport.LoadPullAsync</code></td></tr>
+<tr><td>Fix needs workflow <code>fix</code></td><td>Reviews only need <code>review</code>. A repo with <code>review</code> but not <code>fix</code> never plans a fix.</td><td><code>JobPlanner.cs:113</code></td></tr>
+</tbody></table></div>
+
+<h2 id="deps">Dependencies</h2>
+<ul>
+  <li><strong>Uses:</strong> <code>IGitBucketClient</code>, <code>IWorkspace</code>, <code>IGitClient</code>, <code>ICopilotRunner</code>, <code>IStateStore</code>, <code>AgentSession</code> (fix only), <code>RunnerIdentity</code> (the bot's login for scope).</li>
+  <li><strong>Used by:</strong> <code>JobWorker</code>. The <code>REVIEW</code> comment is the input of every review fix. The linked analysis and SPEC come from <a href="analysis-breakdown.html">Workflow 1</a>.</li>
+  <li><strong>Tests:</strong> <code>FixReviewJobTests</code> (15), <code>ReviewAndSequenceJobTests</code> (6), <code>JobPlannerTests</code>, <code>ParserTests</code>.</li>
+</ul>
+
+<div class="callout warning"><span class="title">Warning</span>
+Anyone who can comment on a PR in fix scope can make the agent change its code with <code>@ai</code>. The result is still a commit on the PR that a human reviews and merges, and the limits apply. Keep the <code>ai</code> label off PRs where that is not wanted (<code>README.md</code>, <a href="../findings.html#f-who">finding F3</a>).</div>
+<div class="callout gotcha"><span class="title">Gotcha</span>
+A review fix uses two cursors on purpose. <code>Trigger</code> honours the local cursor, so a failed fix is not retried on every poll. <code>RequestsSinceReply</code> ignores it, so the requests of a failed fix still reach the next fix.
+The fix reads <em>every</em> comment since the last reply, so a person may write the points in several comments and put <code>@ai</code> in the last one.</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="../findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

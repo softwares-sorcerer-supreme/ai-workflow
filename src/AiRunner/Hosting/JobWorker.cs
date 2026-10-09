@@ -6,6 +6,13 @@ using AiRunner.Jobs;
 
 namespace AiRunner.Hosting;
 
+/// <summary>A job that ended, for the cost row: what ran, for how long, and how it ended.</summary>
+public sealed record FinishedJob(JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
+
+/// <summary>A job that failed and must be reported on its issue or PR.</summary>
+/// <param name="LogFolder">Name of the job's log folder, or null when it has none.</param>
+public sealed record JobFailure(IJob Job, JobRequest Request, string Message, string? LogFolder);
+
 /// <summary>
 /// Runs one job at a time, so cost is predictable. Every job gets the same treatment, driven
 /// by its JobInfo: a log folder, a timeout, a cost row, and on failure a short comment (plus
@@ -16,121 +23,186 @@ public sealed class JobWorker(
     JobQueue queue,
     JobFactory factory,
     JobLog jobLog,
-    ICostLog cost,
-    IStateStore state,
-    IGitBucketClient gitBucket,
-    ILogger<JobWorker> log) : BackgroundService
+    ICostLog costLog,
+    IStateStore stateStore,
+    IGitBucketClient gitBucketClient,
+    ILogger<JobWorker> logger) : BackgroundService
 {
-    protected override async Task ExecuteAsync(CancellationToken ct)
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         await RecoverAsync();
-        while (!ct.IsCancellationRequested)
+
+        while (!cancellationToken.IsCancellationRequested)
         {
             StoredJob job;
-            try { job = await queue.DequeueAsync(ct); }
-            catch (OperationCanceledException) { break; }
-            try { await RunOneAsync(job, ct); }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
+            try
+            {
+                job = await queue.DequeueAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            try
+            {
+                await RunOneAsync(job, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 // Never let one job stop the worker (and with it the whole host).
-                log.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, ex);
+                logger.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, exception);
             }
         }
     }
 
     /// <summary>For --once: run what is queued now, then return.</summary>
-    public async Task DrainAsync(CancellationToken ct)
+    public async Task DrainAsync(CancellationToken cancellationToken)
     {
         await RecoverAsync();
+
         while (queue.TryDequeue(out var job))
-            await RunOneAsync(job!, ct);
+        {
+            await RunOneAsync(job!, cancellationToken);
+        }
     }
 
-    private async Task RunOneAsync(StoredJob stored, CancellationToken ct)
+    private async Task RunOneAsync(StoredJob stored, CancellationToken cancellationToken)
     {
         var request = stored.Request;
         var job = factory.Get(request.Type);
-        state.SetJobStatus(stored.Id, JobStatus.Running);
-        var run = jobLog.Begin(request);
-        var sw = Stopwatch.StartNew();
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        stateStore.SetJobStatus(stored.Id, JobStatus.Running);
+        var run = jobLog.Begin(request);
+        var stopwatch = Stopwatch.StartNew();
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var timeout = job.Info.Timeout;
         run.Deadline = DateTimeOffset.UtcNow + timeout;
-        cts.CancelAfter(timeout);
+        timeoutSource.CancelAfter(timeout);
+
         try
         {
-            var outcome = await job.RunAsync(request, run, cts.Token);
+            var outcome = await job.RunAsync(request, run, timeoutSource.Token);
             if (outcome.Quiet)
             {
                 // e.g. sequencing checks every poll: nothing worth keeping.
-                log.LogDebug("{Request}: {Result} ({Detail})", request, outcome.Result, outcome.Detail);
-                state.DeleteJob(stored.Id);
+                logger.LogDebug("{Request}: {Result} ({Detail})", request, outcome.Result, outcome.Detail);
+                stateStore.DeleteJob(stored.Id);
                 FileSystem.DeleteDirectory(run.Dir);
                 return;
             }
-            state.SetJobStatus(stored.Id, JobStatus.Done);
-            run.Info($"{request}: {outcome.Result} {outcome.Detail} in {sw.Elapsed.TotalSeconds:F0}s");
-            Record(request, job.Info, sw.Elapsed, outcome.Result, outcome.Detail);
+
+            stateStore.SetJobStatus(stored.Id, JobStatus.Done);
+            run.Info($"{request}: {outcome.Result} {outcome.Detail} in {stopwatch.Elapsed.TotalSeconds:F0}s");
+            var finished = new FinishedJob(request, job.Info, stopwatch.Elapsed, outcome);
+            Record(finished);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The runner is stopping. The job stays "running" and is re-queued once on the next start.
-            log.LogWarning("{Request} interrupted by shutdown", request);
+            logger.LogWarning("{Request} interrupted by shutdown", request);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            var message = ex switch
+            var message = exception switch
             {
-                JobFailedException => ex.Message,
-                OperationCanceledException when cts.IsCancellationRequested =>
+                JobFailedException => exception.Message,
+                OperationCanceledException when timeoutSource.IsCancellationRequested =>
                     $"The job did not finish within {job.Info.Timeout.TotalMinutes:F0} minutes.",
                 OperationCanceledException => "A call to GitBucket timed out (VPN or server down?).",
-                _ => $"{ex.GetType().Name}: {Text.Short(ex.Message)}",
+                _ => $"{exception.GetType().Name}: {Text.Short(exception.Message)}",
             };
-            log.LogError("{Request} failed: {Message}", request, message);
+
+            logger.LogError("{Request} failed: {Message}", request, message);
+
             try
             {
-                run.Save("error.txt", ex.ToString());
-                state.SetJobStatus(stored.Id, JobStatus.Failed, message);
+                var errorText = exception.ToString();
+                run.Save("error.txt", errorText);
+                stateStore.SetJobStatus(stored.Id, JobStatus.Failed, message);
             }
-            catch (Exception inner) { log.LogError("Could not store the failure of {Request}: {Message}", request, inner.Message); }
-            Record(request, job.Info, sw.Elapsed, "failed", message);
-            await ReportFailureAsync(job, request, message, Path.GetFileName(run.Dir));
+            catch (Exception innerException)
+            {
+                logger.LogError(
+                    "Could not store the failure of {Request}: {Message}",
+                    request,
+                    innerException.Message);
+            }
+
+            var failedOutcome = new JobOutcome("failed", message);
+            var failedJob = new FinishedJob(request, job.Info, stopwatch.Elapsed, failedOutcome);
+            Record(failedJob);
+
+            var logFolder = Path.GetFileName(run.Dir);
+            var failure = new JobFailure(job, request, message, logFolder);
+            await ReportFailureAsync(failure);
         }
     }
 
     private async Task RecoverAsync()
     {
-        state.PruneJobs(DateTimeOffset.UtcNow.AddDays(-config.LogRetentionDays));
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-config.LogRetentionDays);
+        stateStore.PruneJobs(cutoff);
+
         foreach (var stored in queue.Recover())
-            await ReportFailureAsync(factory.Get(stored.Request.Type), stored.Request,
-                "The runner was stopped twice while this job was running.", null);
+        {
+            var job = factory.Get(stored.Request.Type);
+            var failure = new JobFailure(
+                job,
+                stored.Request,
+                "The runner was stopped twice while this job was running.",
+                LogFolder: null);
+            await ReportFailureAsync(failure);
+        }
     }
 
     /// <summary>Short comment on the issue or PR. Issues also get ai:failed, so nothing retries until a human looks.</summary>
-    private async Task ReportFailureAsync(IJob job, JobRequest request, string message, string? logFolder)
+    private async Task ReportFailureAsync(JobFailure failure)
     {
+        var (job, request, message, logFolder) = failure;
         var where = logFolder is null ? "" : $" (`{Path.Combine(config.Paths.Logs, "jobs", logFolder)}`)";
         var text = $"{job.Info.Description} failed: {message}\n\n" +
                    $"The full log is in the runner's log folder{where}. " +
                    (job.Info.Retry ?? (job.Info.OnPullRequest
                        ? "I will try again on the next commit."
                        : $"To retry, fix the cause and remove the `{Labels.Failed}` label."));
+
         try
         {
             job.OnFailed(request);
-            await gitBucket.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
+            await gitBucketClient.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
+
             if (!job.Info.OnPullRequest)
-                await gitBucket.AddLabelsAsync(request.Repo, request.Number, [Labels.Failed], CancellationToken.None);
+            {
+                await gitBucketClient.AddLabelsAsync(
+                    request.Repo,
+                    request.Number,
+                    [Labels.Failed],
+                    CancellationToken.None);
+            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            log.LogError("Could not report the failure of {Request} to GitBucket: {Message}", request, ex.Message);
+            logger.LogError(
+                "Could not report the failure of {Request} to GitBucket: {Message}",
+                request,
+                exception.Message);
         }
     }
 
-    private void Record(JobRequest request, JobInfo info, TimeSpan elapsed, string result, string detail) =>
-        cost.Record(new CostEntry(DateTimeOffset.UtcNow, request.Repo, request.Number, info.Workflow,
-            elapsed.TotalSeconds, result, detail));
+    private void Record(FinishedJob finished)
+    {
+        var (request, info, elapsed, outcome) = finished;
+        var entry = new CostEntry(
+            DateTimeOffset.UtcNow,
+            request.Repo,
+            request.Number,
+            info.Workflow,
+            elapsed.TotalSeconds,
+            outcome.Result,
+            outcome.Detail);
+
+        costLog.Record(entry);
+    }
 }

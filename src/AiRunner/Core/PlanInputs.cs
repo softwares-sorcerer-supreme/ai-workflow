@@ -1,0 +1,34 @@
+using AiRunner.Configuration;
+
+namespace AiRunner.Core;
+
+/// <summary>What <see cref="JobPlanner.PlanIssue"/> needs to decide which job an issue needs.</summary>
+/// <param name="Comments">Null when the comments were not read; the decision then says NeedsComments if it needs them.</param>
+/// <param name="LastHandledCommentId">Newest @ai comment an analysis already answered (local state, 0 = none).</param>
+public sealed record IssuePlanInput(
+    RepoConfig Repo,
+    GbIssue Issue,
+    IReadOnlyList<GbComment>? Comments,
+    long LastHandledCommentId);
+
+/// <summary>What <see cref="JobPlanner.PlanPull"/> needs to decide between a review fix, a review or nothing.</summary>
+/// <param name="ReviewedSha">Head commit already reviewed (local state), or null.</param>
+/// <param name="Comments">The PR's comments, or null when they were not read.</param>
+/// <param name="LastHandledCommentId">Newest @ai comment a review fix already answered (local state, 0 = none).</param>
+public sealed record PullPlanInput(
+    RepoConfig Repo,
+    GbPull Pull,
+    string? ReviewedSha,
+    string BotLogin,
+    string ScopeLabel,
+    IReadOnlyList<GbComment>? Comments = null,
+    long LastHandledCommentId = 0);
+
+/// <summary>What <see cref="JobPlanner.WhyNotFix"/> checks before a review fix may start.</summary>
+/// <param name="BranchSha">What origin/{head ref} points to in the clone, or null when it does not exist.</param>
+public sealed record FixCheckInput(
+    RepoConfig Repo,
+    GbPull Pull,
+    IEnumerable<GbComment> Comments,
+    string DefaultBranch,
+    string? BranchSha);

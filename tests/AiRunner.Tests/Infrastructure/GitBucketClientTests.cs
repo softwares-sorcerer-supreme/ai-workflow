@@ -1,41 +1,38 @@
 using System.Net;
 using System.Text;
 using AiRunner.Infrastructure;
+using AiRunner.Tests.Fakes;
 
 namespace AiRunner.Tests.Infrastructure;
 
 /// <summary>GitBucketClient against canned JSON: paging, field mapping, what is sent.</summary>
 public class GitBucketClientTests
 {
-    private sealed class StubHandler(Func<HttpRequestMessage, string> respond) : HttpMessageHandler
+    private static (GitBucketClient Client, StubHttpHandler Handler) Create(Func<HttpRequestMessage, string> respond)
     {
-        public List<string> Urls { get; } = [];
-        public List<string> Bodies { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        var handler = new StubHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Urls.Add(request.RequestUri!.PathAndQuery);
-            Bodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct));
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(respond(request), Encoding.UTF8, "application/json") };
-        }
+            Content = new StringContent(respond(request), Encoding.UTF8, "application/json"),
+        });
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://gb/api/v3/") };
+
+        return (new GitBucketClient(httpClient, new HttpClient(handler)), handler);
     }
 
-    private static (GitBucketClient Client, StubHandler Handler) Create(Func<HttpRequestMessage, string> respond)
+    private static int Page(HttpRequestMessage request)
     {
-        var handler = new StubHandler(respond);
-        return (new GitBucketClient(new HttpClient(handler) { BaseAddress = new Uri("http://gb/api/v3/") }), handler);
+        var match = System.Text.RegularExpressions.Regex.Match(request.RequestUri!.Query, @"[?&]page=(\d+)");
+
+        return int.Parse(match.Groups[1].Value);
     }
 
-    private static int Page(HttpRequestMessage r) =>
-        int.Parse(System.Text.RegularExpressions.Regex.Match(r.RequestUri!.Query, @"[?&]page=(\d+)").Groups[1].Value);
-
-    private static string Pull(int n, string? mergedAt = null) =>
-        $$"""{"number":{{n}},"title":"t","head":{"ref":"h","sha":"s"},"base":{"ref":"main","sha":"b"},"updated_at":"2026-10-07T10:00:00Z","merged_at":{{(mergedAt is null ? "null" : $"\"{mergedAt}\"")}}}""";
+    private static string Pull(int number, string? mergedAt = null) =>
+        $$"""{"number":{{number}},"title":"t","head":{"ref":"h","sha":"s"},"base":{"ref":"main","sha":"b"},"updated_at":"2026-10-07T10:00:00Z","merged_at":{{(mergedAt is null ? "null" : $"\"{mergedAt}\"")}}}""";
 
     [Fact]
     public async Task Lists_read_every_page()
     {
-        var (client, handler) = Create(r => Page(r) switch
+        var (client, handler) = Create(request => Page(request) switch
         {
             1 => $"[{Pull(1)},{Pull(2)}]",
             2 => $"[{Pull(3, "2026-10-07T11:00:00Z")}]",
@@ -44,7 +41,7 @@ public class GitBucketClientTests
 
         var pulls = await client.ListPullsAsync("o/r", "closed", default);
 
-        Assert.Equal([1, 2, 3], pulls.Select(p => p.Number));
+        Assert.Equal([1, 2, 3], pulls.Select(pull => pull.Number));
         Assert.True(pulls[2].IsMerged());
         Assert.False(pulls[0].IsMerged());
         Assert.Equal(3, handler.Urls.Count);
@@ -56,18 +53,20 @@ public class GitBucketClientTests
     {
         var (client, _) = Create(_ => "\"not an object\"");
 
-        var ex = await Assert.ThrowsAsync<GitBucketException>(() => client.GetPullAsync("o/r", 1, default));
+        var exception = await Assert.ThrowsAsync<GitBucketException>(() => client.GetPullAsync("o/r", 1, default));
 
-        Assert.Contains("GbPull", ex.Message);
-        Assert.Contains("not an object", ex.Message);
+        Assert.Contains("GbPull", exception.Message);
+        Assert.Contains("not an object", exception.Message);
     }
 
     [Fact]
     public async Task Created_pull_is_read_back_by_number_because_the_create_reply_is_not_trusted()
     {
-        var (client, handler) = Create(r => r.Method == HttpMethod.Post ? """{"number":8,"merged":"odd"}""" : Pull(8));
+        var (client, handler) = Create(
+            request => request.Method == HttpMethod.Post ? """{"number":8,"merged":"odd"}""" : Pull(8));
 
-        var pull = await client.CreatePullAsync("o/r", "t", "ai/issue-6", "main", "body", default);
+        var newPull = new NewPull("t", "ai/issue-6", "main", "body");
+        var pull = await client.CreatePullAsync("o/r", newPull, default);
 
         Assert.Equal(8, pull.Number);
         Assert.Equal(["/api/v3/repos/o/r/pulls", "/api/v3/repos/o/r/pulls/8"], handler.Urls);
@@ -87,7 +86,7 @@ public class GitBucketClientTests
     [Fact]
     public async Task Issue_list_drops_pull_requests_and_reads_the_single_assignee()
     {
-        var (client, handler) = Create(r => Page(r) > 1 ? "[]" : """
+        var (client, handler) = Create(request => Page(request) > 1 ? "[]" : """
             [
               {"number":1,"title":"issue","body":null,"user":{"login":"a"},"labels":[{"name":"ai"}],"updated_at":"2026-10-07T10:00:00Z","assignee":{"login":"bot"}},
               {"number":2,"title":"a PR","user":{"login":"a"},"labels":[],"updated_at":"2026-10-07T10:00:00Z","pull_request":{"url":"x"}}
@@ -106,6 +105,7 @@ public class GitBucketClientTests
     public async Task Repo_default_branch_is_mapped()
     {
         var (client, _) = Create(_ => """{"name":"r","full_name":"o/r","default_branch":"develop"}""");
+
         Assert.Equal("develop", (await client.GetRepoAsync("o/r", default)).DefaultBranch);
     }
 
@@ -117,7 +117,8 @@ public class GitBucketClientTests
         await client.AddCommentAsync("o/r", 7, "Xong roi – “ok” 🤖", default);
 
         var sent = handler.Bodies.Single();
-        Assert.True(sent.All(c => c < 128));
+        Assert.True(sent.All(character => character < 128));
+
         var body = System.Text.Json.JsonDocument.Parse(sent).RootElement.GetProperty("body").GetString()!;
         Assert.StartsWith(BotComments.Marker + "\n" + BotComments.VisibleTag, body);
         Assert.EndsWith("Xong roi - \"ok\" ", body);

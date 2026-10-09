@@ -14,20 +14,29 @@ public static class ReviewParser
     public static ReviewResult Parse(string block)
     {
         var verdict = MarkdownSections.ReadField(block, "Verdict");
+
         if (!Verdicts.Contains(verdict))
+        {
             throw new FormatException($"Verdict must be one of: {string.Join(", ", Verdicts)}; got '{verdict}'");
+        }
 
         var findings = MarkdownSections.Get(block, "Findings")
             ?? throw new FormatException("'### Findings' section not found");
 
-        var counts = Severities.ToDictionary(s => s, _ => 0);
-        foreach (var cells in MarkdownSections.TableRows(findings).Where(c => c.Length >= 2))
+        var counts = Severities.ToDictionary(severityName => severityName, _ => 0);
+
+        foreach (var cells in MarkdownSections.TableRows(findings).Where(row => row.Length >= 2))
         {
             var severity = cells[1].Trim('*', '`', ' ').ToLowerInvariant();
+
             if (!counts.ContainsKey(severity))
+            {
                 throw new FormatException($"Severity must be one of: {string.Join(", ", Severities)}; got '{severity}'");
+            }
+
             counts[severity]++;
         }
+
         return new ReviewResult(verdict, counts["bug"], counts["risk"], counts["style"]);
     }
 }

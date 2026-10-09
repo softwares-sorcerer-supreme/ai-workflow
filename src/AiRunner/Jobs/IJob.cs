@@ -19,10 +19,12 @@ public interface IJob
     /// Runs the job. Throw JobFailedException for an expected failure with a message for humans;
     /// the worker posts it, adds ai:failed (issues only) and records the cost row.
     /// </summary>
-    Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken ct);
+    Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken);
 
     /// <summary>Called by the worker after a failure (not on shutdown), before it reports it.</summary>
-    void OnFailed(JobRequest request) { }
+    void OnFailed(JobRequest request)
+    {
+    }
 }
 
 /// <param name="Workflow">Name in the cost log (repos.yml workflow name).</param>
@@ -33,9 +35,10 @@ public interface IJob
 /// itself remembers the failed commit and the next commit retries.
 /// </param>
 /// <param name="Retry">How a human retries after a failure, for the failure comment; null = the default for issues or PRs.</param>
-public sealed record JobInfo(string Workflow, string Description, TimeSpan Timeout, bool OnPullRequest = false, string? Retry = null);
+public sealed record JobInfo(
+    string Workflow, string Description, TimeSpan Timeout, bool OnPullRequest = false, string? Retry = null);
 
-/// <param name="Result">Short word for the cost log: ok, wip, rejected, too-big, not-needed, skipped.</param>
+/// <param name="Result">Short word for the cost log: ok, wip, red (review fix not pushed), rejected, too-big, not-needed, skipped.</param>
 /// <param name="Quiet">Nothing was spent and nothing changed; no cost row, no job row.</param>
 public sealed record JobOutcome(string Result, string Detail = "", bool Quiet = false)
 {
@@ -49,8 +52,10 @@ public sealed class JobFailedException(string message) : Exception(message);
 /// <summary>Finds the job class for a request. All jobs are registered in DI as IJob.</summary>
 public sealed class JobFactory(IEnumerable<IJob> jobs)
 {
-    private readonly Dictionary<JobType, IJob> _byType = jobs.ToDictionary(j => j.Type);
+    private readonly Dictionary<JobType, IJob> _byType = jobs.ToDictionary(job => job.Type);
 
     public IJob Get(JobType type) =>
-        _byType.TryGetValue(type, out var job) ? job : throw new InvalidOperationException($"No job registered for {type}");
+        _byType.TryGetValue(type, out var job)
+            ? job
+            : throw new InvalidOperationException($"No job registered for {type}");
 }

@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace AiRunner.Core;
 
 /// <summary>Label names from design doc section 5. The runner depends on the exact names.</summary>
@@ -53,66 +51,13 @@ public static class Branches
     public static string Issue(int number) => $"ai/issue-{number}";
     public static string SubIssue(int parent, int order) => $"ai/issue-{parent}-{order}";
 
+    /// <summary>Where a review fix that is still red is saved: never on the PR's own branch.</summary>
+    public static string ReviewFix(int pull, int fix) => $"ai/pr-{pull}-fix-{fix}";
+
     public static bool IsAiBranch(string branch) =>
-        branch.StartsWith("ai/", StringComparison.Ordinal) || branch.StartsWith("feat/issue-", StringComparison.Ordinal);
+        branch.StartsWith("ai/", StringComparison.Ordinal) ||
+        branch.StartsWith("feat/issue-", StringComparison.Ordinal);
 
     public static bool IsAiIssueBranch(string branch) => branch.StartsWith("ai/issue-", StringComparison.Ordinal);
 }
 
-/// <summary>
-/// The runner posts with the developer's token, so it marks its own comments with a
-/// hidden line and never reacts to them. The block markers stay in the posted text,
-/// so the kind of a bot comment (analysis, SPEC, review) is found again without a database.
-/// </summary>
-public static class BotComments
-{
-    public const string Marker = "<!-- ai-runner -->";
-
-    /// <summary>Visible first line, so nobody mistakes a bot comment for a colleague's opinion.</summary>
-    public const string VisibleTag = "**[ai-runner]**";
-
-    public static bool IsBot(GbComment c) => c.Body?.Contains(Marker, StringComparison.Ordinal) == true;
-
-    /// <summary>A bot comment that holds a block of that kind (Markers.Analysis, Spec, Review).</summary>
-    public static bool Is(GbComment c, string marker) => IsBot(c) && Markers.Contains(c.Body, marker);
-
-    public static bool IsAnalysis(GbComment c) => Is(c, Markers.Analysis);
-
-    /// <summary>The newest bot comment with a block of that kind, or null.</summary>
-    public static GbComment? Latest(IEnumerable<GbComment> comments, string marker) =>
-        comments.Where(c => Is(c, marker)).MaxBy(c => c.Id);
-
-    public static bool MentionsAi(GbComment c) =>
-        !IsBot(c) && c.Body is not null &&
-        Regex.IsMatch(c.Body, @"(^|[^\w])@ai\b", RegexOptions.IgnoreCase);
-
-    // A comment written while Copilot was running was not in context.md, but its id is lower
-    // than the analysis comment posted after it. So the analysis comment remembers the newest
-    // comment id it read; a later @ai comment then still counts as new, even without the database.
-    private const string UptoPrefix = "<!-- ai-runner:context-upto=";
-
-    public static string ContextUptoTag(long commentId) => $"{UptoPrefix}{commentId} -->";
-
-    /// <summary>A bot block plus the newest comment id its job read, ready to post.</summary>
-    public static string WithUpto(string inner, string marker, long upTo) => Markers.Wrap(inner, marker) + "\n" + ContextUptoTag(upTo);
-
-    /// <summary>Newest comment id the latest bot block of that kind (or the local state) answered; later comments are new.</summary>
-    public static long AnsweredUpTo(IEnumerable<GbComment> comments, string marker, long lastHandledCommentId)
-    {
-        var last = Latest(comments, marker);
-        return Math.Max(lastHandledCommentId, last is null ? 0 : ContextUpto(last) ?? last.Id);
-    }
-
-    /// <summary>The newest human @ai comment after that id, or null.</summary>
-    public static GbComment? NewAtAi(IEnumerable<GbComment> comments, long afterId) =>
-        comments.Where(c => c.Id > afterId && MentionsAi(c)).MaxBy(c => c.Id);
-
-    public static int Count(IEnumerable<GbComment> comments, string marker) => comments.Count(c => Is(c, marker));
-
-    public static long? ContextUpto(GbComment c)
-    {
-        // The last tag: the runner appends it after the text it posts, which could contain a fake one.
-        var m = Regex.Matches(c.Body ?? "", Regex.Escape(UptoPrefix) + @"(\d+) -->").LastOrDefault();
-        return m is null ? null : long.Parse(m.Groups[1].Value);
-    }
-}

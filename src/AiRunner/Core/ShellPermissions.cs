@@ -33,14 +33,24 @@ public static class ShellPermissions
     private static string? Pattern(string part)
     {
         // Skip leading "NAME=value" assignments ("CI=1 npm test").
-        var words = Word.Matches(part).Select(m => m.Value)
-            .SkipWhile(w => w.Contains('=') && !w.StartsWith('-'))
+        var words = Word.Matches(part)
+            .Select(match => match.Value)
+            .SkipWhile(word => word.Contains('=') && !word.StartsWith('-'))
             .ToArray();
-        if (words.Length == 0) return null;
+
+        if (words.Length == 0)
+        {
+            return null;
+        }
 
         var tool = words[0].Trim('"', '\'');
         var name = Path.GetFileNameWithoutExtension(tool);
-        if (name.Equals("git", StringComparison.OrdinalIgnoreCase)) return null;
+
+        if (name.Equals("git", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
         return Launchers.Contains(tool) || Launchers.Contains(name)
             ? $"shell({string.Join(' ', words)})"
             : $"shell({tool}:*)";

@@ -2,6 +2,9 @@ using AiRunner.Infrastructure;
 
 namespace AiRunner.Tests.Fakes;
 
+/// <summary>A file the fake serves for an _attached URL.</summary>
+public sealed record FakeAttachment(byte[] Content, string? Name, string? ContentType);
+
 /// <summary>In-memory GitBucket: issues, comments, labels and PRs, with the same bot-marker behaviour.</summary>
 public sealed class FakeGitBucket : IGitBucketClient
 {
@@ -15,14 +18,27 @@ public sealed class FakeGitBucket : IGitBucketClient
     public List<GbPull> Pulls { get; } = [];
     public List<(long Id, string Body)> Updated { get; } = [];
 
+    /// <summary>Files behind _attached URLs, by absolute URL. A URL that is not here answers 404.</summary>
+    public Dictionary<string, FakeAttachment> Attachments { get; } = [];
+    public List<string> Downloads { get; } = [];
+
     // ---- arrange helpers ----
 
     public GbIssue AddIssue(int number, string title, string? body = null, params string[] labels)
     {
-        var issue = new GbIssue(number, title, body, new GbUser("alice"),
-            labels.Select(l => new GbLabel(l)).ToList(), DateTimeOffset.UtcNow, null, "open");
+        var labelList = labels.Select(label => new GbLabel(label)).ToList();
+        var issue = new GbIssue(
+            number,
+            title,
+            body,
+            new GbUser("alice"),
+            labelList,
+            DateTimeOffset.UtcNow,
+            null,
+            "open");
         Issues[number] = issue;
         Comments.TryAdd(number, []);
+
         return issue;
     }
 
@@ -30,103 +46,226 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public GbComment AddBotComment(int number, string body) => AddRaw(number, BotComments.Marker + "\n" + body, Login);
 
-    public GbPull AddPull(int number, string head, string baseRef, string sha = "abc1234def", string? body = null,
-        bool merged = false, string state = "open", string title = "Some change", params string[] labels)
+    public GbPull AddPull(
+        int number,
+        string head,
+        string baseRef,
+        string sha = "abc1234def",
+        string? body = null,
+        bool merged = false,
+        string state = "open",
+        string title = "Some change",
+        params string[] labels)
     {
-        var pull = new GbPull(number, title, new GbRef(head, sha), new GbRef(baseRef, "base000"), DateTimeOffset.UtcNow,
-            body, new GbUser("alice"), state, merged, merged ? DateTimeOffset.UtcNow : null,
-            Labels: labels.Select(l => new GbLabel(l)).ToList());
-        Pulls.RemoveAll(p => p.Number == number);
+        var labelList = labels.Select(label => new GbLabel(label)).ToList();
+        var pull = new GbPull(
+            number,
+            title,
+            new GbRef(head, sha),
+            new GbRef(baseRef, "base000"),
+            DateTimeOffset.UtcNow,
+            body,
+            new GbUser("alice"),
+            state,
+            merged,
+            merged ? DateTimeOffset.UtcNow : null,
+            Labels: labelList);
+        Pulls.RemoveAll(existingPull => existingPull.Number == number);
         Pulls.Add(pull);
+
         return pull;
     }
 
     public HashSet<string> LabelsOf(int number) => Issues[number].LabelNames();
+
     public IReadOnlyList<GbComment> CommentsOf(int number) => Comments.GetValueOrDefault(number) ?? [];
 
     private GbComment AddRaw(int number, string body, string user)
     {
-        var c = new GbComment(++_nextCommentId, body, new GbUser(user), DateTimeOffset.UtcNow);
+        var comment = new GbComment(++_nextCommentId, body, new GbUser(user), DateTimeOffset.UtcNow);
         Comments.TryAdd(number, []);
-        Comments[number].Add(c);
-        return c;
+        Comments[number].Add(comment);
+
+        return comment;
     }
 
     private void SetLabels(int number, IEnumerable<string> labels) =>
-        Issues[number] = Issues[number] with { Labels = labels.Distinct().Select(l => new GbLabel(l)).ToList() };
+        Issues[number] = Issues[number] with
+        {
+            Labels = labels.Distinct().Select(label => new GbLabel(label)).ToList()
+        };
+
+    public void AddAttachment(string url, byte[] content, string? name = null, string? contentType = null) =>
+        Attachments[url] = new FakeAttachment(content, name, contentType);
 
     // ---- IGitBucketClient ----
 
-    public Task<GbUser> GetCurrentUserAsync(CancellationToken ct) => Task.FromResult(new GbUser(Login));
+    public Task<DownloadedAttachment> DownloadAttachmentAsync(
+        AttachmentDownload download,
+        CancellationToken cancellationToken)
+    {
+        Downloads.Add(download.Url);
+        if (!Attachments.TryGetValue(download.Url, out var attachment))
+        {
+            throw new AttachmentDownloadException("the server answered 404");
+        }
 
-    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken ct) => Task.FromResult(new GbRepo(DefaultBranch));
+        if (attachment.Content.Length > download.MaxBytes)
+        {
+            throw new AttachmentDownloadException("too large");
+        }
 
-    public Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(string repo, string? label, string? assignee, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<GbIssue>>(Issues.Values
-            .Where(i => i.IsOpen() && (label is null || i.HasLabel(label)) && (assignee is null || i.IsAssignedTo(assignee)))
-            .ToList());
+        var urlPath = new Uri(download.Url).AbsolutePath;
+        var extension = AttachmentPolicy.ChooseExtension(attachment.Name, urlPath, attachment.ContentType);
+
+        Directory.CreateDirectory(download.Directory);
+        var path = Path.Combine(download.Directory, download.FileStem + extension);
+        File.WriteAllBytes(path, attachment.Content);
+
+        return Task.FromResult(new DownloadedAttachment(path, attachment.Name, attachment.ContentType, attachment.Content.Length));
+    }
+
+    public Task<GbUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new GbUser(Login));
+
+    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken) =>
+        Task.FromResult(new GbRepo(DefaultBranch));
+
+    public Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(
+        string repo,
+        string? label,
+        string? assignee,
+        CancellationToken cancellationToken)
+    {
+        var matchingIssues = Issues.Values
+            .Where(issue => issue.IsOpen()
+                && (label is null || issue.HasLabel(label))
+                && (assignee is null || issue.IsAssignedTo(assignee)))
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<GbIssue>>(matchingIssues);
+    }
 
     public int CommentListCalls { get; private set; }
 
-    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken ct) => Task.FromResult(Issues[number]);
+    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken) =>
+        Task.FromResult(Issues[number]);
 
-    public Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken ct)
+    public Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)
     {
         CommentListCalls++;
-        return Task.FromResult(CommentsOf(number));
+        var comments = CommentsOf(number);
+        return Task.FromResult(comments);
     }
 
-    public Task<GbIssue> CreateIssueAsync(string repo, string title, string body, IEnumerable<string> labels, CancellationToken ct)
+    public Task<GbIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
     {
-        while (Issues.ContainsKey(++_nextNumber)) { }
-        return Task.FromResult(AddIssue(_nextNumber, title, body, labels.ToArray()));
+        while (Issues.ContainsKey(++_nextNumber))
+        {
+        }
+
+        var labels = issue.Labels.ToArray();
+        var created = AddIssue(_nextNumber, issue.Title, issue.Body, labels);
+
+        return Task.FromResult(created);
     }
 
-    public Task<GbComment> AddCommentAsync(string repo, int number, string body, CancellationToken ct) =>
-        Task.FromResult(AddRaw(number, body.Contains(BotComments.Marker) ? body : BotComments.Marker + "\n" + body, Login));
+    public Task<GbComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken)
+    {
+        var markedBody = body.Contains(BotComments.Marker) ? body : BotComments.Marker + "\n" + body;
+        var comment = AddRaw(number, markedBody, Login);
 
-    public Task<GbComment> UpdateCommentAsync(string repo, long commentId, string body, CancellationToken ct)
+        return Task.FromResult(comment);
+    }
+
+    public Task<GbComment> UpdateCommentAsync(
+        string repo,
+        long commentId,
+        string body,
+        CancellationToken cancellationToken)
     {
         foreach (var list in Comments.Values)
         {
-            var i = list.FindIndex(c => c.Id == commentId);
-            if (i < 0) continue;
-            list[i] = list[i] with { Body = BotComments.Marker + "\n" + body };
+            var index = list.FindIndex(comment => comment.Id == commentId);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            list[index] = list[index] with
+            {
+                Body = BotComments.Marker + "\n" + body
+            };
             Updated.Add((commentId, body));
-            return Task.FromResult(list[i]);
+
+            return Task.FromResult(list[index]);
         }
+
         throw new GitBucketException(System.Net.HttpStatusCode.NotFound, "comment not found");
     }
 
-    public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken ct)
-    {
-        if (Issues.ContainsKey(number)) SetLabels(number, LabelsOf(number).Concat(labels));
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveLabelAsync(string repo, int number, string label, CancellationToken ct)
+    public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken)
     {
         if (Issues.ContainsKey(number))
-            SetLabels(number, LabelsOf(number).Where(l => !string.Equals(l, label, StringComparison.OrdinalIgnoreCase)));
+        {
+            var allLabels = LabelsOf(number).Concat(labels);
+            SetLabels(number, allLabels);
+        }
+
         return Task.CompletedTask;
     }
 
-    public Task<bool> CreateLabelAsync(string repo, string name, string color, string description, CancellationToken ct) =>
+    public Task RemoveLabelAsync(string repo, int number, string label, CancellationToken cancellationToken)
+    {
+        if (Issues.ContainsKey(number))
+        {
+            var remainingLabels = LabelsOf(number)
+                .Where(existing => !string.Equals(existing, label, StringComparison.OrdinalIgnoreCase));
+            SetLabels(number, remainingLabels);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> CreateLabelAsync(string repo, NewLabel label, CancellationToken cancellationToken) =>
         Task.FromResult(true);
 
-    public Task<IReadOnlyList<GbPull>> ListPullsAsync(string repo, string state, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<GbPull>>(Pulls.Where(p => state == "all" || p.State == state).ToList());
-
-    public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken ct) =>
-        Task.FromResult(Pulls.Single(p => p.Number == number));
-
-    public Task<GbPull> CreatePullAsync(string repo, string title, string head, string baseBranch, string body, CancellationToken ct)
+    public Task<IReadOnlyList<GbPull>> ListPullsAsync(string repo, string state, CancellationToken cancellationToken)
     {
-        var number = Math.Max(_nextNumber, Pulls.Select(p => p.Number).DefaultIfEmpty(0).Max()) + 1;
+        var matchingPulls = Pulls.Where(pull => state == "all" || pull.State == state).ToList();
+
+        return Task.FromResult<IReadOnlyList<GbPull>>(matchingPulls);
+    }
+
+    public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken)
+    {
+        var pull = Pulls.Single(existingPull => existingPull.Number == number);
+
+        return Task.FromResult(pull);
+    }
+
+    public Task<GbPull> CreatePullAsync(string repo, NewPull newPull, CancellationToken cancellationToken)
+    {
+        var highestPullNumber = Pulls.Select(existingPull => existingPull.Number).DefaultIfEmpty(0).Max();
+        var number = Math.Max(_nextNumber, highestPullNumber) + 1;
         _nextNumber = number;
-        var pull = new GbPull(number, title, new GbRef(head, "new0000"), new GbRef(baseBranch, "base000"),
-            DateTimeOffset.UtcNow, body, new GbUser(Login), "open", false, null);
+
+        var head = new GbRef(newPull.Head, "new0000");
+        var baseRef = new GbRef(newPull.BaseBranch, "base000");
+        var author = new GbUser(Login);
+        var pull = new GbPull(
+            number,
+            newPull.Title,
+            head,
+            baseRef,
+            DateTimeOffset.UtcNow,
+            newPull.Body,
+            author,
+            "open",
+            false,
+            null);
         Pulls.Add(pull);
+
         return Task.FromResult(pull);
     }
 }

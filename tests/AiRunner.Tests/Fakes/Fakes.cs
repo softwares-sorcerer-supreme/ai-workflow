@@ -17,13 +17,27 @@ public sealed class FakeCopilot : ICopilotRunner
     /// <summary>Called after FilesToWrite, with the 1-based number of the call, e.g. to write different files per round.</summary>
     public Action<CopilotRequest, int>? OnRun { get; set; }
 
-    public Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken ct)
+    /// <summary>Whether the pretend CLI has --attachment.</summary>
+    public bool CanAttachFiles { get; set; } = true;
+
+    public Task<bool> CanAttachFilesAsync(string workDir, CancellationToken cancellationToken) =>
+        Task.FromResult(CanAttachFiles);
+
+    public Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
+
         foreach (var (name, content) in FilesToWrite)
-            File.WriteAllText(Path.Combine(request.WorkDir, name), content);
+        {
+            var targetFile = Path.Combine(request.WorkDir, name);
+            File.WriteAllText(targetFile, content);
+        }
+
         OnRun?.Invoke(request, Requests.Count);
-        return Task.FromResult(new ProcessResult(ExitCode, StdOut, StdErr, TimeSpan.FromSeconds(1), TimedOut));
+
+        var duration = TimeSpan.FromSeconds(1);
+
+        return Task.FromResult(new ProcessResult(ExitCode, StdOut, StdErr, duration, TimedOut));
     }
 }
 
@@ -40,42 +54,94 @@ public sealed class FakeGit : IGitClient
     public List<(string Source, string Branch)> Pushes { get; } = [];
     public List<string> Commits { get; } = [];
 
-    public Task CloneOrFetchAsync(string repo, string dir, CancellationToken ct) => Task.CompletedTask;
-    public Task CheckoutCleanAsync(string dir, string startPoint, string? newBranch, CancellationToken ct) => Task.CompletedTask;
-    public Task FetchAsync(string dir, string refspec, CancellationToken ct) => Task.CompletedTask;
-    public Task<bool> RefExistsAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.ContainsKey(gitRef));
-    public Task<string?> ResolveAsync(string dir, string gitRef, CancellationToken ct) => Task.FromResult(Refs.GetValueOrDefault(gitRef));
-    public Task<int> CountCommitsAsync(string dir, string from, string to, CancellationToken ct) =>
-        Task.FromResult(CommitsAhead.GetValueOrDefault(to));
-    public Task<IReadOnlyList<string>> AuthorsAsync(string dir, string from, string to, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(Authors);
-    public Task<IReadOnlyList<DiffStat>> StageAllAsync(string dir, CancellationToken ct) => Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
-    public Task CommitAsync(string dir, string message, CancellationToken ct) { Commits.Add(message); return Task.CompletedTask; }
-    /// <summary>Models a push the server rejects (the branch moved).</summary>
-    public bool PushFails { get; set; }
-    public Task PushAsync(string dir, string source, string branch, CancellationToken ct)
+    public Task CloneOrFetchAsync(string repo, string directory, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task CheckoutCleanAsync(
+        string directory,
+        string startPoint,
+        string? newBranch,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FetchAsync(string directory, string refspec, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task<bool> RefExistsAsync(string directory, string gitRef, CancellationToken cancellationToken)
     {
-        if (PushFails) throw new InvalidOperationException("git push failed (exit 1): rejected, fetch first");
-        Pushes.Add((source, branch));
-        Refs["origin/" + branch] = Refs["HEAD"];
+        var refExists = Refs.ContainsKey(gitRef);
+
+        return Task.FromResult(refExists);
+    }
+
+    public Task<string?> ResolveAsync(string directory, string gitRef, CancellationToken cancellationToken)
+    {
+        var sha = Refs.GetValueOrDefault(gitRef);
+
+        return Task.FromResult(sha);
+    }
+
+    public Task<int> CountCommitsAsync(string directory, string from, string to, CancellationToken cancellationToken)
+    {
+        var commitCount = CommitsAhead.GetValueOrDefault(to);
+
+        return Task.FromResult(commitCount);
+    }
+
+    public Task<IReadOnlyList<string>> AuthorsAsync(
+        string directory,
+        string from,
+        string to,
+        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(Authors);
+
+    public Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
+
+    public Task CommitAsync(string directory, string message, CancellationToken cancellationToken)
+    {
+        Commits.Add(message);
         return Task.CompletedTask;
     }
-    public Task<string> DiffAsync(string dir, string baseRef, string headRef, CancellationToken ct) => Task.FromResult("diff --git a/x b/x\n");
+
+    /// <summary>Models a push the server rejects (the branch moved).</summary>
+    public bool PushFails { get; set; }
+
+    public Task PushAsync(string directory, string source, string branch, CancellationToken cancellationToken)
+    {
+        if (PushFails)
+        {
+            throw new InvalidOperationException("git push failed (exit 1): rejected, fetch first");
+        }
+
+        Pushes.Add((source, branch));
+        Refs["origin/" + branch] = Refs["HEAD"];
+
+        return Task.CompletedTask;
+    }
+
+    public Task<string> DiffAsync(string directory, string baseRef, string headRef, CancellationToken cancellationToken) =>
+        Task.FromResult("diff --git a/x b/x\n");
+
     public List<string> StageAndDiffs { get; } = [];
     /// <summary>Null: every call returns a different diff (the agent changed code). Set it to model a round that changed nothing.</summary>
     public string? FixedDiff { get; set; }
-    public Task<string> StageAndDiffAsync(string dir, string baseRef, CancellationToken ct)
+    public Task<string> StageAndDiffAsync(string directory, string baseRef, CancellationToken cancellationToken)
     {
         StageAndDiffs.Add(baseRef);
         return Task.FromResult(FixedDiff ?? $"diff --git a/src/a.txt b/src/a.txt\n+change {StageAndDiffs.Count}\n");
     }
-    public Task<IReadOnlyList<string>> ChangedFilesAsync(string dir, string baseRef, string headRef, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(ChangedFiles);
+
+    public Task<IReadOnlyList<string>> ChangedFilesAsync(
+        string directory,
+        string baseRef,
+        string headRef,
+        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(ChangedFiles);
 
     /// <summary>Returned in order; the last value repeats. Two different values = config changed.</summary>
     public Queue<string> Fingerprints { get; } = new();
+
     private string _lastFingerprint = "config-1";
-    public string ConfigFingerprint(string dir) =>
+
+    public string ConfigFingerprint(string directory) =>
         _lastFingerprint = Fingerprints.Count > 0 ? Fingerprints.Dequeue() : _lastFingerprint;
 }
 
@@ -88,9 +154,10 @@ public sealed class FakeWorkspace : IWorkspace, IDisposable
 
     public void Discard(string repo) => Discarded.Add(repo);
 
-    public Task<string> PrepareAsync(string repo, string startPoint, string? newBranch, IReadOnlyList<string> extraFetch, CancellationToken ct)
+    public Task<string> PrepareAsync(WorkspaceRequest request, CancellationToken cancellationToken)
     {
-        Prepared.Add((startPoint, newBranch));
+        Prepared.Add((request.StartPoint, request.NewBranch));
+
         return Task.FromResult(Dir);
     }
 
@@ -107,15 +174,27 @@ public sealed class FakeProcesses : IProcessRunner
     public Dictionary<string, Queue<int>> ExitCodeSequence { get; } = [];
     public List<string> Commands { get; } = [];
 
-    public Task<ProcessResult> RunAsync(ProcessSpec spec, CancellationToken ct)
+    /// <summary>Printed by every command instead of "ran {command}".</summary>
+    public string? StdOut { get; set; }
+
+    public Task<ProcessResult> RunAsync(ProcessSpec processSpec, CancellationToken cancellationToken)
     {
-        var command = spec.RawArguments ?? string.Join(" ", spec.Args);
+        var command = processSpec.RawArguments ?? string.Join(" ", processSpec.Args);
         Commands.Add(command);
-        var sequence = ExitCodeSequence.FirstOrDefault(kv => command.Contains(kv.Key)).Value;
-        var code = sequence is { Count: > 0 }
+
+        var sequence = ExitCodeSequence.FirstOrDefault(entry => command.Contains(entry.Key)).Value;
+        var exitCode = sequence is { Count: > 0 }
             ? sequence.Count > 1 ? sequence.Dequeue() : sequence.Peek()
-            : ExitCodes.FirstOrDefault(kv => command.Contains(kv.Key)).Value;
-        return Task.FromResult(new ProcessResult(code, $"ran {command}", code == 0 ? "" : "1 test failed", TimeSpan.FromSeconds(1), false));
+            : ExitCodes.FirstOrDefault(entry => command.Contains(entry.Key)).Value;
+
+        var duration = TimeSpan.FromSeconds(1);
+
+        return Task.FromResult(new ProcessResult(
+            exitCode,
+            StdOut ?? $"ran {command}",
+            exitCode == 0 ? "" : "1 test failed",
+            duration,
+            false));
     }
 }
 
@@ -123,6 +202,7 @@ public sealed class FakeProcesses : IProcessRunner
 public sealed class JobTestKit : IDisposable
 {
     public const string Repo = "james/demo";
+    public const string BaseUrl = "http://gb.test";
 
     public RunnerConfig Config { get; }
     public FakeGitBucket GitBucket { get; } = new();
@@ -133,45 +213,67 @@ public sealed class JobTestKit : IDisposable
     public SqliteStateStore State { get; }
     public RunnerIdentity Identity { get; } = new() { Login = "bot" };
     public JobRun Run { get; }
-    private readonly string _tmp = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
+
+    private readonly string _tempFolder = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
 
     public JobTestKit(Action<RepoConfig>? configure = null)
     {
         var repo = new RepoConfig
         {
-            Owner = "james", Name = "demo",
+            Owner = "james",
+            Name = "demo",
             Workflows = [.. Workflows.All],
             Commands = new CommandsConfig { Build = "make build", Test = "make test" },
         };
         configure?.Invoke(repo);
-        Config = new RunnerConfig { Repos = [repo] };
+
+        Config = new RunnerConfig
+        {
+            GitBucket = new GitBucketConfig { BaseUrl = BaseUrl },
+            Repos = [repo],
+        };
         Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
-        State = new SqliteStateStore(Path.Combine(_tmp, "state.db"), pooling: false);
-        var runDir = Path.Combine(_tmp, "run");
-        Directory.CreateDirectory(runDir);
-        Run = new JobRun(runDir, NullLogger.Instance);
+        var stateFile = Path.Combine(_tempFolder, "state.db");
+        State = new SqliteStateStore(stateFile, pooling: false);
+
+        var runFolder = Path.Combine(_tempFolder, "run");
+        Directory.CreateDirectory(runFolder);
+        Run = new JobRun(runFolder, NullLogger.Instance);
     }
 
     public RepoConfig RepoConfig => Config.Repos[0];
 
     public AgentSession Session => new(Config, Workspace, Git, Copilot, Processes);
 
+    public JobLoader Loader => new(Config, GitBucket, State, Identity);
+
+    public AttachmentFetcher Attachments => new(Config, GitBucket, Copilot);
+
     public JobRequest Request(JobType type, int number, string? payload = null) => new(type, Repo, number, payload);
 
     /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
     public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs)
     {
-        var logs = Directory.CreateDirectory(Path.Combine(_tmp, "logs")).FullName;
+        var logsFolder = Path.Combine(_tempFolder, "logs");
+        var logs = Directory.CreateDirectory(logsFolder).FullName;
         var config = new RunnerConfig { Repos = Config.Repos, Paths = new PathsConfig { Logs = logs } };
         var queue = new JobQueue(State, NullLogger<JobQueue>.Instance);
-        var worker = new JobWorker(config, queue, new JobFactory(jobs), new JobLog(config, NullLogger<JobLog>.Instance),
-            new CostLog(config, State, NullLogger<CostLog>.Instance), State, GitBucket, NullLogger<JobWorker>.Instance);
+        var worker = new JobWorker(
+            config,
+            queue,
+            new JobFactory(jobs),
+            new JobLog(config, NullLogger<JobLog>.Instance),
+            new CostLog(config, State, NullLogger<CostLog>.Instance),
+            State,
+            GitBucket,
+            NullLogger<JobWorker>.Instance);
+
         return (worker, queue, logs);
     }
 
     public void Dispose()
     {
         Workspace.Dispose();
-        FileSystem.DeleteDirectory(_tmp);
+        FileSystem.DeleteDirectory(_tempFolder);
     }
 }

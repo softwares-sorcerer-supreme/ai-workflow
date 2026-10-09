@@ -15,15 +15,20 @@ public sealed class PollerTests : IDisposable
     public void Dispose() => _kit.Dispose();
 
     private Poller NewPoller(bool dryRun = false) =>
-        new(_kit.Config, _kit.GitBucket, _kit.State, _queue, _kit.Identity, NullLogger<Poller>.Instance) { DryRun = dryRun };
+        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.State, _queue, _kit.Identity, NullLogger<Poller>.Instance)
+        {
+            DryRun = dryRun
+        };
 
-    private List<JobRequest> Pending() => _kit.State.ListJobs(JobStatus.Pending).Select(j => j.Request).ToList();
+    private List<JobRequest> Pending() =>
+        _kit.State.ListJobs(JobStatus.Pending).Select(job => job.Request).ToList();
 
     [Fact]
     public async Task Settled_issue_is_not_read_again_but_a_label_only_change_is_seen()
     {
         _kit.GitBucket.AddIssue(7, "Export", null, "ai", Labels.QuestionsOpen);
-        _kit.GitBucket.AddBotComment(7, Markers.Wrap("x", Markers.Analysis));
+        var analysisComment = Markers.Wrap("x", Markers.Analysis);
+        _kit.GitBucket.AddBotComment(7, analysisComment);
         var poller = NewPoller();
 
         await poller.PollOnceAsync(default);   // waits for @ai -> nothing to do, fingerprint saved
@@ -35,7 +40,8 @@ public sealed class PollerTests : IDisposable
         await _kit.GitBucket.AddLabelsAsync(JobTestKit.Repo, 7, [Labels.Implement], default);
         await poller.PollOnceAsync(default);
 
-        Assert.Equal(JobType.ImplementIssue, Assert.Single(Pending()).Type);
+        var queuedJob = Assert.Single(Pending());
+        Assert.Equal(JobType.ImplementIssue, queuedJob.Type);
     }
 
     [Fact]
@@ -45,13 +51,15 @@ public sealed class PollerTests : IDisposable
         var poller = NewPoller();
 
         await poller.PollOnceAsync(default);
+
         Assert.True(_queue.TryDequeue(out var job));
         Assert.Equal(JobType.AnalyzeIssue, job!.Request.Type);
         _kit.State.SetJobStatus(job.Id, JobStatus.Failed, "VPN down, could not even post the failure");
 
         await poller.PollOnceAsync(default);   // nothing changed on the issue, but it is not forgotten
 
-        Assert.Equal(JobType.AnalyzeIssue, Assert.Single(Pending()).Type);
+        var queuedJob = Assert.Single(Pending());
+        Assert.Equal(JobType.AnalyzeIssue, queuedJob.Type);
     }
 
     [Fact]
@@ -70,12 +78,16 @@ public sealed class PollerTests : IDisposable
     public async Task Issue_assigned_to_the_runner_user_is_in_scope_without_the_label()
     {
         var issue = _kit.GitBucket.AddIssue(8, "Assigned", null);
-        _kit.GitBucket.Issues[8] = issue with { Assignee = new GbUser("bot") };
+        _kit.GitBucket.Issues[8] = issue with
+        {
+            Assignee = new GbUser("bot")
+        };
         _kit.GitBucket.AddIssue(9, "Someone else's", null);
 
         await NewPoller().PollOnceAsync(default);
 
-        Assert.Equal(8, Assert.Single(Pending()).Number);
+        var queuedJob = Assert.Single(Pending());
+        Assert.Equal(8, queuedJob.Number);
     }
 
     [Fact]
@@ -83,6 +95,7 @@ public sealed class PollerTests : IDisposable
     {
         _kit.GitBucket.AddPull(3, "feature", "main", sha: "sha1", labels: "ai");
         _kit.GitBucket.AddPull(4, "colleague", "main", sha: "sha9");   // no label: not reviewed by default
+
         await NewPoller().PollOnceAsync(default);
 
         var review = Assert.Single(Pending());

@@ -9,13 +9,15 @@ namespace AiRunner.Tests.Jobs;
 /// <summary>Safety and robustness paths added after the first code review.</summary>
 public sealed class ImplementGuardRailTests : IDisposable
 {
-    private readonly JobTestKit _kit = new(r => r.Commands.Setup = "npm ci");
-    private ImplementIssueJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Session, _kit.State);
+    private readonly JobTestKit _kit = new(repo => repo.Commands.Setup = "npm ci");
+    private ImplementIssueJob Job =>
+        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
     public ImplementGuardRailTests()
     {
         _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
-        _kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
+        var specComment = Markers.Wrap(Samples.Spec, Markers.Spec);
+        _kit.GitBucket.AddBotComment(12, specComment);
     }
 
     public void Dispose() => _kit.Dispose();
@@ -23,7 +25,8 @@ public sealed class ImplementGuardRailTests : IDisposable
     [Fact]
     public async Task Setup_runs_before_copilot_and_the_agent_may_run_it()
     {
-        await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
+        var jobRequest = _kit.Request(JobType.ImplementIssue, 12);
+        await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Contains("npm ci", _kit.Processes.Commands[0]);
         Assert.Contains("shell(npm:*)", _kit.Copilot.Requests.Single().AllowTools);
@@ -34,8 +37,10 @@ public sealed class ImplementGuardRailTests : IDisposable
     {
         _kit.Processes.ExitCodes["npm ci"] = 1;
 
-        var ex = await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
-        Assert.Contains("npm ci", ex.Message);
+        var exception = await Assert.ThrowsAsync<JobFailedException>(
+            () => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
+
+        Assert.Contains("npm ci", exception.Message);
         Assert.Empty(_kit.Copilot.Requests);
         Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
     }
@@ -46,9 +51,10 @@ public sealed class ImplementGuardRailTests : IDisposable
         _kit.Git.Fingerprints.Enqueue("before");
         _kit.Git.Fingerprints.Enqueue("after-agent-wrote-it");
 
-        var ex = await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
+        var exception = await Assert.ThrowsAsync<JobFailedException>(
+            () => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
 
-        Assert.Contains(".git/config", ex.Message);
+        Assert.Contains(".git/config", exception.Message);
         Assert.Equal([JobTestKit.Repo], _kit.Workspace.Discarded);
         Assert.Empty(_kit.Git.Commits);
         Assert.Empty(_kit.Git.Pushes);
@@ -61,9 +67,10 @@ public sealed class ImplementGuardRailTests : IDisposable
         _kit.Git.Fingerprints.Enqueue("before");
         _kit.Git.Fingerprints.Enqueue("after-agent-wrote-it");
 
-        var ex = await Assert.ThrowsAsync<JobFailedException>(() => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
+        var exception = await Assert.ThrowsAsync<JobFailedException>(
+            () => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
 
-        Assert.Contains(".git/config", ex.Message);
+        Assert.Contains(".git/config", exception.Message);
         Assert.Empty(_kit.Git.Commits);
         Assert.Empty(_kit.Git.Pushes);
     }
@@ -73,7 +80,8 @@ public sealed class ImplementGuardRailTests : IDisposable
     {
         _kit.GitBucket.AddPull(40, "ai/issue-12", "main");
 
-        var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
+        var jobRequest = _kit.Request(JobType.ImplementIssue, 12);
+        var outcome = await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal("already-open", outcome.Result);
         Assert.Empty(_kit.Copilot.Requests);
@@ -84,9 +92,13 @@ public sealed class ImplementGuardRailTests : IDisposable
     [Fact]
     public async Task Parent_line_in_a_normal_issue_does_not_make_it_a_sub_issue()
     {
-        _kit.GitBucket.Issues[12] = _kit.GitBucket.Issues[12] with { Body = "Parent: #3\nsee there" };
+        _kit.GitBucket.Issues[12] = _kit.GitBucket.Issues[12] with
+        {
+            Body = "Parent: #3\nsee there"
+        };
 
-        await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
+        var jobRequest = _kit.Request(JobType.ImplementIssue, 12);
+        await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal(("origin/main", "ai/issue-12"), _kit.Workspace.Prepared.Single());
     }
@@ -95,7 +107,8 @@ public sealed class ImplementGuardRailTests : IDisposable
 public sealed class ReviewGuardRailTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
-    private ReviewPullRequestJob Job => new(_kit.Config, _kit.GitBucket, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Identity);
+    private ReviewPullRequestJob Job =>
+        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Attachments);
 
     public void Dispose() => _kit.Dispose();
 
@@ -105,7 +118,8 @@ public sealed class ReviewGuardRailTests : IDisposable
         _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         _kit.Git.ChangedFiles = [];
 
-        var outcome = await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
+        var jobRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha1");
+        var outcome = await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal("skipped", outcome.Result);
         Assert.Empty(_kit.Copilot.Requests);
@@ -115,13 +129,24 @@ public sealed class ReviewGuardRailTests : IDisposable
     public async Task Sub_issue_pr_gets_the_sub_issue_body_as_its_spec()
     {
         var task = new SubTask(1, "Entity", "Add the Export entity", "Domain", [], false);
-        _kit.GitBucket.AddIssue(20, "#12.1 Entity", SubIssueBody.Build(12, task, 2, "entity Export"), "ai", Labels.SubIssue);
-        _kit.GitBucket.AddPull(31, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Some text about #99.\n\nCloses #20", labels: "ai");
-        _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
+        var draft = new SubIssueDraft(12, task, 2, "entity Export");
+        var subIssueBody = SubIssueBody.Build(draft);
+        _kit.GitBucket.AddIssue(20, "#12.1 Entity", subIssueBody, "ai", Labels.SubIssue);
+        _kit.GitBucket.AddPull(
+            31,
+            "ai/issue-12-1",
+            "feat/issue-12",
+            sha: "sha1",
+            body: "Some text about #99.\n\nCloses #20",
+            labels: "ai");
+        var review = Samples.Review();
+        _kit.Copilot.StdOut = Markers.Wrap(review, Markers.Review);
 
-        await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 31, "sha1"), _kit.Run, default);
+        var jobRequest = _kit.Request(JobType.ReviewPullRequest, 31, "sha1");
+        await Job.RunAsync(jobRequest, _kit.Run, default);
 
-        var context = File.ReadAllText(Path.Combine(_kit.Workspace.Dir, "context.md"));
+        var contextFile = Path.Combine(_kit.Workspace.Dir, "context.md");
+        var context = File.ReadAllText(contextFile);
         Assert.Contains("Linked issue #20", context);
         Assert.Contains("entity Export", context);
     }

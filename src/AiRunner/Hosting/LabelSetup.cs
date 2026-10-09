@@ -5,9 +5,9 @@ using AiRunner.Infrastructure;
 namespace AiRunner.Hosting;
 
 /// <summary>--setup-labels: creates the labels from design doc section 5 in every repo of repos.yml.</summary>
-public sealed class LabelSetup(RunnerConfig config, IGitBucketClient gitBucket, ILogger<LabelSetup> log)
+public sealed class LabelSetup(RunnerConfig config, IGitBucketClient gitBucketClient, ILogger<LabelSetup> logger)
 {
-    public async Task RunAsync(CancellationToken ct)
+    public async Task RunAsync(CancellationToken cancellationToken)
     {
         foreach (var repo in config.Repos)
         {
@@ -15,12 +15,14 @@ public sealed class LabelSetup(RunnerConfig config, IGitBucketClient gitBucket, 
             {
                 try
                 {
-                    var created = await gitBucket.CreateLabelAsync(repo.FullName, name, color, description, ct);
-                    log.LogInformation("{Repo}: {Label} {Result}", repo, name, created ? "created" : "already exists");
+                    var newLabel = new NewLabel(name, color, description);
+                    var created = await gitBucketClient.CreateLabelAsync(repo.FullName, newLabel, cancellationToken);
+
+                    logger.LogInformation("{Repo}: {Label} {Result}", repo, name, created ? "created" : "already exists");
                 }
-                catch (GitBucketException ex)
+                catch (GitBucketException exception)
                 {
-                    log.LogError("{Repo}: {Label} failed: {Message}", repo, name, ex.Message);
+                    logger.LogError("{Repo}: {Label} failed: {Message}", repo, name, exception.Message);
                 }
             }
         }

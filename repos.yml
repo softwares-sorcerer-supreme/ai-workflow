@@ -6,11 +6,11 @@ pollIntervalSeconds: 90
 scopeLabel: ai              # the runner only looks at issues with this label (or assigned to the runner's user)
 
 copilot:
-  command: copilot          # if Windows says "file not found", put the full path from: Get-Command copilot
   analyzeTimeoutMinutes: 15
   reviewTimeoutMinutes: 15
   implementTimeoutMinutes: 45  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
   extraArgs: [--disable-builtin-mcps]   # the agent gets no GitHub MCP server: it works only on the local files
+  command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
 
 # Relative to this file.
 paths:
@@ -19,6 +19,15 @@ paths:
   state: ai-runner.db       # SQLite; deleting it is safe
 logRetentionDays: 30
 
+attachments:                # files people attach to issues, comments and PRs (links with /_attached/ on the GitBucket host)
+  enabled: true             # download them into .ai-workflow/attachments/ of the clone so the agent can read them
+  maxFileBytes: 10485760    # 10 MB per file; larger files are listed as "too large", never kept
+  maxFiles: 20              # per job
+  maxTotalBytes: 52428800   # 50 MB per job
+  passToCopilot: true       # also give images and PDFs to the prompt (copilot --attachment); needs a Copilot CLI that has the flag
+  maxPassedToCopilot: 5     # each file on the prompt costs tokens
+  skipExtensions: [.exe, .dll, .msi, .bat, .cmd, .ps1, .sh, .com, .scr, .jar, .vbs]   # never downloaded
+
 git:                        # author of the commits the runner makes in Workflow 2
   userName: ai-runner
   userEmail: ai-runner@localhost
@@ -26,14 +35,14 @@ git:                        # author of the commits the runner makes in Workflow
 repos:
   - owner: james
     name: mbhanalytics
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit)
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit when build/test pass; needs commands.build or commands.test below)
     workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
     models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
     commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
       setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
-      build: ""             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
-      test: ""              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
-      lint: ""              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
+      build: "dotnet build MBHAnalytics.sln"             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
+      test: "dotnet test MBHAnalytics.sln"              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
+      lint: "dotnet format --verify-no-changes"              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
                             # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
       allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
     limits:
@@ -52,14 +61,14 @@ repos:
 
   - owner: manhhai
     name: mbhanalytics-fe
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit)
+    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit when build/test pass; needs commands.build or commands.test below)
     workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
     models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
     commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
-      setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
-      build: ""             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
-      test: ""              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
-      lint: ""              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
+      setup: "npm ci"             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
+      build: "npm run build"     # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
+      test: "npm test"              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
+      lint: "npm run lint"              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
                             # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
       allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
     limits:
@@ -75,6 +84,3 @@ repos:
       scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
       skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
     autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue
-
-copilot:
-  command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
