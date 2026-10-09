@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture - ai-runner docs</title>
+<meta name="description" content="A layered worker with a pure decision core. One pattern everywhere: Poll, Plan, Queue, Job. How a job runs, how failures are handled and how secrets are protected.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html" class="current" aria-current="page">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Architecture</h1>
+<p class="summary">A layered worker with a pure decision core. One pattern everywhere: Poll, Plan, Queue, Job. How a job runs, how failures are handled and how secrets are protected.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#style">Architecture style</a><a href="#layers">Layers and dependencies</a><a href="#job-lifecycle">Job lifecycle (the "request lifecycle")</a><a href="#patterns">Key design patterns</a><a href="#cross-cutting">Cross-cutting concerns</a><a href="#auth-flow">Authentication and secret flow</a></nav>
+</div></header>
+<main class="content">
+<h2 id="style">Architecture style</h2>
+<p>ai-runner is <strong>one project</strong> (<code>src/AiRunner</code>) with four layers. The folder is the namespace. The style is "pure core, impure shell":
+every <em>decision</em> and every piece of <em>text parsing</em> is a pure static function in <code>Core/</code>. Every <em>side effect</em> sits behind a small interface in <code>Infrastructure/</code>.
+<code>Jobs/</code> glue them together, and <code>Hosting/</code> only handles scheduling and lifetime (<code>CLAUDE.md</code> "Architecture").</p>
+<p>The one pattern that repeats is <strong>Poll &rarr; Plan &rarr; Queue &rarr; Job</strong>:</p>
+<ol class="flow-steps">
+  <li><strong>Poll</strong>: <code>Poller</code> reads issues and PRs from GitBucket (<code>Hosting/Poller.cs:52-85</code>). It never writes to GitBucket.</li>
+  <li><strong>Plan</strong>: <code>JobPlanner</code> turns labels and comments into "run job X" or "skip, because Y" (<code>Core/JobPlanner.cs</code>).</li>
+  <li><strong>Queue</strong>: <code>JobQueue</code> stores the job in SQLite and in a channel. There is at most one pending job per key (<code>Hosting/JobQueue.cs:22-38</code>).</li>
+  <li><strong>Job</strong>: <code>JobWorker</code> runs one job at a time. The job <em>plans again on fresh data</em> and quits quietly if the work is no longer needed (<code>Jobs/JobSupport.cs:26-34</code>).</li>
+</ol>
+
+<h2 id="layers">Layers and dependencies</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  Program["Program.cs<br/>DI + command-line modes"]
+  Hosting["Hosting<br/>Poller, JobQueue, JobWorker,<br/>LabelSetup, CopilotSelfTest"]
+  Jobs["Jobs<br/>6 IJob classes, AgentSession,<br/>JobSupport"]
+  Infra["Infrastructure<br/>GitBucketClient, CopilotRunner, GitClient,<br/>ProcessRunner, Workspace, SqliteStateStore,<br/>CostLog, JobLog, AgentInstaller"]
+  Core["Core<br/>JobPlanner, AtAiThread, SubIssueSequencer,<br/>parsers, ContextBuilder, Markers, Labels"]
+  Config["Configuration<br/>RunnerConfig POCOs"]
+  Program --> Hosting
+  Program --> Jobs
+  Program --> Infra
+  Hosting --> Jobs
+  Hosting --> Infra
+  Hosting --> Core
+  Jobs --> Infra
+  Jobs --> Core
+  Infra --> Core
+  Core --> Config
+  Infra --> Config
+</pre></div>
+<figcaption>Arrows mean "uses". Core uses only the config POCOs, so it can be tested without any fake. Note: Infrastructure uses Core types such as <code>GbIssue</code> and <code>AsciiSanitizer</code>.</figcaption>
+</figure>
+<p>The rule "<code>Hosting -&gt; Jobs -&gt; Infrastructure + Core</code>" is written in <code>CLAUDE.md</code>. It is a convention, not enforced by the compiler (one project, no architecture test). In the code, <code>Infrastructure</code> files also <code>using AiRunner.Core</code> for the GitBucket models, which fits the rule.</p>
+
+<h2 id="job-lifecycle">Job lifecycle (the "request lifecycle")</h2>
+<p>ai-runner has no incoming HTTP requests. The equivalent of a request is a <strong>job</strong>. This is the full path from a poll tick to a finished job.</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant P as Poller
+  participant GB as GitBucket
+  participant PL as JobPlanner
+  participant Q as JobQueue
+  participant DB as SQLite
+  participant W as JobWorker
+  participant J as IJob
+  participant CP as Copilot
+  P->>GB: list open issues (label ai, assignee)
+  P->>PL: PlanIssue(repo, issue, null comments)
+  PL-->>P: PlanDecision (Run job or Skip)
+  P->>Q: Enqueue(JobRequest)
+  Q->>DB: INSERT jobs (pending), one per key
+  Q-->>W: job id via Channel
+  W->>DB: status = running (attempts + 1)
+  W->>J: RunAsync(request, run, token + timeout)
+  J->>GB: re-read issue and comments
+  J->>PL: PlanIssue again on fresh data
+  alt decision is no longer this job
+    J-->>W: NotNeeded (Quiet)
+    W->>DB: delete job row and log folder
+  else still needed
+    J->>CP: copilot -p --agent ...
+    CP-->>J: output (marked blocks)
+    J->>J: parse and validate strictly
+    J->>GB: comment, labels, PR
+    J-->>W: JobOutcome ok
+    W->>DB: status = done, cost row
+  end
+</pre></div>
+<figcaption>Steps 1-4 are the poll side (<code>Poller.PollRepoAsync</code>). Steps 5-8 are the queue and the worker (<code>JobQueue.Enqueue</code>, <code>JobWorker.RunOneAsync</code>). The "plan again" in step 10 makes duplicate and late jobs harmless.</figcaption>
+</figure>
+
+<ol class="flow-steps">
+  <li>The poll lists open issues with the scope label and open issues assigned to the runner's user, and merges them (<code>Poller.cs:54-58</code>).</li>
+  <li>For each issue the poller plans with <em>no comments</em> first. Comments are fetched only when the plan says <code>NeedsComments</code> and the issue fingerprint changed (<code>Poller.cs:68-71</code>).</li>
+  <li>If the plan has a job, <code>queue.Enqueue</code> adds it. If the same key is already pending, only the payload is updated (<code>JobQueue.cs:26-31</code>).</li>
+  <li><code>JobWorker.RunOneAsync</code> sets the job to running, starts a log folder, and links a timeout to the job's token (<code>JobWorker.cs:49-60</code>).</li>
+  <li>The job runs. If the job says <code>Quiet</code>, its row and log folder are deleted. Otherwise the job is marked done and a cost row is written (<code>JobWorker.cs:63-74</code>).</li>
+</ol>
+
+<h3>Error handling</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  run["job.RunAsync"] --> ok{"result"}
+  ok -->|"returns"| done["status done, cost row"]
+  ok -->|"JobFailedException, job timeout,<br/>HTTP timeout or any other exception"| msg["message chosen by cause"]
+  ok -->|"host is stopping"| keep["job stays running<br/>re-queued once at next start"]
+  msg --> rep["ReportFailureAsync"]
+  rep --> onf["job.OnFailed(request)"]
+  onf --> cm["comment on issue or PR"]
+  cm --> lab{"issue or PR?"}
+  lab -->|"issue"| failed["add label ai:failed"]
+  lab -->|"PR"| nolabel["no label: the job remembered<br/>the failed commit or comment"]
+</pre></div>
+<figcaption>All of this is in <code>JobWorker.RunOneAsync</code> and <code>ReportFailureAsync</code> (<code>JobWorker.cs:76-131</code>). <code>ai:failed</code> stops the planner until a human removes the label (<code>JobPlanner.cs:24-25</code>).</figcaption>
+</figure>
+<div class="callout note"><span class="title">Note</span>
+A job that is interrupted by shutdown stays <code>running</code>. At the next start <code>JobQueue.Recover</code> puts it back to <code>pending</code> once. After <code>MaxAttempts = 2</code> it is marked failed and reported as "stopped twice" (<code>JobQueue.cs:16, 64-83</code>, <code>JobWorker.cs:103-109</code>).</div>
+
+<h2 id="patterns">Key design patterns</h2>
+<div class="cards">
+  <div class="card"><h4>Pure core</h4><p>All decisions and parsers are static, I/O-free functions. Easy to test with plain inputs. <code>Core/JobPlanner.cs</code>, <code>Core/*Parser.cs</code>.</p></div>
+  <div class="card"><h4>Re-plan on every job</h4><p>Each job calls <code>JobPlanner</code> again on fresh data, so duplicates and late jobs return <code>NotNeeded</code>. <code>JobSupport.LoadIssueAsync</code>.</p></div>
+  <div class="card"><h4>State lives in GitBucket</h4><p>Bot comments carry hidden markers, so deleting <code>ai-runner.db</code> is safe. <code>BotComments</code>, <code>Markers</code>, <code>AtAiThread</code>.</p></div>
+  <div class="card"><h4>Fingerprint polling</h4><p>GitBucket ignores <code>since</code>, so the poller stores <code>updated_at + labels</code> and reads comments only on change. <code>GbExtensions.Fingerprint</code>.</p></div>
+  <div class="card"><h4>Interface seams</h4><p>Every side effect has an interface (<code>IGitBucketClient</code>, <code>ICopilotRunner</code>, <code>IGitClient</code>, <code>IProcessRunner</code>, <code>IWorkspace</code>, <code>IStateStore</code>, <code>ICostLog</code>), so tests use fakes.</p></div>
+  <div class="card"><h4>Job registry by DI</h4><p>All jobs are registered as <code>IJob</code>; <code>JobFactory</code> builds a dictionary by <code>JobType</code>. The worker never switches on type. <code>IJob.cs:50-56</code>.</p></div>
+  <div class="card"><h4>Strict output contract</h4><p>Templates define what agents write. Parsers reject anything else, so a bad answer is never half-applied.</p></div>
+  <div class="card"><h4>Agent stages + runner safety net</h4><p>The agent verifies and reviews itself. The runner re-checks and sends one or more fix rounds. <code>Jobs/AgentSession.cs</code>.</p></div>
+</div>
+
+<h2 id="cross-cutting">Cross-cutting concerns</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Concern</th><th>How it is done</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Authentication</td><td>One GitBucket token. REST uses <code>Authorization: token</code>. git uses a Basic header passed through <code>GIT_CONFIG_*</code> env variables. Copilot gets no token and uses the developer's login.</td><td><code>Program.cs:36-45</code>, <code>GitClient.cs:141-164</code>, <code>ProcessRunner.cs:51-80</code></td></tr>
+<tr><td>Authorization</td><td>Scope guard: only issues with <code>scopeLabel</code> or assigned to the bot. PRs: scoped review rule. No user allow-list.</td><td><code>Poller.cs:54-58</code>, <code>JobPlanner.cs:164-166</code></td></tr>
+<tr><td>Logging</td><td>Simple console logger with a time stamp. Each job also writes <code>job.log</code> and its inputs and outputs into <code>logs/jobs/&lt;run&gt;/</code>.</td><td><code>Program.cs:24-25</code>, <code>JobLog.cs</code></td></tr>
+<tr><td>Error handling</td><td><code>JobFailedException</code> for expected failures. The worker catches everything and reports it on GitBucket.</td><td><code>IJob.cs:47</code>, <code>JobWorker.cs</code></td></tr>
+<tr><td>Validation</td><td>Strict parsers for analysis, breakdown, review. Soft parsers (return problems) for <code>PR_BODY.md</code> and <code>REPLY.md</code>.</td><td><code>Core/*Parser.cs</code></td></tr>
+<tr><td>Text safety</td><td>All outgoing text goes through <code>AsciiSanitizer</code> (GitBucket gives HTTP 500 on non-ASCII). <code>Markers.Wrap</code> neutralises <code>&lt;!--</code> in agent text.</td><td><code>GitBucketClient.cs:136-142</code>, <code>Markers.cs:36-37</code></td></tr>
+<tr><td>Caching</td><td>Issue fingerprints in SQLite. The working clone is reused and reset before each job.</td><td><code>Poller.cs:59-75</code>, <code>Workspace.cs:41-60</code></td></tr>
+<tr><td>Background jobs</td><td><code>Poller</code> and <code>JobWorker</code> are <code>BackgroundService</code>s. <code>--once</code> runs them by hand.</td><td><code>Program.cs:71-77, 107-112</code></td></tr>
+<tr><td>Transactions</td><td>None. Each SQLite call opens its own connection. GitBucket writes are ordered so that everything is validated <em>before</em> the first write.</td><td><code>SqliteStateStore.cs:184-212</code>, <code>AnalyzeIssueJob.cs:53</code></td></tr>
+<tr><td>Cost tracking</td><td>One row per job in SQLite and in <code>logs/cost.csv</code>.</td><td><code>CostLog.cs</code>, <code>JobWorker.cs:133-135</code></td></tr>
+</tbody></table></div>
+
+<h2 id="auth-flow">Authentication and secret flow</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  autonumber
+  participant U as User secrets / env
+  participant PRG as Program.cs
+  participant GB as GitBucket
+  participant PR as ProcessRunner
+  participant GIT as git (child)
+  participant CP as copilot (child)
+  U->>PRG: GitBucket:Token (or GITBUCKET_TOKEN)
+  PRG->>GB: GET /api/v3/user with Authorization token
+  GB-->>PRG: login of the bot user
+  Note over PRG: RunnerIdentity.Login is set
+  PRG->>PR: run git (env: GIT_CONFIG_KEY/VALUE with Basic header)
+  PR->>GIT: start, token variables removed from env
+  GIT->>GB: clone / fetch / push over HTTP
+  PRG->>PR: run copilot -p
+  PR->>CP: start, GITBUCKET_TOKEN, GH_TOKEN and others removed
+  CP-->>PRG: stdout (no way to call GitBucket)
+</pre></div>
+<figcaption>The token is never on a command line and never in <code>.git/config</code>. The agent process cannot see it (<code>Program.cs:27-31, 89</code>; <code>ProcessRunner.cs:78-80</code>; <code>GitClient.cs:141-164</code>).</figcaption>
+</figure>
+<div class="callout warning"><span class="title">Warning</span>
+This is a guard rail, not a sandbox. The build, test and lint commands run code that the agent wrote, with the developer's OS rights. That code can read anything the developer can read, including the user-secrets file.
+The runner limits the damage (no tokens in the environment, a <code>.git/config</code> guard, a human reviews every PR) but does not isolate it (<code>README.md</code> "Security limits").</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

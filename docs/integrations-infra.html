@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrations and infrastructure - ai-runner docs</title>
+<meta name="description" content="What the runner talks to, how and with which protocol, how it is deployed (on a laptop), and its timers, workers and queue.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html" class="current" aria-current="page">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Integrations and infrastructure</h1>
+<p class="summary">What the runner talks to, how and with which protocol, how it is deployed (on a laptop), and its timers, workers and queue.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#integrations">External services and tools</a><a href="#deployment">Deployment</a><a href="#workers">Scheduled jobs, workers and the queue</a><a href="#events">Queue and event flow</a></nav>
+</div></header>
+<main class="content">
+<h2 id="integrations">External services and tools</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th>Protocol</th><th>How it is called</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>GitBucket REST</td><td>HTTP + JSON, header <code>Authorization: token</code></td><td><code>HttpClient</code> with 30 s timeout, behind <code>IGitBucketClient</code>. Lists are paged. Replies that cannot be read give a <code>GitBucketException</code> with the raw reply.</td><td><code>GitBucketClient.cs</code>, <code>Program.cs:36-45</code></td></tr>
+<tr><td>GitBucket git</td><td>git over HTTP, Basic header from <code>GIT_CONFIG_*</code></td><td>The <code>git</code> executable, one process per command, 10 minute timeout. Hooks and fsmonitor off.</td><td><code>GitClient.cs</code></td></tr>
+<tr><td>GitHub Copilot CLI</td><td>Child process, arguments + stdout/stderr</td><td><code>copilot -p ... -s --agent ...</code>, no stdin, process tree killed on timeout. Copilot itself calls the Copilot cloud service using the developer's login.</td><td><code>CopilotRunner.cs</code>, <code>ProcessRunner.cs</code></td></tr>
+<tr><td>OS shell</td><td>Child process</td><td><code>cmd.exe /d /s /c "&lt;command&gt;"</code> on Windows, <code>/bin/sh -c</code> elsewhere. Runs the repo's setup, build, test and lint commands.</td><td><code>ProcessRunner.cs:13-16</code></td></tr>
+<tr><td>SQLite</td><td>In-process (<code>Microsoft.Data.Sqlite</code>)</td><td>File <code>ai-runner.db</code>, one connection per call.</td><td><code>SqliteStateStore.cs</code></td></tr>
+<tr><td>File system</td><td>Local files</td><td>Clones in <code>work/</code>, logs in <code>logs/</code>, agents copied to <code>~/.copilot/</code>.</td><td><code>Workspace.cs</code>, <code>JobLog.cs</code>, <code>AgentInstaller.cs</code></td></tr>
+<tr><td>GitHub mirror / cloud agent (Workflow 4)</td><td>-</td><td><span class="badge opt">not built</span> The labels <code>needs-cloud-agent</code> and <code>ai:on-github</code> only make the planner skip an issue.</td><td><code>JobPlanner.cs:26-27</code></td></tr>
+</tbody></table></div>
+
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  runner(("ai-runner"))
+  subgraph remote["Remote systems"]
+    gbr["GitBucket REST<br/>/api/v3"]
+    gbg["GitBucket git<br/>/git/owner/name.git"]
+    gh["GitHub Copilot service"]
+  end
+  subgraph local["Local tools and files"]
+    cop["copilot CLI"]
+    git["git"]
+    sh["cmd.exe or sh<br/>(build, test, lint)"]
+    sql[("SQLite file")]
+    fs[("work/, logs/, ~/.copilot")]
+  end
+  runner -->|"HTTP + JSON, token"| gbr
+  runner -->|"spawns, args + stdout"| cop
+  runner -->|"spawns"| git
+  runner -->|"spawns"| sh
+  runner -->|"ADO.NET"| sql
+  runner -->|"file I/O"| fs
+  git -->|"HTTP, Basic header"| gbg
+  cop -->|"HTTPS, developer login"| gh
+  cop -->|"reads and writes files"| fs
+</pre></div>
+<figcaption>Every integration of the runner and its protocol. GitBucket is the only system that holds shared state. Copilot is reached only through its CLI.</figcaption>
+</figure>
+
+<div class="callout note"><span class="title">Note</span>
+Copilot's MCP servers are switched off with <code>copilot.extraArgs: [--disable-builtin-mcps]</code> in <code>repos.yml:13</code>, so the agent "works only on the local files".</div>
+
+<h2 id="deployment">Deployment</h2>
+<p>There is <strong>no server deployment</strong>. The runner is started by hand (<code>dotnet run</code>) or as a long-running console process on a developer laptop with VPN access. There is no Dockerfile, no service definition and no pipeline in the repository.
+The README notes that "each runner pointed at the repo" reviews a PR again with <code>scope: all</code>, so more than one laptop can run it (<code>README.md</code> "Onboard a repo"). That is why review scope defaults to <code>scoped</code> (<code>RunnerConfig.cs:172-176</code>).</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  subgraph dev["Developer laptop (one or more)"]
+    app["ai-runner process<br/>(dotnet run, Ctrl+C to stop)"]
+    cfg[("repos.yml + user-secrets")]
+    state[("ai-runner.db, work/, logs/")]
+  end
+  subgraph corp["Company network (VPN)"]
+    gb["GitBucket"]
+  end
+  subgraph net["Internet"]
+    cop["Copilot service"]
+  end
+  cfg --> app
+  app --> state
+  app -->|"REST + git"| gb
+  app -->|"copilot CLI"| cop
+</pre></div>
+<figcaption>The whole deployment. Environments such as dev, test and prod do not exist for the runner itself. Each laptop has its own database and clones.</figcaption>
+</figure>
+<div class="callout warning"><span class="title">Open question</span>
+The design document's file name mentions Jenkins ("GitBucket + Jenkins + Copilot CLI", <code>CLAUDE.md</code>). No Jenkins file or reference exists in this repository, and the design document was not available. Whether Jenkins builds the product repos is unknown (see <a href="findings.html#open-questions">Open questions</a>).</div>
+
+<h2 id="workers">Scheduled jobs, workers and the queue</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Kind</th><th>Schedule</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>Poller</code></td><td><code>BackgroundService</code></td><td><code>PeriodicTimer</code> every <code>pollIntervalSeconds</code> (90). The first poll runs at once.</td><td>One failing repo is logged and the next repo is polled (<code>Poller.cs:40-47</code>).</td></tr>
+<tr><td><code>JobWorker</code></td><td><code>BackgroundService</code></td><td>Waits for the queue channel.</td><td>One job at a time, so cost is predictable (<code>JobWorker.cs:9-12</code>). It never lets one job stop the host.</td></tr>
+<tr><td>Startup recovery</td><td>Once per start</td><td><code>JobWorker.RecoverAsync</code></td><td>Prunes old job rows, re-queues interrupted jobs, reports jobs given up.</td></tr>
+<tr><td>Log cleanup</td><td>Once per start</td><td><code>JobLog.Cleanup</code></td><td>Deletes job log folders older than <code>logRetentionDays</code>.</td></tr>
+<tr><td>Sequencing check</td><td>Planned job, every poll</td><td>For each <code>ai:parent</code> issue</td><td>A <code>SequenceSubIssuesJob</code> per poll. Usually "Quiet" (row and folder deleted).</td></tr>
+</tbody></table></div>
+
+<h3>Timeouts</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>What</th><th>Value</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td>GitBucket HTTP call</td><td>30 s</td><td><code>Program.cs:39</code></td></tr>
+<tr><td>One git command</td><td>10 min</td><td><code>GitClient.cs:47</code></td></tr>
+<tr><td>Analysis job</td><td><code>analyzeTimeoutMinutes + 10</code> (25 min)</td><td><code>AnalyzeIssueJob.cs:24</code></td></tr>
+<tr><td>Review job</td><td><code>reviewTimeoutMinutes + 10</code> (25 min)</td><td><code>ReviewPullRequestJob.cs:26</code></td></tr>
+<tr><td>Breakdown, sequencing</td><td>10 min</td><td><code>BreakdownIssueJob.cs:21</code>, <code>SequenceSubIssuesJob.cs:20</code></td></tr>
+<tr><td>Implement and review fix job</td><td><code>implementTimeout * (2 + 2 * maxFixRounds) + 10</code>; the repo with the most fix rounds counts. With the shipped values (45, 2 rounds) that is 280 min.</td><td><code>AgentSession.cs:44-46</code></td></tr>
+<tr><td>Each Copilot run and each command in implement or fix</td><td><code>implementTimeoutMinutes</code></td><td><code>AgentSession.cs:50-53</code></td></tr>
+<tr><td>Output pipes after a process exits</td><td>15 s drain, then continue</td><td><code>ProcessRunner.cs:61</code></td></tr>
+</tbody></table></div>
+
+<h2 id="events">Queue and event flow</h2>
+<p>There is no message broker. The "queue" is a <code>Channel&lt;long&gt;</code> of job ids in memory plus the <code>jobs</code> table in SQLite, so a restart loses nothing (<code>JobQueue.cs:7-13</code>).</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+%%{init: {"sequence": {"wrap": true, "width": 130, "actorMargin": 30, "messageMargin": 28}}}%%
+sequenceDiagram
+  participant P as Poller
+  participant Q as JobQueue
+  participant DB as jobs table
+  participant W as JobWorker
+  P->>Q: Enqueue(Review PR 7, head sha A)
+  Q->>DB: no pending row for key, INSERT pending
+  Q-->>W: job id on the channel
+  W->>DB: set running
+  Note over W: job is running, Copilot works
+  P->>Q: Enqueue(Review PR 7, head sha B)
+  Q->>DB: FindJob(key, pending) = none, INSERT second pending row
+  P->>Q: Enqueue(Review PR 7, head sha C)
+  Q->>DB: pending row exists, UpdateJobPayload to C
+  Q-->>P: false (already pending)
+  W->>DB: first job done
+  W->>DB: set second job running
+  Note over W: re-plan: head is C, review C
+</pre></div>
+<figcaption>De-duplication by key. While a job runs, one more may wait. Later requests for the same key only update the waiting job's payload. The waiting job re-reads GitBucket, so it always works on the newest state (<code>JobQueue.cs:22-38</code>).</figcaption>
+</figure>
+<p>The only event-like chain is sub-issue sequencing. It is poll-driven, not event-driven: a merged PR is noticed by the next poll.</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  poll["Every poll: issue has ai:parent"] --> job["SequenceSubIssuesJob"]
+  job --> list["read SUBISSUES list from the parent's bot comment"]
+  list --> dec{"SubIssueSequencer.Decide"}
+  dec -->|"sub 1 not done"| w1["Wait: waiting for sub 1 to be started"]
+  dec -->|"sub k not done, k above 1,<br/>sub k-1 done, sub k is simple, not in progress"| st["StartNext: add ai-implement,<br/>comment on sub k"]
+  dec -->|"sub k in progress or needs developer"| w2["Wait"]
+  dec -->|"all done, no PR from feat/issue-N"| fin["OpenFinalPr: PR feat/issue-N to default branch"]
+  dec -->|"all done, final PR exists"| w3["Wait"]
+  st --> next["next poll: ImplementIssueJob for sub k"]
+</pre></div>
+<figcaption>Decision table of <code>SubIssueSequencer.Decide</code> (<code>Core/SubIssueSequencer.cs:18-42</code>). A sub-issue is done when its PR is merged into the feature branch or a human closed the issue.</figcaption>
+</figure>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

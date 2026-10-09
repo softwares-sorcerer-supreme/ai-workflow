@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLI and API - ai-runner docs</title>
+<meta name="description" content="ai-runner has no HTTP API of its own. Its interfaces are the command line, the GitBucket REST calls it makes, and the way it starts Copilot.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html" class="current" aria-current="page">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>CLI and API</h1>
+<p class="summary">ai-runner has no HTTP API of its own. Its interfaces are the command line, the GitBucket REST calls it makes, and the way it starts Copilot.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#cli">Command-line modes</a><a href="#gitbucket">GitBucket REST calls</a><a href="#copilot">How Copilot is started</a><a href="#agent-io">Agent input and output contract</a></nav>
+</div></header>
+<main class="content">
+<div class="callout note"><span class="title">Note</span>
+<strong>There is no server API to document.</strong> The runner opens no port. This page covers the three interfaces that exist:
+(1) the command-line modes, (2) the GitBucket <code>/api/v3</code> endpoints the runner <em>calls</em>, and (3) the <code>copilot</code> command line it builds.</div>
+
+<h2 id="cli">Command-line modes</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  start(["dotnet run -- flags"]) --> ct{"--copilot-test?"}
+  ct -->|"yes"| selftest["CopilotSelfTest<br/>(no token needed)"]
+  ct -->|"no"| login["GET /user: bot login"]
+  login --> sl{"--setup-labels?"}
+  sl -->|"yes"| labels["LabelSetup: create labels in every repo"]
+  sl -->|"no"| install["AgentInstaller + JobLog.Cleanup<br/>(skipped with --dry-run)"]
+  install --> once{"--once?"}
+  once -->|"yes"| poll1["Poller.PollOnceAsync"]
+  poll1 --> dry{"--dry-run?"}
+  dry -->|"no"| drain["JobWorker.DrainAsync, then exit"]
+  dry -->|"yes"| exit1(["print plan, exit"])
+  once -->|"no"| loop["host.RunAsync: Poller + JobWorker loop<br/>(only Poller when --dry-run)"]
+</pre></div>
+<figcaption>How <code>Program.cs</code> chooses a mode (<code>Program.cs:71-113</code>). Flags are plain <code>args.Contains</code> checks, not host config keys.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Flag</th><th>Effect</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td><code>--once</code></td><td>Poll once, run what is queued, exit.</td><td><code>Program.cs:13, 107-112</code></td></tr>
+<tr><td><code>--dry-run</code></td><td>Log the decision for every issue and PR. Queue nothing, store nothing.</td><td><code>Program.cs:14, 100</code>, <code>Poller.cs:86-92</code></td></tr>
+<tr><td><code>--setup-labels</code></td><td>Create the 13 labels in each repo (a label that exists is "already exists").</td><td><code>Program.cs:94-98</code>, <code>LabelSetup.cs</code></td></tr>
+<tr><td><code>--copilot-test</code></td><td>Two Copilot calls: one inline prompt, one that reads <code>task.md</code> with <code>write</code> and <code>shell</code> denied.</td><td><code>Program.cs:82-86</code>, <code>CopilotSelfTest.cs</code></td></tr>
+<tr><td><code>--config &lt;path&gt;</code></td><td>Use this <code>repos.yml</code> instead of searching the current folder and parents.</td><td><code>Program.cs:17, 115-130</code></td></tr>
+</tbody></table></div>
+<div class="callout gotcha"><span class="title">Gotcha</span>
+With <code>--dry-run</code> and no <code>--once</code> the process becomes the poller loop without the worker (<code>Program.cs:73-76</code>). It prints decisions every interval and never stops until Ctrl+C.</div>
+
+<h2 id="gitbucket">GitBucket REST calls</h2>
+<p>All calls go through <code>IGitBucketClient</code> (<code>Infrastructure/GitBucketClient.cs:12-36</code>). The base address is <code>{baseUrl}/api/v3/</code>, the header is <code>Authorization: token &lt;token&gt;</code>, and the timeout is 30 seconds (<code>Program.cs:36-45</code>).
+<code>repo</code> is always <code>owner/name</code>. JSON uses snake_case (<code>GitBucketClient.cs:47-50</code>).</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>Route</th><th>Purpose</th><th>Client method</th><th>Used by</th></tr></thead>
+<tbody>
+<tr><td><span class="badge get">GET</span></td><td><code>user</code></td><td>Who is the bot? (<code>login</code>)</td><td><code>GetCurrentUserAsync</code></td><td><code>Program.cs:89</code></td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}</code></td><td>Default branch</td><td><code>GetRepoAsync</code></td><td><code>JobSupport.DefaultBranchAsync</code></td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}/issues?state=open&amp;labels=&amp;assignee=</code></td><td>List open issues (PRs are filtered out in code, <code>GitBucketClient.cs:64</code>)</td><td><code>ListOpenIssuesAsync</code></td><td><code>Poller</code>, <code>BreakdownIssueJob</code></td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}/issues/{n}</code></td><td>One issue, fresh</td><td><code>GetIssueAsync</code></td><td>all issue jobs, <code>ApplyLabelsAsync</code></td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}/issues/{n}/comments</code></td><td>All comments of an issue or PR</td><td><code>ListCommentsAsync</code></td><td>jobs, <code>Poller</code></td></tr>
+<tr><td><span class="badge post">POST</span></td><td><code>repos/{repo}/issues</code></td><td>Create a sub-issue with labels</td><td><code>CreateIssueAsync</code></td><td><code>BreakdownIssueJob</code></td></tr>
+<tr><td><span class="badge post">POST</span></td><td><code>repos/{repo}/issues/{n}/comments</code></td><td>Add a comment (marker added)</td><td><code>AddCommentAsync</code></td><td>all jobs, <code>JobWorker</code></td></tr>
+<tr><td><span class="badge patch">PATCH</span></td><td><code>repos/{repo}/issues/comments/{id}</code></td><td>Update the review comment in place</td><td><code>UpdateCommentAsync</code></td><td><code>ReviewPullRequestJob</code></td></tr>
+<tr><td><span class="badge post">POST</span></td><td><code>repos/{repo}/issues/{n}/labels</code></td><td>Add labels</td><td><code>AddLabelsAsync</code></td><td><code>ApplyLabelsAsync</code>, <code>JobWorker</code></td></tr>
+<tr><td><span class="badge delete">DELETE</span></td><td><code>repos/{repo}/issues/{n}/labels/{label}</code></td><td>Remove a label (404 = already gone)</td><td><code>RemoveLabelAsync</code></td><td><code>ApplyLabelsAsync</code>, jobs</td></tr>
+<tr><td><span class="badge post">POST</span></td><td><code>repos/{repo}/labels</code></td><td>Create a repo label (422 or 409 = exists)</td><td><code>CreateLabelAsync</code></td><td><code>LabelSetup</code></td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}/pulls?state=open|closed</code></td><td>List PRs</td><td><code>ListPullsAsync</code></td><td><code>Poller</code>, implement, sequencing</td></tr>
+<tr><td><span class="badge get">GET</span></td><td><code>repos/{repo}/pulls/{n}</code></td><td>One PR, fresh</td><td><code>GetPullAsync</code></td><td>PR jobs, <code>CreatePullAsync</code></td></tr>
+<tr><td><span class="badge post">POST</span></td><td><code>repos/{repo}/pulls</code></td><td>Open a PR, then read it back with GET</td><td><code>CreatePullAsync</code></td><td><code>ImplementIssueJob</code>, <code>SequenceSubIssuesJob</code></td></tr>
+</tbody></table></div>
+<p>Lists are read with <code>per_page=100&amp;page=n</code> until a page brings nothing new, up to 50 pages (<code>GitBucketClient.cs:45, 150-163</code>).
+Git itself goes to <code>{baseUrl}/git/{repo}.git</code> over HTTP (<code>GitClient.cs:49</code>).</p>
+
+<h3>Calls the runner deliberately does not use</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Not used</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>since</code> on the issue list</td><td>GitBucket ignores it. The poller compares <code>updated_at</code> and labels itself.</td></tr>
+<tr><td><code>DELETE</code> on a comment</td><td>It fails on this GitBucket. The runner uses <code>PATCH</code> and never deletes.</td></tr>
+<tr><td><code>/pulls/{n}/files</code></td><td>It does not exist. The runner uses <code>git diff base...head</code> on the clone.</td></tr>
+<tr><td>Non-ASCII text</td><td>HTTP 500. Every outgoing text goes through <code>AsciiSanitizer</code>.</td></tr>
+</tbody></table></div>
+<p class="muted">Source: <code>CLAUDE.md</code> "GitBucket and security constraints" and the README section "GitBucket facts (checked in Phase 0)". These facts were not re-checked against a live server for these docs.</p>
+
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph Jobs["Callers"]
+    PO["Poller"]
+    AJ["AnalyzeIssueJob"]
+    BJ["BreakdownIssueJob"]
+    SJ["SequenceSubIssuesJob"]
+    IJ["ImplementIssueJob"]
+    RJ["ReviewPullRequestJob"]
+    FJ["FixReviewJob"]
+    WK["JobWorker, LabelSetup"]
+  end
+  subgraph Client["IGitBucketClient"]
+    rd["read: GetIssue, ListOpenIssues,<br/>ListComments, ListPulls, GetPull, GetRepo"]
+    wr["write: AddComment, UpdateComment,<br/>CreateIssue, CreatePull"]
+    lb["labels: AddLabels, RemoveLabel, CreateLabel"]
+  end
+  subgraph Api["GitBucket /api/v3"]
+    e1["issues + comments"]
+    e2["labels"]
+    e3["pulls"]
+    e4["repos + user"]
+  end
+  PO --> rd
+  AJ --> rd
+  AJ --> wr
+  AJ --> lb
+  BJ --> wr
+  BJ --> lb
+  SJ --> rd
+  SJ --> wr
+  SJ --> lb
+  IJ --> rd
+  IJ --> wr
+  IJ --> lb
+  RJ --> rd
+  RJ --> wr
+  FJ --> rd
+  FJ --> wr
+  WK --> wr
+  WK --> lb
+  rd --> e1
+  rd --> e3
+  rd --> e4
+  wr --> e1
+  wr --> e3
+  lb --> e2
+  lb --> e1
+</pre></div>
+<figcaption>Which callers use which part of the client, and which endpoint group each part reaches. Edges show the kinds of calls a class makes, not every method.</figcaption>
+</figure>
+
+<details><summary>Request and response examples</summary>
+<h4>Add a comment</h4>
+<pre><code class="language-http">POST /api/v3/repos/james/mbhanalytics/issues/52/comments
+Authorization: token &lt;token&gt;
+Content-Type: application/json
+
+{ "body": "&lt;!-- ai-runner --&gt;\n**[ai-runner]**\n\n&lt;!-- ANALYSIS_START --&gt;\n## AI analysis - round 1\n...\n&lt;!-- ANALYSIS_END --&gt;\n&lt;!-- ai-runner:context-upto=1234 --&gt;" }</code></pre>
+<p><code>WithMarker</code> prepends the first two lines when the body does not already contain the marker (<code>GitBucketClient.cs:136-142</code>).</p>
+
+<h4>Open a pull request</h4>
+<pre><code class="language-http">POST /api/v3/repos/james/mbhanalytics/pulls
+
+{ "title": "Add export", "head": "ai/issue-52", "base": "main", "body": "...\n\nCloses #52" }</code></pre>
+<p>GitBucket's create reply cannot be read as a <code>GbPull</code>. Only <code>number</code> is trusted, and the PR is read back with <code>GET pulls/{n}</code> (<code>GitBucketClient.cs:124-132</code>).</p>
+
+<h4>Add labels</h4>
+<pre><code class="language-http">POST /api/v3/repos/james/mbhanalytics/issues/52/labels
+
+["ai:ready", "ai:simple"]</code></pre>
+</details>
+
+<h2 id="copilot">How Copilot is started</h2>
+<pre><code class="language-text">copilot -p "&lt;prompt&gt;" -s --agent &lt;agent&gt; [--model &lt;m&gt;]
+        --allow-tool=&lt;t&gt; ... --deny-tool=&lt;t&gt; ... [--share &lt;file&gt;] &lt;copilot.extraArgs&gt;</code></pre>
+<p>Built in <code>CopilotRunner.RunAsync</code> (<code>Infrastructure/CopilotRunner.cs:26-44</code>). <code>-s</code> prints only the final answer, so the full session is exported with <code>--share</code> for the implement and fix jobs. The child process has no GitBucket or GitHub tokens.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Job</th><th>Agent</th><th>Allowed tools</th><th>Denied tools</th></tr></thead>
+<tbody>
+<tr><td><code>AnalyzeIssueJob</code></td><td><code>grill-issue</code></td><td>-</td><td><code>write</code>, <code>shell</code></td></tr>
+<tr><td><code>ReviewPullRequestJob</code></td><td><code>pr-review</code></td><td>-</td><td><code>write</code>, <code>shell</code></td></tr>
+<tr><td><code>ImplementIssueJob</code></td><td><code>implement-issue</code></td><td><code>write</code>, <code>shell(tool:*)</code> for the tool of each setup/build/test/lint command, plus <code>commands.allowShell</code></td><td><code>shell(git)</code>, <code>shell(git:*)</code>, <code>write(.ai-workflow)</code></td></tr>
+<tr><td><code>FixReviewJob</code></td><td><code>fix-review</code></td><td>same as implement</td><td>same as implement</td></tr>
+</tbody></table></div>
+<p>Allowed tools come from <code>AgentSession.AllowTools</code> and <code>ShellPermissions.For</code> (<code>AgentSession.cs:195-200</code>, <code>ShellPermissions.cs:27-47</code>).
+For example <code>dotnet build X.sln</code> becomes <code>shell(dotnet:*)</code>. Shells and launchers such as <code>powershell</code>, <code>bash</code>, <code>env</code> keep the exact command. <code>git</code> never gets a permission. In Copilot CLI a deny rule wins over an allow rule, so git stays blocked even if <code>allowShell</code> says otherwise (<code>AgentSession.cs:199</code>).</p>
+<div class="callout warning"><span class="title">Warning</span>
+The deny rule <code>write(.ai-workflow)</code> is in the code, but whether Copilot applies it to files <em>inside</em> that folder is marked "unconfirmed" in <code>CLAUDE.md</code>. The runner re-copies the templates on every run and never commits the folder as a second line of defence (<code>Workspace.cs:58</code>).</div>
+
+<h2 id="agent-io">Agent input and output contract</h2>
+<p>The agents never talk to GitBucket. The runner writes input files into the clone and reads one answer back.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Job</th><th>Input files in the clone</th><th>Output the runner reads</th><th>Checked by</th></tr></thead>
+<tbody>
+<tr><td>Analyze</td><td><code>context.md</code>, <code>.ai-workflow/templates/analysis.md</code>, <code>spec.md</code></td><td>stdout: <code>ANALYSIS</code> block (+ <code>SPEC</code> block when ready)</td><td><code>AnalysisParser</code></td></tr>
+<tr><td>Review</td><td><code>context.md</code>, <code>diff.patch</code>, <code>changed-files.txt</code></td><td>stdout: <code>REVIEW</code> block</td><td><code>ReviewParser</code></td></tr>
+<tr><td>Implement</td><td><code>plan.md</code> (+ <code>fix.md</code>, <code>diff.patch</code> in a fix round)</td><td>file <code>PR_BODY.md</code> and the changed code</td><td><code>PrBodyParser</code> + build/test/lint</td></tr>
+<tr><td>Review fix</td><td><code>review-fix.md</code>, <code>plan.md</code> (+ <code>fix.md</code>, <code>diff.patch</code>)</td><td>file <code>REPLY.md</code> and the changed code</td><td><code>ReviewReplyParser</code> + build/test/lint</td></tr>
+</tbody></table></div>
+<p>The layouts are in <a href="modules/agents-templates.html">Agents, skills, templates</a>.</p>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

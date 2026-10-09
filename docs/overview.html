@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview - ai-runner docs</title>
+<meta name="description" content="What ai-runner does, who uses it, what it is built with, and where things live in the repository.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html" class="current" aria-current="page">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Overview</h1>
+<p class="summary">What ai-runner does, who uses it, what it is built with, and where things live in the repository.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#what-it-does">What the system does</a><a href="#features">Main features</a><a href="#context">System context</a><a href="#architecture-view">High-level architecture</a><a href="#tech-stack">Tech stack</a><a href="#repo-map">Repository map</a></nav>
+</div></header>
+<main class="content">
+<h2 id="what-it-does">What the system does</h2>
+<p><strong>ai-runner</strong> is a .NET 10 Worker Service that runs on a developer's laptop (it needs the company VPN and internet).
+It <em>polls</em> a <strong>GitBucket</strong> server through its GitHub-compatible REST API (<code>/api/v3</code>), and runs the
+<strong>GitHub Copilot CLI</strong> (<code>copilot -p --agent ...</code>) as a child process when an issue or pull request needs AI work.
+It then writes the results back to GitBucket as comments, labels, branches and pull requests
+(<code>src/AiRunner/Program.cs:7-12</code>, <code>CLAUDE.md</code> "What this is").</p>
+<p>The users are the developers of the repositories listed in <code>repos.yml</code>. They do not call the runner. They drive it
+with normal GitBucket actions: put the label <code>ai</code> on an issue, answer the bot's questions and write <code>@ai</code>,
+add <code>ai-implement</code> or <code>ai-breakdown</code>, or comment <code>@ai</code> on a pull request. A human always merges. The runner never merges.</p>
+
+<div class="callout note"><span class="title">Note</span>
+Nothing runs in the cloud on our side. The runner is a normal process on the laptop. It uses the developer's own Copilot login
+and its own GitBucket token. The design document lives one folder above the repo (see <code>CLAUDE.md</code>); it is outside this repository and was not read for these docs.</div>
+
+<h3>Workflows at a glance</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Workflow</th><th>Trigger (what a human does)</th><th>Job class</th><th>Copilot permissions</th></tr></thead>
+<tbody>
+<tr><td>1 Analysis</td><td>Label <code>ai</code> on an issue, or a comment with <code>@ai</code></td><td><code>AnalyzeIssueJob</code></td><td>read-only (<code>write</code>, <code>shell</code> denied)</td></tr>
+<tr><td>1b Breakdown</td><td>Label <code>ai-breakdown</code> on an <code>ai:ready</code> + <code>ai:complex</code> issue</td><td><code>BreakdownIssueJob</code>, <code>SequenceSubIssuesJob</code></td><td>no Copilot run</td></tr>
+<tr><td>2 Implement</td><td>Label <code>ai-implement</code> on an <code>ai:ready</code> + <code>ai:simple</code> issue or sub-issue</td><td><code>ImplementIssueJob</code></td><td><code>write</code> + build/test/lint tools, never git</td></tr>
+<tr><td>3 PR review</td><td>New head commit on a PR in review scope</td><td><code>ReviewPullRequestJob</code></td><td>read-only</td></tr>
+<tr><td>3b Review fix</td><td><code>@ai</code> comment on a PR in scope</td><td><code>FixReviewJob</code></td><td>like Workflow 2</td></tr>
+<tr><td>4 GitHub fallback</td><td>Label <code>needs-cloud-agent</code> or <code>ai:on-github</code></td><td><span class="badge opt">not built</span></td><td>the planner only skips the issue (<code>JobPlanner.cs:26-27</code>)</td></tr>
+</tbody></table></div>
+
+<h2 id="features">Main features</h2>
+<div class="cards">
+  <a class="card" href="modules/analysis-breakdown.html"><h3>Issue analysis</h3><p>Copilot reads the issue and the code, asks up to 7 questions, lists assumptions, guesses complexity and writes a SPEC when ready.</p><span class="tag">Workflow 1</span></a>
+  <a class="card" href="modules/analysis-breakdown.html"><h3>Breakdown into sub-issues</h3><p>A complex issue becomes ordered sub-issues on a feature branch. The next one starts when the previous PR is merged.</p><span class="tag">Workflow 1b</span></a>
+  <a class="card" href="modules/implement.html"><h3>Implementation</h3><p>Copilot writes code on <code>ai/issue-N</code>. The runner re-runs build, test and lint, sends failures back, then opens the PR.</p><span class="tag">Workflow 2</span></a>
+  <a class="card" href="modules/review-fix.html"><h3>PR review</h3><p>One review comment per PR, updated in place on each new head commit. It is advice, never a block.</p><span class="tag">Workflow 3</span></a>
+  <a class="card" href="modules/review-fix.html"><h3>Review fix</h3><p>An <code>@ai</code> comment on a PR makes Copilot change the PR branch and reply point by point.</p><span class="tag">Workflow 3b</span></a>
+  <a class="card" href="modules/hosting.html"><h3>Cost and safety controls</h3><p>One job at a time, per-job timeouts, size limits, round limits, a cost log, and a guard on <code>.git/config</code>.</p><span class="tag">Hosting + Jobs</span></a>
+</div>
+
+<h2 id="context">System context</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  dev["Developers<br/>(issues, labels, @ai comments, merges)"]
+  subgraph laptop["Developer laptop"]
+    runner["ai-runner<br/>.NET 10 Worker Service"]
+    cop["GitHub Copilot CLI<br/>(child process)"]
+    work[("work/ clones<br/>one per repo")]
+    db[("ai-runner.db<br/>SQLite")]
+    logs[("logs/ jobs + cost.csv")]
+  end
+  gb["GitBucket server<br/>REST /api/v3 + git over HTTP"]
+  cloud["GitHub Copilot service<br/>(model calls)"]
+  dev -->|"web UI"| gb
+  runner -->|"poll and write back (REST, token)"| gb
+  runner -->|"clone, fetch, push (HTTP)"| gb
+  runner -->|"copilot -p --agent"| cop
+  cop -->|"model requests (developer login)"| cloud
+  runner --> work
+  runner --> db
+  runner --> logs
+  cop -->|"reads and edits files"| work
+</pre></div>
+<figcaption>The runner sits between GitBucket and Copilot. Copilot only sees the local clone. It has no GitBucket or GitHub token.</figcaption>
+</figure>
+<p>Read this picture from the left. A developer works in the GitBucket web UI. The runner finds the change by polling (GitBucket cannot call the laptop, so there are no webhooks, see <code>Poller.cs:9</code>).
+The runner prepares a clean clone, writes the input files, starts Copilot, checks the answer, and only then writes to GitBucket.</p>
+
+<h2 id="architecture-view">High-level architecture</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  subgraph Hosting["Hosting (scheduling and lifetime)"]
+    Poller["Poller"]
+    Queue["JobQueue"]
+    Worker["JobWorker"]
+  end
+  subgraph Jobs["Jobs (one IJob per workflow step)"]
+    A["AnalyzeIssueJob"]
+    B["BreakdownIssueJob"]
+    S["SequenceSubIssuesJob"]
+    I["ImplementIssueJob"]
+    R["ReviewPullRequestJob"]
+    F["FixReviewJob"]
+    AS["AgentSession<br/>(shared by I and F)"]
+  end
+  subgraph Core["Core (pure logic, no I/O)"]
+    Planner["JobPlanner"]
+    Parsers["Parsers, Markers,<br/>ContextBuilder"]
+  end
+  subgraph Infra["Infrastructure (side effects behind interfaces)"]
+    GB["IGitBucketClient"]
+    CP["ICopilotRunner"]
+    GIT["IGitClient / IWorkspace"]
+    ST["IStateStore (SQLite)"]
+    PR["IProcessRunner"]
+  end
+  Poller -->|"asks"| Planner
+  Poller -->|"enqueue"| Queue
+  Queue -->|"dequeue"| Worker
+  Worker -->|"RunAsync"| Jobs
+  Jobs -->|"re-plan, parse"| Core
+  Jobs --> Infra
+  I --> AS
+  F --> AS
+  GB -->|"HTTP"| GBS["GitBucket"]
+  CP --> PR
+  GIT --> PR
+</pre></div>
+<figcaption>Dependency direction is Hosting to Jobs to Infrastructure and Core. Core depends on nothing but the config POCOs (<code>CLAUDE.md</code> "Architecture").</figcaption>
+</figure>
+
+<h3>The normal path of one issue</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  new["Issue with label ai"] --> an["Analysis rounds<br/>(questions, @ai answers)"]
+  an --> ready{"Status ready?"}
+  ready -->|"no"| an
+  ready -->|"yes + simple"| impl["Human adds ai-implement"]
+  ready -->|"yes + complex"| bd["Human adds ai-breakdown"]
+  bd --> subs["Sub-issues + feat/issue-N branch"]
+  subs --> impl
+  impl --> pr["PR from ai/issue-N"]
+  pr --> rev["AI review comment"]
+  rev --> fix["@ai on the PR: review fix"]
+  fix --> rev
+  rev --> merge["Human merges"]
+</pre></div>
+<figcaption>The path a normal issue takes. The labels <code>ai:ready</code>, <code>ai:simple</code> and <code>ai:complex</code> decide which door opens.</figcaption>
+</figure>
+
+<h2 id="tech-stack">Tech stack</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Layer</th><th>Technology</th><th>Version</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Runtime</td><td>.NET Worker Service (<code>Microsoft.NET.Sdk.Worker</code>)</td><td>net10.0</td><td><code>src/AiRunner/AiRunner.csproj:1-8</code></td></tr>
+<tr><td>Hosting / DI / logging</td><td>Microsoft.Extensions.Hosting</td><td>10.0.0</td><td><code>AiRunner.csproj:12</code></td></tr>
+<tr><td>Local state</td><td>SQLite via Microsoft.Data.Sqlite</td><td>10.0.0</td><td><code>AiRunner.csproj:11</code></td></tr>
+<tr><td>Native SQLite</td><td>SQLitePCLRaw.lib.e_sqlite3 (pinned for NU1903)</td><td>2.1.13</td><td><code>AiRunner.csproj:14</code></td></tr>
+<tr><td>Config</td><td>YamlDotNet (camelCase)</td><td>16.3.0</td><td><code>AiRunner.csproj:15</code>, <code>RunnerConfig.cs:46-51</code></td></tr>
+<tr><td>Tests</td><td>xUnit, Microsoft.NET.Test.Sdk</td><td>2.9.3 / 17.14.1</td><td><code>tests/AiRunner.Tests/AiRunner.Tests.csproj</code></td></tr>
+<tr><td>AI agent</td><td>GitHub Copilot CLI (<code>copilot</code>)</td><td>not pinned</td><td><code>repos.yml:9</code>, <code>CopilotRunner.cs</code></td></tr>
+<tr><td>Source control</td><td><code>git</code> executable</td><td>not pinned</td><td><code>GitClient.cs</code></td></tr>
+<tr><td>Server</td><td>GitBucket (GitHub-compatible API)</td><td>unknown</td><td><code>GitBucketClient.cs</code></td></tr>
+</tbody></table></div>
+
+<h2 id="repo-map">Repository map</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Path</th><th>What it is for</th></tr></thead>
+<tbody>
+<tr><td><code>src/AiRunner/</code></td><td>The runner. Folder = namespace: <code>Core</code>, <code>Infrastructure</code>, <code>Jobs</code>, <code>Hosting</code>, <code>Configuration</code>, plus <code>Program.cs</code>.</td></tr>
+<tr><td><code>tests/AiRunner.Tests/</code></td><td>xUnit tests that mirror the layers (<code>Core/</code>, <code>Jobs/</code>, <code>Hosting/</code>, <code>Infrastructure/</code>) with fakes in <code>Fakes/</code>.</td></tr>
+<tr><td><code>agents/</code></td><td>Copilot agent definitions: <code>grill-issue</code>, <code>implement-issue</code>, <code>fix-review</code>, <code>pr-review</code>, <code>code-reviewer</code>. Copied to <code>~/.copilot/agents/</code> at start.</td></tr>
+<tr><td><code>skills/</code></td><td>Copilot skills: <code>grill-me</code>, <code>implement-checklist</code>, <code>review-checklist</code>. Copied to <code>~/.copilot/skills/</code>.</td></tr>
+<tr><td><code>templates/</code></td><td>The fixed layouts the agents must fill (analysis, spec, review, PR body, review reply). The Core parsers check them.</td></tr>
+<tr><td><code>onboarding/AGENTS.md</code></td><td>Starting file for a product repo that the runner will work on.</td></tr>
+<tr><td><code>repos.yml</code></td><td>Runner config: GitBucket URL, timeouts, paths, and the list of repos with their workflows, commands and limits.</td></tr>
+<tr><td><code>CLAUDE.md</code>, <code>CONTEXT.md</code>, <code>README.md</code></td><td>Project guidance for AI assistants, domain vocabulary, and the user guide.</td></tr>
+<tr><td><code>ai-workflow.slnx</code></td><td>Solution file with the two projects.</td></tr>
+<tr><td><code>test/issue-52/</code></td><td>Two saved Copilot outputs (<code>round1.txt</code>, <code>round2.txt</code>) from a real analysis run. Not used by the tests (see <a href="findings.html">Findings</a>).</td></tr>
+<tr><td><code>docs/</code></td><td>This site. (The folder also holds other <code>.md</code> notes that these pages do not use or link to.)</td></tr>
+<tr><td>Git-ignored, created at run time</td><td><code>work/</code> (clones), <code>logs/</code> (job folders, <code>cost.csv</code>), <code>ai-runner.db</code> (<code>.gitignore</code>)</td></tr>
+</tbody></table></div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

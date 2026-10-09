@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started - ai-runner docs</title>
+<meta name="description" content="Install, configure, run the tests and run the runner on your laptop. Includes every setting and secret the runner reads.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html" class="current" aria-current="page">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Getting started</h1>
+<p class="summary">Install, configure, run the tests and run the runner on your laptop. Includes every setting and secret the runner reads.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#prerequisites">Prerequisites</a><a href="#setup">Install and configure</a><a href="#run">Run</a><a href="#tests">Run the tests and build</a><a href="#config">Configuration reference</a><a href="#local-setup">What runs where</a></nav>
+</div></header>
+<main class="content">
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+  <li><strong>.NET 10 SDK</strong> (the projects target <code>net10.0</code>, <code>AiRunner.csproj:4</code>).</li>
+  <li><strong><code>git</code></strong> on the PATH. The runner calls it for every clone, fetch, commit and push.</li>
+  <li><strong>GitHub Copilot CLI</strong> installed and logged in (<code>copilot</code> then <code>/login</code>). The runner starts it as <code>copilot -p ...</code>. On Windows you may need the full path in <code>copilot.command</code> (see the comment at <code>repos.yml:9</code>).</li>
+  <li><strong>VPN access</strong> to the GitBucket server and internet for the Copilot service (<code>README.md</code>).</li>
+  <li>A <strong>GitBucket access token</strong> of the bot user (an account that can read and write the target repos).</li>
+</ul>
+
+<div class="callout warning"><span class="title">Warning</span>
+The runner spends real Copilot premium requests and writes to the real GitBucket. For development, only the tests and <code>--once --dry-run</code> are free and safe.
+<code>CLAUDE.md</code> asks AI assistants never to run <code>--copilot-test</code>, <code>--once</code> without <code>--dry-run</code>, or the loop.</div>
+
+<h2 id="setup">Install and configure</h2>
+<ol class="flow-steps">
+  <li>Clone the repository and open a PowerShell in its root.</li>
+  <li>Store the token in user secrets (it is never written into <code>repos.yml</code>):
+<pre><code class="language-powershell">dotnet user-secrets set GitBucket:Token &lt;ai-bot token&gt; --project src/AiRunner
+# only if git over HTTP needs a password other than the token:
+dotnet user-secrets set GitBucket:GitPassword &lt;password&gt; --project src/AiRunner</code></pre></li>
+  <li>Edit <code>repos.yml</code>: set <code>gitBucket.baseUrl</code>, <code>copilot.command</code>, and one entry under <code>repos:</code> for every repository (see the next section).</li>
+  <li>Copy <code>onboarding/AGENTS.md</code> to the root of each product repo and fill it in (build and test commands, folder map, conventions, "Never edit" folders). The agents read it first.</li>
+  <li>Create the workflow labels in every configured repo:
+<pre><code class="language-powershell">dotnet run --project src/AiRunner -- --setup-labels</code></pre></li>
+</ol>
+
+<h2 id="run">Run</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>What it does</th><th>Cost / risk</th></tr></thead>
+<tbody>
+<tr><td><code>dotnet run --project src/AiRunner -- --once --dry-run</code></td><td>Poll once, print what would be queued, change nothing.</td><td><span class="badge ok">safe</span> reads GitBucket only</td></tr>
+<tr><td><code>dotnet run --project src/AiRunner -- --copilot-test</code></td><td>Start Copilot as a child process, with and without a task file, and show the output.</td><td><span class="badge sev-med">premium requests</span></td></tr>
+<tr><td><code>dotnet run --project src/AiRunner -- --once</code></td><td>Poll once, run the queued jobs, exit.</td><td><span class="badge sev-high">writes to GitBucket</span></td></tr>
+<tr><td><code>dotnet run --project src/AiRunner</code></td><td>Normal mode: poll every <code>pollIntervalSeconds</code> and run jobs until Ctrl+C.</td><td><span class="badge sev-high">writes to GitBucket</span></td></tr>
+</tbody></table></div>
+<p>The modes are chosen in <code>Program.cs:13-17</code> and <code>Program.cs:71-113</code>. The runner finds <code>repos.yml</code> in the current folder or a parent folder, or from <code>--config &lt;path&gt;</code> (<code>Program.cs:121-130</code>).
+At startup (not in dry-run) it copies <code>agents/</code> and <code>skills/</code> to <code>~/.copilot/</code> (<code>AgentInstaller.cs:12-24</code>) and deletes job log folders older than <code>logRetentionDays</code> (<code>JobLog.cs:51-58</code>).</p>
+
+<h3>First-run order</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  s1["Step 1: user-secrets: GitBucket:Token"] --> s2["Step 2: edit repos.yml"]
+  s2 --> s3["Step 3: --copilot-test<br/>(Copilot starts from .NET?)"]
+  s3 --> s4["Step 4: --setup-labels<br/>(labels in every repo)"]
+  s4 --> s5["Step 5: --once --dry-run<br/>(read the plan)"]
+  s5 --> s6["Step 6: --once<br/>(run the queued jobs)"]
+  s6 --> s7["Step 7: normal loop"]
+</pre></div>
+<figcaption>The order the README recommends. Only steps 3, 6 and 7 spend premium requests, and only 4, 6 and 7 write to GitBucket.</figcaption>
+</figure>
+
+<h2 id="tests">Run the tests and build</h2>
+<pre><code class="language-powershell">dotnet build ai-workflow.slnx
+dotnet test ai-workflow.slnx</code></pre>
+<p>The tests need no network, no VPN and no Copilot. GitBucket, Copilot and processes are faked (<code>tests/AiRunner.Tests/Fakes/</code>).
+<code>GitWorkspaceTests</code> uses the real <code>git</code> against a <code>file://</code> bare repository. There are 177 <code>[Fact]</code>/<code>[Theory]</code> methods in 16 test files (counted with <code>grep</code>; the suite was not executed for these docs).</p>
+<div class="callout note"><span class="title">Note</span>
+There is no CI/CD pipeline file in this repository (no <code>.github/</code>, <code>Jenkinsfile</code>, Dockerfile). The only build is the local <code>dotnet</code> build.</div>
+
+<h2 id="config">Configuration reference</h2>
+<h3>Secrets and environment variables</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Name</th><th>Purpose</th><th>Example</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>GitBucket:Token</code> (user secret)</td><td>API token for REST and, by default, for git over HTTP. Read at <code>Program.cs:27</code>.</td><td><code>&lt;token&gt;</code></td><td><span class="badge req">required</span></td></tr>
+<tr><td><code>GITBUCKET_TOKEN</code> (env)</td><td>Fallback for the token when no user secret exists (<code>Program.cs:28</code>).</td><td><code>&lt;token&gt;</code></td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>GitBucket:GitPassword</code> (user secret)</td><td>Password for git over HTTP, if different from the token (<code>Program.cs:31</code>).</td><td><code>&lt;password&gt;</code></td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>COPILOT_GITHUB_TOKEN</code> (env)</td><td>Explicit seat token for Copilot. It is the only token variable kept in child processes (<code>ProcessRunner.cs:47-55</code>).</td><td><code>&lt;token&gt;</code></td><td><span class="badge opt">optional</span></td></tr>
+</tbody></table></div>
+<p>The token variables <code>GITBUCKET_TOKEN</code>, <code>GitBucket__Token</code>, <code>GitBucket__GitPassword</code>, <code>GH_TOKEN</code>, <code>GITHUB_TOKEN</code> and <code>AIRUNNER_GITHUB_TOKEN</code> are removed from every child process (<code>ProcessRunner.cs:51-55</code>).</p>
+
+<h3><code>repos.yml</code> top-level keys</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>Default</th><th>Purpose</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>gitBucket.baseUrl</code></td><td>-</td><td>Server URL. <code>/api/v3/</code> is added for REST, <code>/git/&lt;repo&gt;.git</code> for git. Load fails if empty (<code>RunnerConfig.cs:38</code>).</td><td><span class="badge req">required</span></td></tr>
+<tr><td><code>pollIntervalSeconds</code></td><td>90</td><td>Time between polls in loop mode.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>scopeLabel</code></td><td><code>ai</code></td><td>Only issues with this label (or assigned to the bot user) are looked at. Also the opt-in label for PR review.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>copilot.command</code></td><td><code>copilot</code></td><td>Executable to start.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>copilot.analyzeTimeoutMinutes</code></td><td>15</td><td>Per Copilot call in analysis. The job timeout is this + 10 (<code>AnalyzeIssueJob.cs:24</code>).</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>copilot.reviewTimeoutMinutes</code></td><td>15</td><td>Same for review.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>copilot.implementTimeoutMinutes</code></td><td>30 (the shipped <code>repos.yml</code> says 45)</td><td>Per Copilot run and per command in implement and fix.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>copilot.extraArgs</code></td><td><code>[]</code></td><td>Extra flags for every Copilot run, for example <code>--disable-builtin-mcps</code>.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>paths.work / logs / state</code></td><td><code>work</code>, <code>logs</code>, <code>ai-runner.db</code></td><td>Relative to the folder of <code>repos.yml</code>.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>logRetentionDays</code></td><td>30</td><td>Age limit for job log folders and finished job rows.</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>git.userName / userEmail</code></td><td><code>ai-runner</code> / <code>ai-runner@localhost</code></td><td>Author of the commits the runner makes. The email also identifies "our own" commits on a branch (<code>ImplementIssueJob.cs:88-92</code>).</td><td><span class="badge opt">optional</span></td></tr>
+<tr><td><code>repos[]</code></td><td>-</td><td>One entry per repository (next table).</td><td><span class="badge req">required</span></td></tr>
+</tbody></table></div>
+
+<h3><code>repos[]</code> entry</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>owner</code>, <code>name</code></td><td>-</td><td>Repository <code>owner/name</code> on GitBucket.</td></tr>
+<tr><td><code>workflows</code></td><td><code>[]</code></td><td>Any of <code>analyze, breakdown, implement, review, fix</code>. An unknown name stops the start (<code>RunnerConfig.cs:40-42</code>). An empty list means nothing runs for that repo.</td></tr>
+<tr><td><code>models</code></td><td><code>{}</code></td><td>Model per workflow. Empty = the Copilot default (<code>RepoConfig.ModelFor</code>).</td></tr>
+<tr><td><code>commands.setup / build / test / lint</code></td><td>empty</td><td>Any stack. Empty = not used. Used for the agent's shell permissions <em>and</em> for the runner's own re-check.</td></tr>
+<tr><td><code>commands.allowShell</code></td><td><code>[]</code></td><td>Extra Copilot shell patterns, for example <code>npm:*</code>.</td></tr>
+<tr><td><code>limits.maxChangedFiles / maxDiffLines</code></td><td>15 / 800</td><td>"Still simple?" limits. Above them no PR is opened.</td></tr>
+<tr><td><code>limits.maxAnalysisRounds</code></td><td>5</td><td>Analysis replies per issue.</td></tr>
+<tr><td><code>limits.maxReviewFixes</code></td><td>5</td><td>Review fix replies per PR.</td></tr>
+<tr><td><code>implement.maxFixRounds</code></td><td>2</td><td>Extra Copilot runs after the runner's checks fail. Also used by review fix. Each costs a premium request.</td></tr>
+<tr><td><code>review.scope</code></td><td><code>scoped</code></td><td><code>scoped</code> = PRs labelled <code>ai</code> or opened by the runner; <code>all</code> = every open PR.</td></tr>
+<tr><td><code>review.skipPaths</code></td><td><code>[]</code></td><td>Glob patterns. A PR that changes only these files is not reviewed.</td></tr>
+<tr><td><code>autoStartFirstSubIssue</code></td><td><code>false</code></td><td>The breakdown adds <code>ai-implement</code> on sub-issue 1 itself.</td></tr>
+</tbody></table></div>
+<div class="callout gotcha"><span class="title">Gotcha</span>
+Do not repeat a top-level key in <code>repos.yml</code>. YAML duplicates are accepted without a warning and the <em>last</em> block wins. A second <code>copilot:</code> block once dropped <code>--disable-builtin-mcps</code> and the 45-minute timeout (<a href="findings.html#f-dup-copilot">finding F1</a>, now fixed).</div>
+
+<h2 id="local-setup">What runs where</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart LR
+  subgraph laptop["Developer laptop (Windows)"]
+    subgraph proc["dotnet run: ai-runner process"]
+      poller["Poller<br/>every 90 s"]
+      worker["JobWorker<br/>one job at a time"]
+    end
+    copilot["copilot -p<br/>(child process)"]
+    git["git<br/>(child process)"]
+    shell["setup / build / test / lint<br/>(child process via cmd /c)"]
+    subgraph disk["Files next to repos.yml"]
+      db[("ai-runner.db")]
+      work[("work/owner/name")]
+      logs[("logs/jobs, logs/cost.csv")]
+    end
+    home[("~/.copilot/agents + skills")]
+    secrets[("user-secrets: GitBucket:Token")]
+  end
+  gb["GitBucket (VPN)<br/>host port 3000"]
+  cloud["Copilot service (internet)"]
+  secrets -.->|"read at start"| proc
+  poller -->|"REST"| gb
+  worker --> copilot
+  worker --> git
+  worker --> shell
+  git -->|"clone, push"| gb
+  copilot --> cloud
+  copilot -->|"cwd"| work
+  proc --> db
+  proc --> logs
+  proc -->|"installs at start"| home
+</pre></div>
+<figcaption>No Docker, no database server, no ports are opened on the laptop. Everything is a child process or a file.</figcaption>
+</figure>
+<p>The runner opens no listening port. All traffic is outgoing: REST and git to GitBucket, and Copilot's own calls to the Copilot service.</p>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

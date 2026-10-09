@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ai-runner documentation - ai-runner docs</title>
+<meta name="description" content="A visual guide for new developers: what ai-runner does, how it is built and how each part works. Open any page from the sidebar.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html" class="current" aria-current="page">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>ai-runner documentation</h1>
+<p class="summary">A visual guide for new developers: what ai-runner does, how it is built and how each part works. Open any page from the sidebar.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#intro">What this is</a><a href="#start">Where to start</a><a href="#pages">All pages</a><a href="#top5">Five things to know first</a></nav>
+</div></header>
+<main class="content">
+<h2 id="intro">What this is</h2>
+<p><strong>ai-runner</strong> is a .NET 10 worker that runs on a developer laptop. It watches issues and pull requests on a GitBucket server, runs GitHub Copilot CLI to analyse, break down, implement and review them, and writes the results back as comments, labels, branches and PRs. A human always merges.</p>
+<p>These pages were written by reading the code. Every claim points to a file and line. Where something could not be confirmed, it is listed under <a href="findings.html#open-questions">Open questions</a>. The diagrams are Mermaid. Click a diagram to open it full screen.</p>
+
+<h2 id="start">Where to start</h2>
+<ol class="flow-steps">
+  <li><a href="overview.html">Overview</a>: what the system does, the five workflows, the tech stack and the repo map. (10 minutes)</li>
+  <li><a href="architecture.html">Architecture</a>: the four layers and the Poll, Plan, Queue, Job pattern. (15 minutes)</li>
+  <li><a href="modules/planning.html">Planning (Core)</a>: the brain. <code>JobPlanner</code> decides what runs. Read this before any job.</li>
+  <li><a href="modules/hosting.html">Poller, queue, worker</a>: how work is found, stored and run.</li>
+  <li>The module for the workflow you will touch: <a href="modules/analysis-breakdown.html">analysis and breakdown</a>, <a href="modules/implement.html">implement</a>, or <a href="modules/review-fix.html">review and review fix</a>.</li>
+  <li><a href="getting-started.html">Getting started</a> when you want to run it, and <a href="findings.html">Findings</a> before you change risky parts.</li>
+</ol>
+
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TD
+  home["Home"] --> ov["Overview"]
+  ov --> gs["Getting started"]
+  ov --> ar["Architecture"]
+  ar --> dm["Data model"]
+  ar --> api["CLI and API"]
+  ar --> ii["Integrations and infra"]
+  ar --> m1["Module: Planning (Core)"]
+  m1 --> m2["Module: Poller, queue, worker"]
+  m2 --> m3["Modules: Analysis, Implement,<br/>Review and fix"]
+  m3 --> m6["Modules: Infrastructure,<br/>Agents and templates"]
+  ar --> fi["Findings"]
+  home --> gl["Glossary"]
+</pre></div>
+<figcaption>Docs map and suggested reading order. Start at Overview, go down through Architecture, then pick the modules you need.</figcaption>
+</figure>
+
+<h2 id="pages">All pages</h2>
+<div class="cards">
+  <a class="card" href="overview.html"><h3>Overview</h3><p>System context, workflows, tech stack, repository map.</p></a>
+  <a class="card" href="getting-started.html"><h3>Getting started</h3><p>Install, configure, run, test. Every setting explained.</p></a>
+  <a class="card" href="architecture.html"><h3>Architecture</h3><p>Layers, job lifecycle, error handling, secret flow.</p></a>
+  <a class="card" href="data-model.html"><h3>Data model</h3><p>SQLite tables, hidden markers, labels, state diagrams.</p></a>
+  <a class="card" href="api.html"><h3>CLI and API</h3><p>Command-line modes, GitBucket endpoints used, how Copilot is started.</p></a>
+  <a class="card" href="integrations-infra.html"><h3>Integrations and infra</h3><p>External systems, deployment, workers, queue.</p></a>
+  <a class="card" href="findings.html"><h3>Findings</h3><p>Risks, tech debt and open questions with severity.</p></a>
+  <a class="card" href="glossary.html"><h3>Glossary</h3><p>Trigger, reply, round, fix round and the rest.</p></a>
+</div>
+
+<h3>Modules</h3>
+<div class="cards">
+  <a class="card" href="modules/planning.html"><h3>Planning (Core)</h3><p><code>JobPlanner</code>, <code>AtAiThread</code>, <code>SubIssueSequencer</code>, labels and branches.</p><span class="tag">src/AiRunner/Core</span></a>
+  <a class="card" href="modules/hosting.html"><h3>Poller, queue, worker</h3><p>Polling, the SQLite-backed queue, the one-at-a-time worker.</p><span class="tag">src/AiRunner/Hosting</span></a>
+  <a class="card" href="modules/analysis-breakdown.html"><h3>Analysis and breakdown</h3><p>Workflows 1 and 1b: questions, SPEC, sub-issues, sequencing.</p><span class="tag">Jobs + parsers</span></a>
+  <a class="card" href="modules/implement.html"><h3>Implement and AgentSession</h3><p>Workflow 2: agent stages, runner checks, fix rounds, PR.</p><span class="tag">Jobs/AgentSession</span></a>
+  <a class="card" href="modules/review-fix.html"><h3>PR review and review fix</h3><p>Workflows 3 and 3b: one review comment, <code>@ai</code> fixes.</p><span class="tag">Jobs</span></a>
+  <a class="card" href="modules/infrastructure.html"><h3>Infrastructure</h3><p>GitBucket client, git, processes, workspace, SQLite, logs.</p><span class="tag">src/AiRunner/Infrastructure</span></a>
+  <a class="card" href="modules/agents-templates.html"><h3>Agents, skills, templates</h3><p>What Copilot is told, and the layouts it must follow.</p><span class="tag">agents/ skills/ templates/</span></a>
+</div>
+
+<h2 id="top5">Five things to know first</h2>
+<div class="callout note"><span class="title">1. Jobs plan again</span>Every job re-reads GitBucket and asks <code>JobPlanner</code> again. Planner rules are the single source of "should this run".</div>
+<div class="callout note"><span class="title">2. GitBucket is the database</span>State is in labels and hidden comment markers. Deleting <code>ai-runner.db</code> is safe.</div>
+<div class="callout warning"><span class="title">3. Agent code runs on the laptop</span>Build and test commands run what the agent wrote, with your rights. It is a guard rail, not a sandbox.</div>
+<div class="callout gotcha"><span class="title">4. Keep output ASCII</span>This GitBucket returns HTTP 500 on non-ASCII text. Templates stay ASCII and all outgoing text is cleaned.</div>
+<div class="callout gotcha"><span class="title">5. Template, parser, agent and sample change together</span>Changing a template means changing its parser, the agent file and <code>tests/AiRunner.Tests/Samples.cs</code>.</div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

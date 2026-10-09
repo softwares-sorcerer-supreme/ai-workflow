@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data model - ai-runner docs</title>
+<meta name="description" content="The small SQLite database, the hidden markers the runner writes into GitBucket comments, the label state machine, and the files a job leaves on disk.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html" class="current" aria-current="page">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Data model</h1>
+<p class="summary">The small SQLite database, the hidden markers the runner writes into GitBucket comments, the label state machine, and the files a job leaves on disk.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#overview">Where state lives</a><a href="#er">SQLite tables</a><a href="#markers">What the runner writes into GitBucket</a><a href="#labels">Labels and the issue lifecycle</a><a href="#entities">Main in-memory records</a><a href="#files">Files on disk</a><a href="#migrations">Migrations, stored procedures, views</a></nav>
+</div></header>
+<main class="content">
+<h2 id="overview">Where state lives</h2>
+<p>ai-runner keeps <strong>no database dependency for correctness</strong> (<code>CLAUDE.md</code>). The truth is in GitBucket: labels, comments and branches.
+The bot finds its own comments again by hidden markers. The SQLite file <code>ai-runner.db</code> only holds helper state (what the poller saw, which comment was handled, the job queue and the cost log).
+Deleting it is safe: the runner reads GitBucket again.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Store</th><th>What it holds</th><th>If lost</th></tr></thead>
+<tbody>
+<tr><td>GitBucket labels</td><td>The workflow state of an issue (<code>ai:ready</code>, <code>ai:failed</code> ...)</td><td>The workflow state is lost. This is the main state.</td></tr>
+<tr><td>GitBucket bot comments</td><td>Analysis, SPEC, review, review fix, sub-issue list, "read up to" cursor</td><td>Rounds restart. Counts come from these comments.</td></tr>
+<tr><td><code>ai-runner.db</code> (SQLite)</td><td>Fingerprints, local cursor, review state, job queue, cost log</td><td>Safe. Jobs are re-planned and re-run if still needed.</td></tr>
+<tr><td><code>work/</code></td><td>One git clone per repo (reset before each job)</td><td>Cloned again on the next job.</td></tr>
+<tr><td><code>logs/</code></td><td>Job folders (30 days) and <code>cost.csv</code></td><td>Only debugging history.</td></tr>
+</tbody></table></div>
+
+<h2 id="er">SQLite tables</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+erDiagram
+  issue_seen {
+    TEXT repo PK
+    INTEGER issue PK
+    TEXT fingerprint
+  }
+  issue_state {
+    TEXT repo PK
+    INTEGER issue PK
+    INTEGER last_handled_comment
+  }
+  review_state {
+    TEXT repo PK
+    INTEGER pr PK
+    TEXT head_sha
+    INTEGER comment_id
+    TEXT result
+  }
+  jobs {
+    INTEGER id PK
+    TEXT key
+    TEXT type
+    TEXT repo
+    INTEGER number
+    TEXT payload
+    TEXT status
+    INTEGER attempts
+    TEXT created_at
+    TEXT started_at
+    TEXT finished_at
+    TEXT error
+  }
+  cost_log {
+    INTEGER id PK
+    TEXT at
+    TEXT repo
+    INTEGER number
+    TEXT workflow
+    REAL duration_s
+    TEXT result
+    TEXT detail
+  }
+  issue_seen ||--o| issue_state : "same repo + issue"
+  issue_state ||--o{ jobs : "same repo + number"
+  review_state ||--o{ jobs : "same repo + pr number"
+  jobs ||--o| cost_log : "one row per finished job"
+</pre></div>
+<figcaption>Five tables, created with <code>CREATE TABLE IF NOT EXISTS</code> (<code>Infrastructure/SqliteStateStore.cs:66-79</code>). There are <strong>no foreign keys</strong>. The lines show how rows relate by repo and number only.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Table</th><th>Purpose</th><th>Written by</th><th>Read by</th></tr></thead>
+<tbody>
+<tr><td><code>issue_seen</code></td><td>Fingerprint (<code>updated_at | sorted labels</code>) of each issue the poller had nothing to do for. An unchanged issue is not read again.</td><td><code>Poller.cs:73-74</code></td><td><code>Poller.cs:59</code></td></tr>
+<tr><td><code>issue_state</code></td><td>The newest <code>@ai</code> comment id already handled ("local cursor"). Only moves up (<code>MAX(...)</code>). Used for issues and PRs.</td><td><code>AnalyzeIssueJob.cs:64</code>, <code>FixReviewJob.cs:41, 120</code></td><td><code>JobSupport.cs:32, 48</code></td></tr>
+<tr><td><code>review_state</code></td><td>Head sha already reviewed, id of the review comment, result (<code>failed</code>, <code>skipped</code>, or the verdict).</td><td><code>ReviewPullRequestJob.cs:31, 49, 89</code></td><td><code>JobSupport.cs:43</code>, <code>ReviewPullRequestJob.cs:39</code></td></tr>
+<tr><td><code>jobs</code></td><td>The persistent queue. <code>key = Type:Repo#Number</code> (<code>JobRequest.cs:12</code>). <code>payload</code> is the PR head sha (review) or the <code>@ai</code> comment id (fix).</td><td><code>JobQueue</code>, <code>JobWorker</code></td><td><code>JobQueue</code></td></tr>
+<tr><td><code>cost_log</code></td><td>One row per finished job. Also appended to <code>logs/cost.csv</code>.</td><td><code>CostLog.cs:21-45</code></td><td>humans (SQL or Excel)</td></tr>
+</tbody></table></div>
+
+<details><summary>Fields of the <code>jobs</code> table in detail</summary>
+<div class="table-wrap"><table>
+<thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>key</code></td><td>Same work = same key. At most one <code>pending</code> row per key.</td></tr>
+<tr><td><code>type</code></td><td><code>JobType</code> name: <code>AnalyzeIssue</code>, <code>BreakdownIssue</code>, <code>ImplementIssue</code>, <code>ReviewPullRequest</code>, <code>SequenceSubIssues</code>, <code>FixReview</code>.</td></tr>
+<tr><td><code>status</code></td><td><code>pending</code>, <code>running</code>, <code>done</code>, <code>failed</code> (<code>JobStatus</code>).</td></tr>
+<tr><td><code>attempts</code></td><td>Increased each time the job becomes <code>running</code>. At 2 an interrupted job is given up (<code>JobQueue.MaxAttempts</code>).</td></tr>
+<tr><td><code>error</code></td><td>The failure message of a failed job.</td></tr>
+</tbody></table></div>
+<p>Index: <code>ix_jobs_status (status, key)</code>. Finished jobs older than <code>logRetentionDays</code> are deleted at start (<code>SqliteStateStore.PruneJobs</code>). A "quiet" job (nothing to do) deletes its own row (<code>JobWorker.cs:68</code>).</p>
+</details>
+
+<h3>Job status</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> pending : Enqueue (one per key)
+  pending --> running : worker dequeues (attempts + 1)
+  running --> done : job returns an outcome
+  running --> failed : exception or timeout
+  running --> pending : runner restarted, first time (Recover)
+  running --> failed : restarted twice (interrupted twice)
+  running --> [*] : Quiet outcome, row deleted
+  done --> [*] : pruned after logRetentionDays
+  failed --> [*] : pruned after logRetentionDays
+</pre></div>
+<figcaption>Status values of <code>jobs.status</code>. Transitions are in <code>JobWorker.RunOneAsync</code> and <code>JobQueue.Recover</code>.</figcaption>
+</figure>
+
+<h2 id="markers">What the runner writes into GitBucket</h2>
+<p>Because the runner posts with the bot user's token, it marks its comments so it can recognise them and never react to its own text.</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  m1["Step 1: HTML comment: ai-runner marker (BotComments.Marker)"]
+  m2["Step 2: Visible line: **[ai-runner]**"]
+  b1["Step 3: ANALYSIS_START (or SPEC, REVIEW, REVIEW_FIX)"]
+  b2["Step 4: Agent text, HTML comment openers neutralised"]
+  b3["Step 5: ANALYSIS_END"]
+  m3["Step 6: HTML comment: context-upto = newest comment id read (AtAiThread.Reply)"]
+  m1 --> m2 --> b1 --> b2 --> b3 --> m3
+</pre></div>
+<figcaption>Anatomy of an analysis or review-fix comment. <code>GitBucketClient.WithMarker</code> adds the first two lines, <code>Markers.Wrap</code> the block, <code>AtAiThread.ReplyBody</code> the last tag.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Marker</th><th>Where</th><th>Used to</th><th>Code</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;!-- ai-runner --&gt;</code></td><td>Every bot comment, PR body</td><td>Know a comment is from the bot (<code>IsBot</code>)</td><td><code>BotComments.cs:13, 18</code>, <code>GitBucketClient.cs:136-142</code></td></tr>
+<tr><td><code>**[ai-runner]**</code></td><td>First visible line</td><td>Humans see it is the bot</td><td><code>BotComments.cs:16</code></td></tr>
+<tr><td><code>&lt;!-- ANALYSIS_START --&gt;</code> ... <code>_END</code></td><td>Analysis comment</td><td>Find the latest analysis, count rounds</td><td><code>Markers.cs:10, 36-37</code></td></tr>
+<tr><td><code>&lt;!-- SPEC_START --&gt;</code> ... <code>_END</code></td><td>SPEC comment (posted when status is ready)</td><td>Plan for the implement agent</td><td><code>Markers.cs:11</code></td></tr>
+<tr><td><code>&lt;!-- REVIEW_START --&gt;</code> ... <code>_END</code></td><td>The single review comment of a PR</td><td>Update in place, feed review fix</td><td><code>Markers.cs:12</code></td></tr>
+<tr><td><code>&lt;!-- REVIEW_FIX_START --&gt;</code> ... <code>_END</code></td><td>Each review fix reply</td><td>Count fixes against <code>maxReviewFixes</code></td><td><code>Markers.cs:13</code></td></tr>
+<tr><td><code>&lt;!-- ai-runner:context-upto=N --&gt;</code></td><td>After the block of a reply</td><td>"Read up to" cursor. Comments with a higher id are new.</td><td><code>AtAiThread.cs:15, 63-75</code></td></tr>
+<tr><td><code>&lt;!-- SUBISSUES: 12,13,14 --&gt;</code></td><td>Parent issue comment after a breakdown</td><td>The ordered list of sub-issues</td><td><code>SubIssueBody.cs:76-91</code></td></tr>
+<tr><td><code>Parent: #n</code>, <code>Order: k of K</code>, <code>Base branch: ...</code>, <code>Depends on: ...</code></td><td>First lines of a sub-issue body</td><td>Implement job reads parent, order and base branch from the issue itself</td><td><code>SubIssueBody.cs:16-57</code></td></tr>
+</tbody></table></div>
+<div class="callout gotcha"><span class="title">Gotcha</span>
+<code>Markers.Extract</code> uses the <em>last</em> start marker in the Copilot output, in case the agent repeats the template first (<code>Markers.cs:24</code>).
+<code>AtAiThread.ReadUpToOf</code> likewise takes the <em>last</em> <code>context-upto</code> tag, because agent text could contain a fake one (<code>AtAiThread.cs:72-74</code>).
+A human who pastes a bot comment with its marker is treated as the bot (<code>README.md</code> "Security limits").</div>
+
+<h2 id="labels">Labels and the issue lifecycle</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Label</th><th>Set by</th><th>Meaning</th><th>Color</th></tr></thead>
+<tbody>
+<tr><td><code>ai</code> (<code>scopeLabel</code>)</td><td>human</td><td>The runner looks at this issue</td><td><code>1d76db</code></td></tr>
+<tr><td><code>ai:questions-open</code></td><td>bot</td><td>Analysis posted, the author must answer and write <code>@ai</code></td><td><code>fbca04</code></td></tr>
+<tr><td><code>ai:ready</code></td><td>bot</td><td>No open questions. The SPEC is posted.</td><td><code>0e8a16</code></td></tr>
+<tr><td><code>ai:simple</code> / <code>ai:complex</code></td><td>bot</td><td>Complexity guess</td><td><code>c2e0c6</code> / <code>f9d0c4</code></td></tr>
+<tr><td><code>ai:parent</code></td><td>bot</td><td>Issue was split into sub-issues</td><td><code>5319e7</code></td></tr>
+<tr><td><code>ai:sub-issue</code></td><td>bot</td><td>Sub-issue of a complex issue</td><td><code>d4c5f9</code></td></tr>
+<tr><td><code>ai:implementing</code></td><td>bot</td><td>Copilot is working or opened a PR</td><td><code>0052cc</code></td></tr>
+<tr><td><code>ai:failed</code></td><td>bot</td><td>A job failed. Remove it to retry.</td><td><code>b60205</code></td></tr>
+<tr><td><code>ai:on-github</code></td><td>(nobody yet)</td><td>Moved to the GitHub mirror. The planner skips it.</td><td><code>bfdadc</code></td></tr>
+<tr><td><code>ai-breakdown</code></td><td>human</td><td>Breakdown approved, create sub-issues</td><td><code>006b75</code></td></tr>
+<tr><td><code>ai-implement</code></td><td>human (or bot for sub-issues)</td><td>Copilot, build this</td><td><code>0e8a16</code></td></tr>
+<tr><td><code>needs-cloud-agent</code></td><td>human</td><td>Quota empty, use the GitHub mirror. The planner skips it.</td><td><code>e99695</code></td></tr>
+</tbody></table></div>
+<p>Source: <code>Core/Labels.cs:7-38</code>. <code>--setup-labels</code> creates all of them in every repo (<code>Hosting/LabelSetup.cs</code>).</p>
+
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> New : label ai added
+  New --> QuestionsOpen : analysis round, status questions-open
+  QuestionsOpen --> QuestionsOpen : human answers with @ai, next round
+  QuestionsOpen --> ReadySimple : status ready, complexity simple
+  QuestionsOpen --> ReadyComplex : status ready, complexity complex
+  ReadySimple --> QuestionsOpen : more @ai, new round
+  ReadyComplex --> QuestionsOpen : more @ai, new round
+  ReadySimple --> Implementing : human adds ai-implement
+  ReadyComplex --> Parent : human adds ai-breakdown
+  Implementing --> PROpen : PR created, ai-implement removed
+  Implementing --> Failed : job fails
+  Parent --> FinalPR : last sub-issue merged
+  New --> Failed : analysis fails
+  Failed --> New : human removes the failed label
+  PROpen --> [*] : human merges
+  FinalPR --> [*] : human merges
+</pre></div>
+<figcaption>Lifecycle of an issue as seen through labels. Rules are in <code>JobPlanner.PlanIssue</code> (<code>JobPlanner.cs:17-77</code>). <code>ai-implement</code> without <code>ai:ready</code> and <code>ai:simple</code> is refused with a comment and the label is removed (<code>JobPlanner.cs:80-84</code>).</figcaption>
+</figure>
+
+<h3>Sub-issue lifecycle</h3>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> Created : BreakdownIssueJob creates it
+  Created --> WaitsForDeveloper : title starts with [developer]
+  Created --> Queued : labels ready and simple
+  Queued --> Implementing : ai-implement added (human for 1, sequencer for the rest)
+  Implementing --> Done : PR merged into feat/issue-N, or issue closed
+  WaitsForDeveloper --> Done : developer merges or closes it
+  Done --> [*]
+</pre></div>
+<figcaption>How a sub-issue moves. "Done" is decided by <code>SubIssueBody.IsDone</code> (<code>SubIssueBody.cs:70-72</code>). The next sub-issue starts only when the one before is done (<code>SubIssueSequencer.cs:18-42</code>).</figcaption>
+</figure>
+
+<h2 id="entities">Main in-memory records</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Record</th><th>Purpose</th><th>Key fields</th><th>File</th></tr></thead>
+<tbody>
+<tr><td><code>GbIssue</code></td><td>An issue (or PR seen as an issue) from <code>/api/v3</code></td><td><code>Number, Title, Body, Labels, UpdatedAt, State, Assignees</code></td><td><code>Core/GitBucketModels.cs:14-24</code></td></tr>
+<tr><td><code>GbComment</code></td><td>One comment</td><td><code>Id, Body, User, CreatedAt</code></td><td><code>GitBucketModels.cs:26</code></td></tr>
+<tr><td><code>GbPull</code></td><td>A pull request</td><td><code>Number, Head (Ref, Sha), Base, Merged, Draft, Labels</code></td><td><code>GitBucketModels.cs:30-42</code></td></tr>
+<tr><td><code>JobRequest</code></td><td>One unit of work, stored in SQLite</td><td><code>Type, Repo, Number, Payload</code>; <code>Key</code></td><td><code>Core/JobRequest.cs:9-15</code></td></tr>
+<tr><td><code>PlanDecision</code></td><td>A job or the reason not to</td><td><code>Job, Reason, Routine, NeedsComments</code></td><td><code>JobRequest.cs:20-26</code></td></tr>
+<tr><td><code>JobInfo</code> / <code>JobOutcome</code></td><td>Job metadata for the worker / what a job returns</td><td><code>Workflow, Description, Timeout, OnPullRequest, Retry</code> / <code>Result, Detail, Quiet</code></td><td><code>Jobs/IJob.cs:36-44</code></td></tr>
+<tr><td><code>AnalysisResult</code>, <code>Breakdown</code>, <code>SubTask</code>, <code>ReviewResult</code></td><td>Parsed agent output</td><td>see the analysis and review modules</td><td><code>Core/*Parser.cs</code></td></tr>
+<tr><td><code>RunnerConfig</code> and sub-objects</td><td><code>repos.yml</code></td><td>see <a href="getting-started.html#config">configuration reference</a></td><td><code>Configuration/RunnerConfig.cs</code></td></tr>
+</tbody></table></div>
+
+<h2 id="files">Files on disk</h2>
+<p>A job writes its inputs and results into <code>logs/jobs/&lt;yyyyMMdd-HHmmss&gt;-&lt;owner&gt;-&lt;repo&gt;-&lt;number&gt;-&lt;JobType&gt;/</code> (<code>JobLog.cs:44-48</code>).
+The folder is created on the first write. A job that writes nothing leaves nothing.</p>
+<details><summary>Files that can appear in a job log folder</summary>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>Written by</th></tr></thead>
+<tbody>
+<tr><td><code>job.log</code></td><td><code>JobRun.Info</code>: every <code>run.Info(...)</code> line</td></tr>
+<tr><td><code>context.md</code>, <code>plan.md</code>, <code>review-fix.md</code>, <code>diff.patch</code></td><td>Input files given to the agent (copied here for debugging)</td></tr>
+<tr><td><code>copilot-stdout.txt</code>, <code>copilot-stderr.txt</code></td><td>Analysis and review runs (<code>JobSupport.RunCopilotAsync</code>)</td></tr>
+<tr><td><code>round-N-copilot-stdout.txt</code>, <code>-stderr.txt</code>, <code>round-N-transcript.md</code></td><td>Implement and fix runs (<code>AgentSession</code>)</td></tr>
+<tr><td><code>round-N-check-M.txt</code>, <code>setup.txt</code>, <code>fix-N.md</code></td><td>Command output and the input of fix round N</td></tr>
+<tr><td><code>analysis.md</code>, <code>spec.md</code>, <code>review.md</code></td><td>The extracted block (<code>RequireBlock</code> saves it as <code>&lt;marker&gt;.md</code>)</td></tr>
+<tr><td><code>breakdown.txt</code>, <code>numstat.txt</code>, <code>PR_BODY.md</code> / <code>REPLY.md</code></td><td>Parsed sub-tasks, changed files, the agent's output file</td></tr>
+<tr><td><code>error.txt</code></td><td>Full exception text of a failed job (<code>JobWorker.cs:94</code>)</td></tr>
+</tbody></table></div>
+</details>
+<p>The working clone <code>work/&lt;owner&gt;/&lt;name&gt;</code> also holds runner files that are never committed. They are listed in <code>.git/info/exclude</code>: <code>.ai-workflow/</code>, <code>context.md</code>, <code>plan.md</code>, <code>PR_BODY.md</code>, <code>fix.md</code>, <code>diff.patch</code>, <code>changed-files.txt</code>, <code>review-fix.md</code>, <code>REPLY.md</code> (<code>Workspace.cs:28-30</code>).</p>
+
+<h2 id="migrations">Migrations, stored procedures, views</h2>
+<ul>
+  <li><strong>Migrations:</strong> none. The schema is created in the <code>SqliteStateStore</code> constructor with <code>CREATE TABLE IF NOT EXISTS</code> (<code>SqliteStateStore.cs:63-80</code>). A later change to a table would <em>not</em> change an existing file. See <a href="findings.html">Findings</a>.</li>
+  <li><strong>To reset:</strong> delete <code>ai-runner.db</code> (and its <code>-journal</code> file). <code>*.db</code> is git-ignored.</li>
+  <li><strong>Stored procedures, views, triggers:</strong> none. All SQL is inline with named parameters (no string concatenation of values).</li>
+  <li><strong>Connections:</strong> one connection is opened per call (pooling on). The multi-statement <code>AddJob</code> returns <code>last_insert_rowid()</code> from the same command (<code>SqliteStateStore.cs:123-130</code>).</li>
+</ul>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

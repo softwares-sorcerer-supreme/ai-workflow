@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Findings - ai-runner docs</title>
+<meta name="description" content="Risks, tech debt and gaps found while reading the code, with locations and severity. Things that could not be confirmed are listed under Open questions.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html" class="current" aria-current="page">Findings</a>
+<a href="glossary.html">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Findings</h1>
+<p class="summary">Risks, tech debt and gaps found while reading the code, with locations and severity. Things that could not be confirmed are listed under Open questions.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#trust">Where the risks sit</a><a href="#table">Findings</a><a href="#positives">Things the code already does well</a><a href="#open-questions">Open questions</a></nav>
+</div></header>
+<main class="content">
+<p>Everything here comes from reading the code and config. Nothing was run against a real GitBucket or Copilot, and the test suite was not executed for these docs.
+Severity is a judgement: <span class="badge sev-high">High</span> can leak data or silently change behaviour,
+<span class="badge sev-med">Medium</span> will probably surprise a user or cost money,
+<span class="badge sev-low">Low</span> is cleanliness or a small risk.</p>
+
+<h2 id="trust">Where the risks sit</h2>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  humans["Anyone who can label an issue<br/>or write @ai (F3)"] -->|"issue and PR text"| gb["GitBucket"]
+  gb -->|"poll with token"| runner["ai-runner<br/>holds the token"]
+  cfg["repos.yml (F1, F7)"] --> runner
+  runner -->|"context files, no token in env"| agent["Copilot agent<br/>prompt-injection surface (F3)"]
+  agent -->|"edits files"| clone[("work/ clone")]
+  runner -->|"runs build, test, lint"| code["Agent-written code runs<br/>with the user's rights (F2)"]
+  clone --> code
+  runner --> db[("ai-runner.db<br/>no migrations (F5)")]
+  runner -->|"comments, labels, PRs, pushes"| gb
+</pre></div>
+<figcaption>Trust boundaries. Text from GitBucket reaches the agent as "data". The agent's code then runs on the laptop. The token stays in the runner process.</figcaption>
+</figure>
+
+<h2 id="table">Findings</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Severity</th><th>Area</th><th>Finding</th><th>Location</th></tr></thead>
+<tbody>
+<tr id="f-dup-copilot"><td>F1</td><td><span class="badge ok">Fixed</span> <span class="muted">(uncommitted)</span></td><td>Config</td><td>The key <code>copilot:</code> used to appear <strong>twice</strong> in <code>repos.yml</code>. Loading it with YamlDotNet 16.3.0 in a scratch program showed that the second block silently <em>replaced</em> the first: <code>--disable-builtin-mcps</code> was lost, <code>implementTimeoutMinutes</code> fell from 45 to 30, and no warning was printed. The working-tree <code>repos.yml</code> now has one block (lines 8-13) with all four settings. The fix is not committed yet, and the runner still does not warn about duplicate keys.</td><td><code>repos.yml:8-13</code>; <code>RunnerConfig.cs:46-51</code></td></tr>
+<tr id="f-code-runs"><td>F2</td><td><span class="badge sev-high">High</span> <span class="muted">(accepted, documented)</span></td><td>Security</td><td>Setup, build, test and lint commands run code that the agent wrote, with the developer's OS rights. That code can read anything the user can read, including the user-secrets file with the token. Tokens are removed from the environment, but this is not a sandbox.</td><td><code>AgentSession.cs:59-65, 103-117</code>; <code>README.md</code> "Security limits"</td></tr>
+<tr id="f-who"><td>F3</td><td><span class="badge sev-med">Medium</span></td><td>Security</td><td>No allow-list of users. Anyone who can add a label or write <code>@ai</code> can start paid Copilot runs, and an <code>@ai</code> comment on an in-scope PR can make the agent change its code. Issue and comment text reaches the agent labelled "data, not instructions", which reduces but cannot remove prompt-injection risk.</td><td><code>BotComments.cs:29-31</code>, <code>JobPlanner.cs:113-126</code>, <code>ContextBuilder.cs:15, 97-98</code></td></tr>
+<tr><td>F4</td><td><span class="badge sev-med">Medium</span></td><td>Security</td><td>A comment is "from the bot" if it contains the hidden marker. A human who pastes a bot comment is treated as the bot (their <code>@ai</code> is then ignored). Since the runner posts with a real account, the visible tag is the only other signal.</td><td><code>BotComments.cs:13-18</code></td></tr>
+<tr id="f-migrations"><td>F5</td><td><span class="badge sev-med">Medium</span></td><td>Data</td><td>The SQLite schema has no version and no migration. It is created with <code>CREATE TABLE IF NOT EXISTS</code>, so a later new column would not appear in an existing <code>ai-runner.db</code>. The README says deleting the file is safe, which is the only upgrade path.</td><td><code>SqliteStateStore.cs:63-80</code></td></tr>
+<tr id="f-poll-cost"><td>F6</td><td><span class="badge sev-med">Medium</span></td><td>Cost, performance</td><td>API load grows with repo size on every poll (90 s).
+(a) PRs have no fingerprint: for each open in-scope PR the comments are listed on every poll.
+(b) <code>SequenceSubIssuesJob</code> is planned on every poll for every <code>ai:parent</code> issue. Each run reads the issue and comments, every sub-issue, and <em>all</em> open and closed PRs (paged, 100 per page).
+The closed-PR list only grows. Most runs end "Quiet", but the calls are made before that.</td><td><code>Poller.cs:77-84</code>, <code>JobSupport.cs:40-49</code>, <code>SequenceSubIssuesJob.cs:24-34</code>, <code>JobPlanner.cs:48-53</code></td></tr>
+<tr id="f-machine-config"><td>F7</td><td><span class="badge sev-med">Medium</span></td><td>Config</td><td><code>repos.yml</code> holds values tied to one person and machine: an internal server address, real repo names, and <code>C:\Users\70024980\...\copilot.cmd</code>. Another developer must edit a tracked file before the first run.</td><td><code>repos.yml:3, 13, 27-28, 53-54</code></td></tr>
+<tr><td>F8</td><td><span class="badge sev-med">Medium</span></td><td>Tests</td><td>No test touches <code>LabelSetup</code>, <code>AgentInstaller</code> or <code>CopilotSelfTest</code> (searched <code>tests/</code> by class name). The mode switch in <code>Program.cs</code> (top-level statements) is not testable and not tested. <code>CopilotRunner</code> appears in one test file only.</td><td><code>tests/AiRunner.Tests/</code></td></tr>
+<tr><td>F9</td><td><span class="badge sev-low">Low</span></td><td>Reliability</td><td>The quota detector is a word guess ("premium request", "quota", "rate limit") in stdout or stderr of a failed run. A different failure that prints one of those words gets the quota message. The code comment says it is a guess.</td><td><code>CopilotRunner.cs:46-54</code></td></tr>
+<tr><td>F10</td><td><span class="badge sev-low">Low</span></td><td>Reliability</td><td>Nothing stops two runner processes from using the same <code>work/</code> folder or the same <code>ai-runner.db</code> on one machine (for example <code>--once</code> while the loop runs). SQLite copes, the shared git clone does not.</td><td><code>Workspace.cs:32-60</code></td></tr>
+<tr><td>F11</td><td><span class="badge sev-low">Low</span></td><td>Performance</td><td>Every job runs <code>git clean -fdx</code> in the persistent clone, so ignored folders such as <code>node_modules</code> are deleted and <code>commands.setup</code> must reinstall them each time (by design, see <code>onboarding/AGENTS.md</code>).</td><td><code>GitClient.cs:62-68</code></td></tr>
+<tr><td>F12</td><td><span class="badge sev-low">Low</span></td><td>Data quality</td><td><code>AsciiSanitizer</code> drops every character it cannot map. Vietnamese keeps its letters without accents, but emoji and non-Latin scripts (CJK, Cyrillic) vanish from comments the runner writes.</td><td><code>AsciiSanitizer.cs:30-41</code></td></tr>
+<tr><td>F13</td><td><span class="badge sev-low">Low</span></td><td>Dead data</td><td><code>test/issue-52/round1.txt</code> and <code>round2.txt</code> are saved Copilot outputs in an old format (<code>ANALYSIS_START</code> without <code>&lt;!-- --&gt;</code>, <code>Status: needs-info</code>). The current <code>Markers</code> and <code>AnalysisParser</code> would reject them. No test uses them.</td><td><code>test/issue-52/</code></td></tr>
+<tr><td>F14</td><td><span class="badge sev-low">Low</span></td><td>Style</td><td><code>MarkdownSections.ReadField</code> is indented differently from the rest of the file (the project style is 4 spaces inside the class).</td><td><code>MarkdownSections.cs:90-105</code></td></tr>
+<tr><td>F15</td><td><span class="badge sev-low">Low</span></td><td>Reliability</td><td><code>SendAsync</code> returns <code>default!</code> for an empty reply body. For a non-nullable type like <code>GbIssue</code> the caller then gets <code>null</code> and a later <code>NullReferenceException</code> instead of a clear GitBucket error.</td><td><code>GitBucketClient.cs:176</code></td></tr>
+<tr><td>F16</td><td><span class="badge sev-low">Low</span></td><td>Process</td><td>No CI/CD pipeline file in the repository, so nothing runs <code>dotnet test</code> automatically.</td><td>repo root</td></tr>
+</tbody></table></div>
+
+<div class="callout note"><span class="title">Note</span>
+F1 is fixed in the working tree but not committed. Commit <code>repos.yml</code> so the fix is not lost. Duplicate YAML keys are still accepted silently, so the same mistake can come back.</div>
+
+<h2 id="positives">Things the code already does well</h2>
+<ul>
+  <li>Strict parsing before any write: a bad agent answer is never half-applied (<code>AnalyzeIssueJob.cs:53-62</code>).</li>
+  <li>Work is never lost: implement pushes partial or oversized work to the branch before it fails (<code>ImplementIssueJob.cs:122-136</code>).</li>
+  <li>The push is never forced, and a moved branch ends in a refusal or a clear failure (<code>GitClient.cs:101-102</code>, <code>FixReviewJob.cs:83-87</code>).</li>
+  <li>Secrets: tokens stripped from child processes, git auth through environment variables, <code>.git/config</code> hash guard (<code>ProcessRunner.cs:51-80</code>, <code>AgentSession.cs:67-77</code>).</li>
+  <li>Duplicate and late jobs are harmless because every job plans again on fresh data (<code>JobSupport.cs:26-34</code>).</li>
+</ul>
+
+<h2 id="open-questions">Open questions</h2>
+<p>Things that could not be confirmed from the code:</p>
+<ol>
+  <li><strong>Does <code>write(.ai-workflow)</code> block writes to files inside the folder?</strong> <code>CLAUDE.md</code> says this is unconfirmed.</li>
+  <li><strong>What exact words does Copilot CLI print when the premium quota is used up?</strong> <code>CopilotRunner.LooksLikeQuotaError</code> is a guess.</li>
+  <li><strong>Which GitBucket version runs the server?</strong> The code has several version fallbacks: <code>refs/pull/*</code> may be missing, <code>merged</code> may be missing, labels may be ignored on issue create (<code>Labels.cs:47-48</code>, <code>GitBucketModels.cs:70</code>, <code>BreakdownIssueJob.cs:80</code>).</li>
+  <li><strong>What is Jenkins' role?</strong> The design document name mentions Jenkins. No Jenkins file or reference exists in this repo, and the design document (one folder above the repo) was not read.</li>
+  <li><strong>The test suite was not run</strong> for these docs. The count of 177 test methods comes from searching for <code>[Fact]</code> and <code>[Theory]</code>.</li>
+  <li><strong>Uncommitted work.</strong> These docs describe the working tree on top of commit <code>4910fce</code>. Eight tracked files are modified (<code>CLAUDE.md</code>, <code>JobPlanner.cs</code>, <code>Labels.cs</code>, <code>AnalyzeIssueJob.cs</code>, <code>FixReviewJob.cs</code> and three test files), and <code>Core/AtAiThread.cs</code>, <code>Core/BotComments.cs</code>, <code>CONTEXT.md</code> and <code>AtAiThreadTests.cs</code> are untracked. The pages describe those files as they were when read.</li>
+</ol>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glossary - ai-runner docs</title>
+<meta name="description" content="Domain words and abbreviations used in the code, the config and these docs.">
+<link rel="stylesheet" href="assets/style.css">
+<link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('airunner-docs-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+  // Render all diagrams. Called again by app.js when the theme changes (Mermaid needs the new theme).
+  window.renderDiagrams = async function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid'));
+    nodes.forEach(function (n) {
+      if (!n.dataset.src) n.dataset.src = n.textContent;
+      n.textContent = n.dataset.src;
+      n.removeAttribute('data-processed');
+    });
+    await mermaid.run({ nodes: nodes });
+    document.documentElement.setAttribute('data-diagrams', 'done');
+  };
+  window.renderDiagrams();
+</script>
+<script defer src="assets/app.js"></script>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">&#9776;</button>
+<aside class="sidebar">
+<a class="brand" href="index.html">ai-runner docs</a>
+<div class="brand-sub">GitBucket + Copilot CLI worker (.NET 10)</div>
+<nav class="nav" aria-label="Documentation">
+<a href="index.html">Home</a>
+<a href="overview.html">Overview</a>
+<a href="getting-started.html">Getting started</a>
+<a href="architecture.html">Architecture</a>
+<a href="data-model.html">Data model</a>
+<a href="api.html">CLI and API</a>
+<a href="integrations-infra.html">Integrations and infra</a>
+<a href="findings.html">Findings</a>
+<a href="glossary.html" class="current" aria-current="page">Glossary</a>
+<div class="nav-group">Modules</div>
+<a href="modules/planning.html">Planning (Core)</a>
+<a href="modules/hosting.html">Poller, queue, worker</a>
+<a href="modules/analysis-breakdown.html">Analysis and breakdown</a>
+<a href="modules/implement.html">Implement and AgentSession</a>
+<a href="modules/review-fix.html">PR review and review fix</a>
+<a href="modules/infrastructure.html">Infrastructure</a>
+<a href="modules/agents-templates.html">Agents, skills, templates</a>
+</nav>
+<button type="button" class="theme-btn" id="theme-toggle">Dark mode</button>
+</aside>
+<div class="main">
+<header class="page-head"><div class="content">
+<h1>Glossary</h1>
+<p class="summary">Domain words and abbreviations used in the code, the config and these docs.</p>
+<nav class="toc" aria-label="On this page"><span class="toc-label">On this page:</span><a href="#thread-words">How the @ai conversation works</a><a href="#terms">Domain terms</a></nav>
+</div></header>
+<main class="content">
+<h2 id="thread-words">How the @ai conversation works</h2>
+<p>These terms come from <code>CONTEXT.md</code> and <code>Core/AtAiThread.cs</code>. The words in the first column are the preferred names. Use them in code and comments.</p>
+<figure>
+<div class="diagram-box"><pre class="mermaid">
+flowchart TB
+  subgraph thread["Thread (one block kind on one issue or PR)"]
+    h["Human comments"]
+    bc["Bot comments (replies)"]
+  end
+  h -->|"newest one with @ai after Answered-up-to"| trig["Trigger"]
+  trig -->|"starts a job that posts"| reply["Reply"]
+  reply -->|"is an analysis"| round["Round"]
+  reply -->|"is a fix on a PR"| rf["Review fix"]
+  reply -->|"records"| rut["Read-up-to<br/>(context-upto tag)"]
+  rut -->|"later of the two"| aut["Answered-up-to"]
+  cur["Local cursor<br/>(SQLite last_handled_comment)"] --> aut
+  aut -->|"comments after it are new"| trig
+</pre></div>
+<figcaption>A trigger is an <code>@ai</code> comment newer than "answered-up-to". A reply records what the job had read, so comments written while Copilot ran still count as new.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Where in code</th></tr></thead>
+<tbody>
+<tr><td>Bot comment</td><td>A comment the runner posted itself, found again by its hidden marker.</td><td><code>BotComments.cs:13-21</code></td></tr>
+<tr><td>Block</td><td>A marked section inside a bot comment, one per kind: analysis, spec, review, review fix.</td><td><code>Markers.cs:8-40</code></td></tr>
+<tr><td>Thread</td><td>The bot comments of one block kind on one issue or PR, with the human comments around them.</td><td><code>AtAiThread.cs:13-30</code></td></tr>
+<tr><td>Trigger</td><td>The newest human comment that mentions <code>@ai</code> and that no reply has answered yet.</td><td><code>AtAiThread.cs:50-51</code></td></tr>
+<tr><td>Reply</td><td>A bot comment that answers a trigger: an analysis (one round) or a review fix.</td><td><code>AtAiThread.cs:63-67</code></td></tr>
+<tr><td>Read-up-to</td><td>The newest comment id a job had read when it posted its reply. Stored in the <code>context-upto</code> tag.</td><td><code>AtAiThread.cs:44, 70-75</code></td></tr>
+<tr><td>Answered-up-to</td><td>The point after which comments are new: the later of the last reply's read-up-to and the local cursor.</td><td><code>AtAiThread.cs:27, 47</code></td></tr>
+<tr><td>Local cursor</td><td>The newest <code>@ai</code> comment the runner's database says was handled. It covers a job that failed before it could reply.</td><td><code>SqliteStateStore.cs:98-106</code></td></tr>
+<tr><td>Round</td><td>One analysis reply on an issue. Numbered and capped by <code>limits.maxAnalysisRounds</code>.</td><td><code>AnalyzeIssueJob.cs:33-38</code></td></tr>
+<tr><td>Review fix</td><td>One reply on a PR after the agent changed the PR's branch to answer an <code>@ai</code> comment. Capped by <code>limits.maxReviewFixes</code>.</td><td><code>FixReviewJob.cs</code></td></tr>
+</tbody></table></div>
+
+<h2 id="terms">Domain terms</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>ai-runner</td><td>The .NET worker in <code>src/AiRunner</code>. Also the visible tag <code>**[ai-runner]**</code> on its comments.</td></tr>
+<tr><td>GitBucket</td><td>The self-hosted Git server with a GitHub-compatible API (<code>/api/v3</code>) that the team uses.</td></tr>
+<tr><td>Copilot CLI</td><td>GitHub's command-line agent. The runner starts it as <code>copilot -p</code>.</td></tr>
+<tr><td>Premium request</td><td>The unit of Copilot quota. Every Copilot run (including each fix round) costs at least one.</td></tr>
+<tr><td>Agent</td><td>A Copilot agent definition in <code>agents/*.agent.md</code>: <code>grill-issue</code>, <code>implement-issue</code>, <code>fix-review</code>, <code>pr-review</code>, <code>code-reviewer</code>.</td></tr>
+<tr><td>Skill</td><td>A reusable instruction file in <code>skills/*/SKILL.md</code>: <code>grill-me</code>, <code>implement-checklist</code>, <code>review-checklist</code>.</td></tr>
+<tr><td>Template</td><td>A fixed layout in <code>templates/</code> that an agent fills in and a Core parser checks.</td></tr>
+<tr><td>AGENTS.md</td><td>A file in each product repo that tells the agent the build and test commands, the folder map and what never to edit. Starting point: <code>onboarding/AGENTS.md</code>.</td></tr>
+<tr><td>MCP</td><td>Model Context Protocol servers. <code>--disable-builtin-mcps</code> turns the built-in ones off for the agent.</td></tr>
+<tr><td>Scope label</td><td>The label (<code>ai</code>) that makes the runner look at an issue. Also opts a PR into review.</td></tr>
+<tr><td>Scoped review</td><td>Review mode where only PRs labelled <code>ai</code>, or opened by the runner from <code>ai/*</code> or <code>feat/issue-*</code>, are reviewed (<code>review.scope: scoped</code>).</td></tr>
+<tr><td>Job</td><td>One unit of work (<code>JobRequest</code>) with a key <code>Type:Repo#Number</code>. Six types in <code>JobType</code>.</td></tr>
+<tr><td>Plan / PlanDecision</td><td>The planner's answer for one issue or PR: a job to run, or the reason to skip.</td></tr>
+<tr><td>Routine decision</td><td>A plan made on every poll (sequencing) that is not worth an info log line.</td></tr>
+<tr><td>NeedsComments</td><td>The plan depends on comments that were not read yet. The poller then fetches them if the issue changed.</td></tr>
+<tr><td>Fingerprint</td><td><code>updated_at</code> plus the sorted labels of an issue. Unchanged = not read again.</td></tr>
+<tr><td>Quiet outcome</td><td>A job result that means "nothing was needed". The job row and log folder are deleted.</td></tr>
+<tr><td>Re-plan</td><td>Every job calls <code>JobPlanner</code> again on fresh data before it does anything.</td></tr>
+<tr><td>Analysis</td><td>Copilot's written answer to an issue: questions, assumptions, plan, complexity (<code>templates/analysis.md</code>).</td></tr>
+<tr><td>Status</td><td><code>questions-open</code> or <code>ready</code>. Set by the agent in the analysis.</td></tr>
+<tr><td>Complexity</td><td><code>simple</code> or <code>complex</code>. Simple: up to 5 files of production code, no migration, no external change.</td></tr>
+<tr><td>SPEC</td><td>The final plan posted when the status is ready: goal, scope, acceptance criteria, technical plan, shared contract (<code>templates/spec.md</code>).</td></tr>
+<tr><td>Acceptance criteria</td><td>Given / When / Then statements. The implement agent must cover each one.</td></tr>
+<tr><td>Breakdown</td><td>The table of ordered sub-tasks for a complex issue (<code>| # | Title | Scope | Touches | Depends on |</code>).</td></tr>
+<tr><td>Shared contract</td><td>The exact names (types, endpoints, enums) every sub-task must use. Copied into each sub-issue.</td></tr>
+<tr><td>Parent / sub-issue</td><td>A complex issue (<code>ai:parent</code>) and the issues the breakdown created from it (<code>ai:sub-issue</code>).</td></tr>
+<tr><td>Feature branch</td><td><code>feat/issue-N</code>: where sub-issue PRs are merged. A final PR brings it to the default branch.</td></tr>
+<tr><td>Work branch</td><td><code>ai/issue-N</code> (simple issue) or <code>ai/issue-N-K</code> (sub-issue K of parent N).</td></tr>
+<tr><td><code>[developer]</code></td><td>Title prefix in a breakdown row: the agent could not make this part simple, so a human builds it.</td></tr>
+<tr><td><code>[skip-ai]</code></td><td>PR title prefix that excludes the PR from review and fix (<code>JobPlanner.cs:13, 109</code>).</td></tr>
+<tr><td>Stages</td><td>The five steps an implement or fix agent goes through itself: understand, change and test, verify, review and simplify, write the output file.</td></tr>
+<tr><td>Fix round</td><td>An extra Copilot run started by the runner when its own checks fail or the output file is incomplete. Limited by <code>implement.maxFixRounds</code>. Not the same as a "review fix".</td></tr>
+<tr><td><code>PR_BODY.md</code></td><td>The PR description the implement agent writes (<code>templates/pr-body.md</code>).</td></tr>
+<tr><td><code>REPLY.md</code></td><td>The reply the fix-review agent writes (<code>templates/review-reply.md</code>).</td></tr>
+<tr><td><code>fix.md</code>, <code>diff.patch</code></td><td>Input of a fix round: failing checks and the diff so far.</td></tr>
+<tr><td>WIP PR</td><td>A PR opened with <code>[WIP - checks failing]</code> in its title because build, test or lint still fails.</td></tr>
+<tr><td>Guard rail</td><td>A protection that reduces risk but is not a security boundary, for example the shell permission patterns.</td></tr>
+<tr><td>Dry run</td><td><code>--dry-run</code>: print decisions, change nothing.</td></tr>
+<tr><td>Work folder</td><td><code>work/&lt;owner&gt;/&lt;name&gt;</code>: the persistent clone, reset before every job.</td></tr>
+<tr><td>Workflow numbers</td><td>1 analysis, 1b breakdown, 2 implement, 3 review, 3b review fix, 4 GitHub fallback (not built).</td></tr>
+<tr><td>VPN</td><td>The company network access that the laptop needs to reach GitBucket.</td></tr>
+<tr><td>POCO</td><td>"Plain old CLR object": the classes in <code>Configuration/RunnerConfig.cs</code> that hold <code>repos.yml</code>.</td></tr>
+<tr><td>NU1903</td><td>NuGet vulnerability warning for the native SQLite package. The reason <code>SQLitePCLRaw.lib.e_sqlite3</code> is pinned (<code>AiRunner.csproj:13</code>).</td></tr>
+</tbody></table></div>
+
+</main>
+<footer class="site-footer"><div class="content">Generated from commit <code>4910fce</code> on 2026-10-08. The working tree had uncommitted changes (see <a href="findings.html#open-questions">Open questions</a>).</div></footer>
+</body>
+</html>
