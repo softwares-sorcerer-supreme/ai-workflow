@@ -10,7 +10,7 @@ See the design document for the full picture.
 | 1b Breakdown | human adds `ai-breakdown` on an `ai:ready` + `ai:complex` issue | creates `feat/issue-{n}` and one sub-issue per sub-task; starts the next sub-issue when one is merged; opens the final PR |
 | 2 Implement | human adds `ai-implement` on an `ai:ready` + `ai:simple` issue or sub-issue | Copilot writes code on `ai/issue-{n}` and goes through its stages itself (verify with build/test/lint, review and simplify with the `code-reviewer` subagent, PR_BODY.md); the runner re-checks build/test/lint and PR_BODY.md, sends problems back for up to `implement.maxFixRounds` fix rounds, then commits, pushes, opens the PR (WIP if checks still fail); work from a failed or too-big run is still pushed to the branch (no PR) and a retry continues from it |
 | 3 PR review | new head commit on a PR labelled `ai` or opened by the runner (`review.scope`) | Copilot (read-only) writes one review comment, updated in place |
-| 3b Review fix | a comment with `@ai` on a PR labelled `ai` or opened by the runner (workflow `fix`) | Copilot reads the latest review and the comments since the last fix, changes the code on the PR's branch with the same stages and runner checks as Workflow 2, writes REPLY.md; the runner adds a commit (never forced), pushes and answers on the PR; the new head is reviewed again |
+| 3b Review fix | a comment with `@ai` on a PR labelled `ai` or opened by the runner (workflow `fix`) | Copilot reads the latest review and the comments since the last fix, changes the code on the PR's branch with the same agent, stages, runner checks and PR_BODY.md as Workflow 2; when build, test and lint pass the runner adds a commit (never forced), pushes and answers on the PR and the new head is reviewed again; when they still fail nothing goes to the PR: the work is saved on `ai/pr-N-fix-K` and the reply says so. Needs a build, test or lint command in repos.yml |
 | 4 GitHub fallback | `needs-cloud-agent` | **not built yet** - the label is only respected (the runner skips the issue) |
 
 ## First run
@@ -23,6 +23,10 @@ dotnet user-secrets set GitBucket:Token <ai-bot token> --project src/AiRunner
 
 # Start copilot as a child process and capture its output (no GitBucket needed).
 dotnet run --project src/AiRunner -- --copilot-test
+
+# Download one attachment (a /_attached/ link from an issue) to check the token is accepted. No Copilot, changes nothing.
+# Issues, comments and PRs with attached screenshots/logs/documents are read by the agents; see `attachments:` in repos.yml.
+dotnet run --project src/AiRunner -- --attachment-test http://<gitbucket>/<owner>/<repo>/_attached/<id>
 
 # Create the labels from the design doc in every repo of repos.yml.
 dotnet run --project src/AiRunner -- --setup-labels
@@ -107,9 +111,9 @@ Shared files:
 
 | Folder | Used how |
 | --- | --- |
-| `agents/` | `grill-issue`, `implement-issue`, `fix-review`, `code-reviewer` (read-only subagent of both), `pr-review`; copied to `~/.copilot/agents/` |
+| `agents/` | `grill-issue`, `implement-issue` (also used for the review fix), `code-reviewer` (read-only subagent of it), `pr-review`; copied to `~/.copilot/agents/` |
 | `skills/` | `grill-me`, `implement-checklist`, `review-checklist`; copied to `~/.copilot/skills/` |
-| `templates/` | analysis (F), SPEC (G), review (H), PR_BODY.md of the implement agent, REPLY.md of the fix-review agent; copied into each work folder as `.ai-workflow/templates/`, never committed |
+| `templates/` | analysis (F), SPEC (G), review (H), PR_BODY.md of the implement agent (also for the review fix); copied into each work folder as `.ai-workflow/templates/`, never committed |
 | `onboarding/AGENTS.md` | starting point for a product repo |
 
 Security limits (what the runner does and does not protect):

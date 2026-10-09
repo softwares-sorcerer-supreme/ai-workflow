@@ -1,0 +1,37 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{csproj,props,targets,slnx,xml,yml,yaml,json}]
+indent_size = 2
+
+[*.cs]
+# Every if / else / foreach / for / while / using / lock body gets braces, even when it is one line.
+csharp_prefer_braces = true:warning
+
+# Allman braces. try / catch / finally / else start on their own line.
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Two statements never share a line. Blocks stay as written: "= false" would also explode auto-properties
+# like "{ get; set; }" into three lines. Multi-line try/catch/if bodies are a rule in CLAUDE.md instead.
+csharp_preserve_single_line_blocks = true
+csharp_preserve_single_line_statements = false
+
+# Style kept from the existing code.
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_lambdas = true:silent
+dotnet_sort_system_directives_first = true
