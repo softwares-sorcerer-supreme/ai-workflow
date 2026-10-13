@@ -65,6 +65,26 @@ public sealed class JobWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Retry_hint_names_the_trigger_keyword_of_the_project()
+    {
+        _kit.Settings.TriggerKeyword = "@bot";
+        var timeout = TimeSpan.FromMinutes(1);
+        var info = new JobInfo(
+            Workflows.Fix,
+            "AI review fix",
+            timeout,
+            OnPullRequest: true,
+            Retry: $"Write {JobInfo.KeywordPlaceholder} again.");
+        var (worker, queue, _) = _kit.CreateWorker(new StubJob(() => throw new JobFailedException("push rejected"), info));
+
+        var analyzeRequest = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(analyzeRequest);
+        await worker.DrainAsync(default);
+
+        Assert.Contains("Write @bot again.", _kit.GitBucket.CommentsOf(7).Single().Body);
+    }
+
+    [Fact]
     public async Task Http_timeout_is_reported_as_a_gitbucket_problem_not_a_job_timeout()
     {
         await RunAsync(() => throw new TaskCanceledException("HttpClient.Timeout"));

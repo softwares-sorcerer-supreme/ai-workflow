@@ -25,7 +25,11 @@ public sealed record FixRoundInput(
     int Round,
     IReadOnlyList<CheckFailure> Failures,
     string OutputFile,
-    IReadOnlyList<string> OutputProblems);
+    IReadOnlyList<string> OutputProblems)
+{
+    /// <summary>Edits the runner undid so far because they were out of scope; the agent must not make them again.</summary>
+    public IReadOnlyList<UndoneChange> Undone { get; init; } = [];
+}
 
 /// <summary>
 /// Builds the input files the agents read (design doc Appendix C). The GitHub MCP server
@@ -99,8 +103,9 @@ public static class ContextBuilder
         }
 
         builder.AppendLine();
+        var linkedName = linked.Repo is null ? $"#{linkedIssue}" : $"{linked.Repo}#{linkedIssue}";
         builder.AppendLine(
-            linkedIssue is null ? "## Linked issue" : $"## Linked issue #{linkedIssue}: final analysis");
+            linkedIssue is null ? "## Linked issue" : $"## Linked issue {linkedName}: final analysis");
         builder.AppendLine(linkedAnalysis ?? "None");
         builder.AppendLine();
         builder.AppendLine("## Linked issue: SPEC");
@@ -242,6 +247,18 @@ public static class ContextBuilder
         foreach (var problem in outputProblems)
         {
             builder.AppendLine($"- {problem}");
+        }
+
+        if (input.Undone.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Changes the runner undid");
+            builder.AppendLine();
+            builder.AppendLine("These edits were out of scope and were removed. Do not make them again; write only in the target component.");
+            foreach (var change in input.Undone)
+            {
+                builder.AppendLine($"- `{change.Path}` in {change.Repo} ({change.Reason})");
+            }
         }
 
         return builder.ToString();

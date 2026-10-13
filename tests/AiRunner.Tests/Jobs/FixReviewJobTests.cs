@@ -60,6 +60,9 @@ public sealed class FixReviewJobTests : IDisposable
         Assert.Contains("## AI review - commit abc1234", plan);
         Assert.Contains("2: skip because it is on purpose", plan);
         Assert.Contains("SPEC - issue #12", plan);
+        Assert.Contains("## Where to work", plan);
+        Assert.Contains("- Target component: `", plan);
+        Assert.Contains("- Check: `make test`", plan);
         var reviewFixFile = Path.Combine(_kit.Workspace.Dir, "review-fix.md");
         Assert.False(File.Exists(reviewFixFile));
 
@@ -75,11 +78,11 @@ public sealed class FixReviewJobTests : IDisposable
         var pull = _kit.GitBucket.Pulls.Single();
         var comments = _kit.GitBucket.CommentsOf(30);
         var planInput = new PullPlanInput(
-            _kit.RepoConfig,
+            _kit.Project,
+            JobTestKit.Repo,
             pull,
             ReviewedSha: null,
             BotLogin: "bot",
-            ScopeLabel: "ai",
             Comments: comments);
         var decision = JobPlanner.PlanPull(planInput);
 
@@ -146,7 +149,7 @@ public sealed class FixReviewJobTests : IDisposable
     public async Task Failing_checks_after_the_fix_rounds_are_never_pushed_to_the_pr()
     {
         var trigger = PrWithAnswer();
-        _kit.RepoConfig.Implement.MaxFixRounds = 1;
+        _kit.Settings.Implement.MaxFixRounds = 1;
         _kit.Processes.ExitCodes["make test"] = 1;
 
         var outcome = await RunAsync(trigger);
@@ -166,7 +169,7 @@ public sealed class FixReviewJobTests : IDisposable
     public async Task Failing_checks_and_a_rejected_side_push_still_answer_on_the_pr()
     {
         var trigger = PrWithAnswer();
-        _kit.RepoConfig.Implement.MaxFixRounds = 0;
+        _kit.Settings.Implement.MaxFixRounds = 0;
         _kit.Processes.ExitCodes["make build"] = 1;
         _kit.Git.PushFails = true;
 
@@ -205,8 +208,8 @@ public sealed class FixReviewJobTests : IDisposable
     public async Task Without_build_test_or_lint_commands_the_fix_is_refused()
     {
         var trigger = PrWithAnswer();
-        _kit.RepoConfig.Commands.Build = "";
-        _kit.RepoConfig.Commands.Test = "";
+        _kit.Component.Commands.Build = "";
+        _kit.Component.Commands.Test = "";
 
         var outcome = await RunAsync(trigger);
 
@@ -221,7 +224,7 @@ public sealed class FixReviewJobTests : IDisposable
     public async Task Limit_reached_answers_without_copilot()
     {
         var first = PrWithAnswer();
-        _kit.RepoConfig.Limits.MaxReviewFixes = 1;
+        _kit.Settings.Limits.MaxReviewFixes = 1;
         var fixReply = Samples.FixReply(first.Id);
         _kit.GitBucket.AddBotComment(30, fixReply);
         var again = _kit.GitBucket.AddHumanComment(30, "@ai one more");
@@ -342,6 +345,6 @@ public sealed class FixReviewJobTests : IDisposable
         Job.OnFailed(failedRequest);
 
         Assert.Equal(1234, _kit.State.GetLastHandledComment(JobTestKit.Repo, 30));
-        Assert.Contains("@ai", Job.Info.Retry);
+        Assert.Contains(JobInfo.KeywordPlaceholder, Job.Info.Retry);
     }
 }

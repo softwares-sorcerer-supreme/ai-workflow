@@ -8,7 +8,8 @@ namespace AiRunner.Hosting;
 /// <summary>
 /// Polls GitBucket (no webhooks: GitBucket cannot reach the laptop), asks JobPlanner what
 /// each issue and PR needs, and queues the jobs. It never changes anything in GitBucket.
-/// For PRs it reads comments only where a review fix (@ai) is possible.
+/// Issues are read from each project's issues repo only; PRs from every repo that holds code.
+/// For PRs it reads comments only where a review fix (the trigger keyword) is possible.
 /// GitBucket ignores "since", so for each issue the poller remembers a fingerprint (updated_at +
 /// labels) of the last time there was nothing to do, and reads comments only when it changed.
 /// While an issue still needs a job, nothing is remembered: if the job fails without being able
@@ -40,16 +41,28 @@ public sealed class Poller(
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
-        foreach (var repo in config.Repos)
+        foreach (var project in config.Projects)
         {
             try
             {
-                await PollRepoAsync(repo, cancellationToken);
+                await PollIssuesAsync(project, cancellationToken);
             }
             // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError("{Repo}: poll failed: {Message}", repo, exception.Message);
+                logger.LogError("{Project}: issue poll failed: {Message}", project, exception.Message);
+            }
+
+            foreach (var repo in project.CodeRepos)
+            {
+                try
+                {
+                    await PollPullsAsync(new PullLocation(project, repo), cancellationToken);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogError("{Repo}: PR poll failed: {Message}", repo, exception.Message);
+                }
             }
         }
 
@@ -59,16 +72,19 @@ public sealed class Poller(
         }
     }
 
-    private async Task PollRepoAsync(RepoConfig repo, CancellationToken cancellationToken)
+    private async Task PollIssuesAsync(ProjectConfig project, CancellationToken cancellationToken)
     {
-        // Scope guard: only issues with the scope label or assigned to the runner's user.
+        // All issues of a project live in its issues repo; issues anywhere else are ignored.
+        var repo = project.IssuesRepo;
+
+        // Scope guard: only issues with the trigger label or assigned to the runner's user.
         var labelled = await gitBucketClient.ListOpenIssuesAsync(
-            repo.FullName,
-            config.ScopeLabel,
+            repo,
+            project.Settings.TriggerLabel,
             null,
             cancellationToken);
         var assignedToRunner = await gitBucketClient.ListOpenIssuesAsync(
-            repo.FullName,
+            repo,
             null,
             identity.Login,
             cancellationToken);
@@ -81,7 +97,7 @@ public sealed class Poller(
             .OrderBy(issue => issue.Number)
             .ToList();
 
-        var seenFingerprints = stateStore.GetIssueFingerprints(repo.FullName);
+        var seenFingerprints = stateStore.GetIssueFingerprints(repo);
         var fingerprints = issues.ToDictionary(issue => issue.Number, issue => issue.Fingerprint());
         var changedCount = issues.Count(
             issue => seenFingerprints.GetValueOrDefault(issue.Number) != fingerprints[issue.Number]);
@@ -93,12 +109,12 @@ public sealed class Poller(
             var isChanged = seenFingerprints.GetValueOrDefault(issue.Number) != fingerprints[issue.Number];
 
             // Labels decide most jobs; comments are read only when the analysis decision needs them.
-            var planInput = new IssuePlanInput(repo, issue, Comments: null, LastHandledCommentId: 0);
+            var planInput = new IssuePlanInput(project, repo, issue, Comments: null, LastHandledCommentId: 0);
             var decision = JobPlanner.PlanIssue(planInput);
             if (decision.NeedsComments && isChanged)
             {
-                var comments = await gitBucketClient.ListCommentsAsync(repo.FullName, issue.Number, cancellationToken);
-                var lastHandledComment = stateStore.GetLastHandledComment(repo.FullName, issue.Number);
+                var comments = await gitBucketClient.ListCommentsAsync(repo, issue.Number, cancellationToken);
+                var lastHandledComment = stateStore.GetLastHandledComment(repo, issue.Number);
                 var planInputWithComments = planInput with
                 {
                     Comments = comments,
@@ -111,19 +127,25 @@ public sealed class Poller(
 
             if (!DryRun && decision.Job is null && isChanged)
             {
-                stateStore.SetIssueFingerprint(repo.FullName, issue.Number, fingerprints[issue.Number]);
+                stateStore.SetIssueFingerprint(repo, issue.Number, fingerprints[issue.Number]);
             }
         }
+    }
 
-        if (!repo.IsEnabled(Workflows.Review) && !repo.IsEnabled(Workflows.Fix))
+    private async Task PollPullsAsync(PullLocation location, CancellationToken cancellationToken)
+    {
+        var (project, repo) = location;
+        var settings = project.Settings;
+
+        if (!settings.IsEnabled(Workflows.Review) && !settings.IsEnabled(Workflows.Fix))
         {
             return;
         }
 
-        foreach (var pull in await gitBucketClient.ListPullsAsync(repo.FullName, "open", cancellationToken))
+        foreach (var pull in await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken))
         {
             // Only PRs a review fix can touch need their comments; PRs have no fingerprint, so this is one call per poll each.
-            var plannedPull = await jobLoader.PlanPullAsync(repo, pull, cancellationToken);
+            var plannedPull = await jobLoader.PlanPullAsync(location, pull, cancellationToken);
             var decision = plannedPull.Decision;
             var shortSha = Text.ShortSha(pull.Head.Sha);
 

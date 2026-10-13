@@ -76,6 +76,22 @@ public sealed class AnalyzeIssueJobTests : IDisposable
         Assert.Empty(_kit.GitBucket.CommentsOf(12));
     }
 
+    [Theory]
+    [InlineData("None")]
+    [InlineData("| 1 | Only five | cells | here | - |")]
+    public async Task Ready_complex_with_an_unreadable_breakdown_fails_without_posting(string breakdown)
+    {
+        _kit.GitBucket.AddIssue(12, "Export CSV", null, "ai");
+        var analysis = Samples.Analysis("ready", "complex", breakdown);
+        _kit.Copilot.StdOut = Samples.AgentOutput(analysis, Samples.Spec);
+
+        var exception = await Assert.ThrowsAsync<JobFailedException>(
+            () => Job.RunAsync(_kit.Request(JobType.AnalyzeIssue, 12), _kit.Run, default));
+
+        Assert.Contains("proposed breakdown", exception.Message);
+        Assert.Empty(_kit.GitBucket.CommentsOf(12));
+    }
+
     [Fact]
     public async Task Quota_error_gets_a_clear_message()
     {
@@ -146,7 +162,7 @@ public sealed class BreakdownIssueJobTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private BreakdownIssueJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git);
+        new(_kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git);
 
     public void Dispose() => _kit.Dispose();
 
@@ -176,6 +192,7 @@ public sealed class BreakdownIssueJobTests : IDisposable
         Assert.False(subIssues[2].HasLabel(Labels.Simple));           // [developer] row
         Assert.False(subIssues[0].HasLabel(Labels.Implement));        // no auto-start by default
         Assert.Equal(12, SubIssueBody.Parse(subIssues[1].Body)!.Parent);
+        Assert.Equal(Samples.DefaultComponent, SubIssueBody.Parse(subIssues[1].Body)!.Component);
 
         var parentComments = _kit.GitBucket.CommentsOf(12);
         Assert.Equal(
@@ -186,20 +203,78 @@ public sealed class BreakdownIssueJobTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sub_issue_closed_before_a_retry_is_reused_and_not_created_again()
+    {
+        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
+        var analysis = Samples.Analysis("ready", "complex", Samples.BreakdownTable);
+        _kit.GitBucket.AddBotComment(12, Markers.Wrap(analysis, Markers.Analysis));
+        var firstTask = new SubTask(1, Samples.DefaultComponent, "Export entity", "Scope.", "src", [], false);
+        var firstBody = SubIssueBody.Build(new SubIssueDraft(12, firstTask, 3, "contract"));
+        _kit.GitBucket.AddIssue(20, "#12.1 Export entity", firstBody, "ai", Labels.SubIssue);
+        _kit.GitBucket.Issues[20] = _kit.GitBucket.Issues[20] with { State = "closed" };
+
+        await Job.RunAsync(_kit.Request(JobType.BreakdownIssue, 12), _kit.Run, default);
+
+        var titles = _kit.GitBucket.Issues.Values
+            .Where(issue => issue.HasLabel(Labels.SubIssue))
+            .Select(issue => issue.Title)
+            .ToList();
+        Assert.Equal(3, titles.Count);
+        Assert.Single(titles, title => title.StartsWith("#12.1 "));
+        Assert.Equal(20, SubIssueBody.FindList(_kit.GitBucket.CommentsOf(12))![0]);
+    }
+
+    [Fact]
     public async Task Auto_start_labels_the_first_sub_issue()
     {
-        using var kit = new JobTestKit(repo => repo.AutoStartFirstSubIssue = true);
+        using var kit = new JobTestKit(settings => settings.AutoStartFirstSubIssue = true);
         kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
         var analysis = Samples.Analysis("ready", "complex", Samples.BreakdownTable);
         var analysisComment = Markers.Wrap(analysis, Markers.Analysis);
         kit.GitBucket.AddBotComment(12, analysisComment);
 
         var jobRequest = kit.Request(JobType.BreakdownIssue, 12);
-        await new BreakdownIssueJob(kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Git)
+        await new BreakdownIssueJob(kit.GitBucket, kit.Loader, kit.Workspace, kit.Git)
             .RunAsync(jobRequest, kit.Run, default);
 
         var first = kit.GitBucket.Issues.Values.Single(issue => issue.Title.StartsWith("#12.1 "));
         Assert.True(first.HasLabel(Labels.Implement));
+    }
+
+    [Fact]
+    public async Task An_unreadable_breakdown_is_explained_and_the_label_removed_so_a_new_analysis_can_run()
+    {
+        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
+        var analysis = Samples.Analysis("ready", "complex", "None");
+        _kit.GitBucket.AddBotComment(12, Markers.Wrap(analysis, Markers.Analysis));
+
+        var outcome = await Job.RunAsync(_kit.Request(JobType.BreakdownIssue, 12), _kit.Run, default);
+
+        Assert.Equal("rejected", outcome.Result);
+        Assert.DoesNotContain(Labels.Breakdown, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(12));
+        Assert.Contains("wrong format", _kit.GitBucket.CommentsOf(12).Last().Body);
+        Assert.Contains("new analysis", _kit.GitBucket.CommentsOf(12).Last().Body);
+        Assert.Empty(_kit.Git.Pushes);
+        Assert.DoesNotContain(_kit.GitBucket.Issues.Values, issue => issue.HasLabel(Labels.SubIssue));
+    }
+
+    [Fact]
+    public async Task The_parent_comment_does_not_promise_an_automatic_start_for_a_developer_row()
+    {
+        using var kit = new JobTestKit(settings => settings.AutoStartFirstSubIssue = true);
+        kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
+        var breakdown = Samples.Breakdown(Samples.DefaultComponent, Samples.DefaultComponent, Samples.DefaultComponent)
+            .Replace("Export entity", "[developer] Export entity");
+        var analysis = Samples.Analysis("ready", "complex", breakdown);
+        kit.GitBucket.AddBotComment(12, Markers.Wrap(analysis, Markers.Analysis));
+
+        await new BreakdownIssueJob(kit.GitBucket, kit.Loader, kit.Workspace, kit.Git)
+            .RunAsync(kit.Request(JobType.BreakdownIssue, 12), kit.Run, default);
+
+        var parentComment = kit.GitBucket.CommentsOf(12).Last().Body!;
+        Assert.DoesNotContain("starts automatically", parentComment);
+        Assert.Contains("built by a developer", parentComment);
     }
 
     [Fact]

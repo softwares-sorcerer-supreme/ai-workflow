@@ -1,86 +1,97 @@
 # ai-runner config. Tokens are NOT here: use user secrets (see README).
-gitBucket:
-  baseUrl: http://10.221.10.34:3000
+# All keys are snake_case. An unknown or misspelled key stops the start, with a hint.
+git_bucket:
+  base_url: http://10.221.10.34:3000
 
-pollIntervalSeconds: 90
-scopeLabel: ai              # the runner only looks at issues with this label (or assigned to the runner's user)
+poll_interval_seconds: 90
+runner_name: ""             # names this runner in claims (claim_enabled); empty = the machine user name
 
 copilot:
-  analyzeTimeoutMinutes: 15
-  reviewTimeoutMinutes: 15
-  implementTimeoutMinutes: 45  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
-  extraArgs: [--disable-builtin-mcps]   # the agent gets no GitHub MCP server: it works only on the local files
+  analyze_timeout_minutes: 15
+  review_timeout_minutes: 15
+  implement_timeout_minutes: 45  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
+  extra_args: [--disable-builtin-mcps, --allow-all-tools]   # no GitHub MCP server; every tool allowed, but the runner's --deny-tool rules (git, .ai-workflow, analyze/review write+shell) still win
   command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
 
 # Relative to this file.
 paths:
-  work: work                # one clone per repo, reset before each job
-  logs: logs                # logs/jobs/<run>/ (kept logRetentionDays) and logs/cost.csv
+  work: work                # work/<project>/<repo>: one clone per repo, reset before each job
+  logs: logs                # logs/jobs/<run>/ (kept log_retention_days) and logs/cost.csv
   state: ai-runner.db       # SQLite; deleting it is safe
-logRetentionDays: 30
+log_retention_days: 30
 
 attachments:                # files people attach to issues, comments and PRs (links with /_attached/ on the GitBucket host)
-  enabled: true             # download them into .ai-workflow/attachments/ of the clone so the agent can read them
-  maxFileBytes: 10485760    # 10 MB per file; larger files are listed as "too large", never kept
-  maxFiles: 20              # per job
-  maxTotalBytes: 52428800   # 50 MB per job
-  passToCopilot: true       # also give images and PDFs to the prompt (copilot --attachment); needs a Copilot CLI that has the flag
-  maxPassedToCopilot: 5     # each file on the prompt costs tokens
-  skipExtensions: [.exe, .dll, .msi, .bat, .cmd, .ps1, .sh, .com, .scr, .jar, .vbs]   # never downloaded
+  enabled: true             # download them into .ai-workflow/attachments/ of the project folder so the agent can read them
+  max_file_bytes: 10485760  # 10 MB per file; larger files are listed as "too large", never kept
+  max_files: 20             # per job
+  max_total_bytes: 52428800 # 50 MB per job
+  pass_to_copilot: true     # also give images and PDFs to the prompt (copilot --attachment); needs a Copilot CLI that has the flag
+  max_passed_to_copilot: 5  # each file on the prompt costs tokens
+  skip_extensions: [.exe, .dll, .msi, .bat, .cmd, .ps1, .sh, .com, .scr, .jar, .vbs]   # never downloaded
 
 git:                        # author of the commits the runner makes in Workflow 2
-  userName: ai-runner
-  userEmail: ai-runner@localhost
+  user_name: ai-runner
+  user_email: ai-runner@localhost
 
-repos:
-  - owner: manhhai
-    name: mbhanalytics
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit when build/test pass; needs commands.build or commands.test below)
-    workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
-    models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
-    commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
-      setup: ""             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
-      build: "dotnet build MBHAnalytics.sln"             # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
-      test: "dotnet test MBHAnalytics.sln"              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
-      lint: "dotnet format --verify-no-changes"              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
-                            # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
-      allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
-    limits:
-      maxChangedFiles: 15
-      maxDiffLines: 800
-      maxAnalysisRounds: 5
-      maxReviewFixes: 5     # @ai review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
-    implement:
-      maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
+# Settings every project gets. A project overrides only the keys it names: objects merge key by key, lists replace.
+# `commands` is not allowed here (a global command would assume a stack).
+defaults:
+  trigger_label: ai         # the runner only looks at issues with this label (or assigned to the runner's user)
+  trigger_keyword: "@ai"    # the word that asks the bot for something in a comment
+  # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (the keyword on a PR: Copilot fixes it and
+  # pushes a commit when build/test pass; needs commands.build or commands.test of the component)
+  workflows: [analyze, review, breakdown, implement, fix]
+  models:
+    analyze: claude-opus-5.5       # strongest reasoning for issue analysis
+    breakdown: claude-opus-5.5     # plan dependencies and component boundaries
+    implement: claude-sonnet-5.5   # capable coding at a lower cost than Opus
+    review: claude-sonnet-5.5      # inspect changes and identify risks
+    fix: claude-sonnet-5.5         # apply targeted review fixes
+  limits:
+    max_changed_files: 15
+    max_diff_lines: 2000
+    max_analysis_rounds: 7
+    max_review_fixes: 7     # review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
+  implement:
+    max_fix_rounds: 3       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
                             # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
                             # the review fix (workflow fix) uses the same number of fix rounds
-    review:
-      scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
-      skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
-    autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue
+  review:
+    scope: scoped           # scoped (default) = PRs labelled with trigger_label + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
+    skip_paths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
+  never_edit: []            # files the agent must not change (gitignore-like); such edits are undone. e.g. [migrations/, Jenkinsfile, .github/]
+  auto_start_first_sub_issue: false      # true = the breakdown adds ai-implement on the first sub-issue
+  claim_enabled: false      # true = several runners share the projects; a job claims its issue or PR first
 
-  - owner: manhhai
-    name: mbhanalytics-fe
-    # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (@ai on a PR: Copilot fixes it and pushes a commit when build/test pass; needs commands.build or commands.test below)
-    workflows: [analyze, review, breakdown, implement, fix]    # later: review, breakdown, implement
-    models: {}              # e.g. { analyze: <strongest model>, implement: <cheaper model>, review: <cheaper model> }. Empty = Copilot default
-    commands:               # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
-      setup: "npm ci"             # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci", "pip install -r requirements.txt"
-      build: "npm run build"     # e.g. "dotnet build X.sln", "npm run build", "mvn -q -DskipTests package", "go build ./..."
-      test: "npm test"              # e.g. "dotnet test X.sln", "npm test", "mvn -q test", "pytest -q"
-      lint: "npm run lint"              # optional, e.g. "npm run lint", "dotnet format --verify-no-changes", "ruff check ."
+# A project groups components (a repo plus an optional folder). Issues and sub-issues live in `issues_in` only.
+# Every job checks out all components, but changes code in one.
+projects:
+  mbh:
+    issues_in: issues       # the component whose repo receives the issues
+    context: PROJECT.md     # optional description of the project, inside the issues component
+    components:
+      issues:               # holds issues and docs only: never changed, never gets a PR
+        repo: manhhai/mbh-issues
+        path: .
+        code: false
+      backend:
+        repo: manhhai/mbhanalytics
+        path: .
+        commands:           # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
+          setup: ""         # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci"
+          build: "dotnet build MBHAnalytics.sln"
+          test: "dotnet test MBHAnalytics.sln"
+          lint: "dotnet format --verify-no-changes"     # optional
                             # the agent may run the TOOL of each command with any arguments (dotnet build ... -> shell(dotnet:*)); never git
-      allowShell: []        # extra Copilot shell patterns, e.g. ["npm:*"]
-    limits:
-      maxChangedFiles: 15
-      maxDiffLines: 800
-      maxAnalysisRounds: 5
-      maxReviewFixes: 5     # @ai review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
-    implement:
-      maxFixRounds: 2       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
-                            # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
-                            # the review fix (workflow fix) uses the same number of fix rounds
-    review:
-      scope: scoped         # scoped (default) = PRs labelled "ai" + PRs this runner opened from ai/* or feat/issue-*; all = every open PR
-      skipPaths: ["docs/**", "**/*.md"]   # a PR that changes only these files is not reviewed
-    autoStartFirstSubIssue: false         # true = the breakdown adds ai-implement on the first sub-issue
+          allow_shell: [Get-ChildItem:*, Get-Content:*, Select-Object:*, Select:*, Select-String:*, cd:*, New-Item:*, Move-Item:*, mkdir:*, mv:*, Out-Null:*, Test-Path:*, Join-Path:*, Split-Path:*, Where-Object:*, ForEach-Object:*, Sort-Object:*, Copy-Item:*]
+          run_in: component # component = in the component folder (default); repo = at the root of the clone
+      frontend:
+        repo: manhhai/mbhanalytics-fe
+        path: .
+        commands:
+          setup: "npm ci"
+          build: "npm run build"
+          test: "npm test"
+          lint: "npm run lint"
+          allow_shell: [Get-ChildItem:*, Get-Content:*, Select-Object:*, Select:*, Select-String:*, cd:*, New-Item:*, Move-Item:*, mkdir:*, mv:*, Out-Null:*, Test-Path:*, Join-Path:*, Split-Path:*, Where-Object:*, ForEach-Object:*, Sort-Object:*, Copy-Item:*]
+          run_in: component

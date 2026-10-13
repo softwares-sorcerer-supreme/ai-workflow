@@ -20,7 +20,8 @@ public sealed class ReviewPullRequestJob(
 {
     public const string Agent = "pr-review";
     public const string Prompt =
-        "Review the pull request described in context.md; the diff is in diff.patch. Follow the pr-review agent rules.";
+        "Review the pull request described in context.md; the diff is in diff.patch. " +
+        "Read components.md first: the other components are read-only. Follow the pr-review agent rules.";
 
     public JobType Type => JobType.ReviewPullRequest;
 
@@ -44,7 +45,7 @@ public sealed class ReviewPullRequestJob(
     public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
     {
         // A review fix asked for since the poll goes first.
-        var (repo, pull, readComments, decision) = await jobLoader.LoadPullAsync(request, cancellationToken);
+        var (project, pull, readComments, decision) = await jobLoader.LoadPullAsync(request, cancellationToken);
         if (decision.Job?.Type != Type)
         {
             return JobOutcome.NotNeeded(decision.Reason);
@@ -55,28 +56,32 @@ public sealed class ReviewPullRequestJob(
 
         var pullHead = Branches.PullHead(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
-            Repo: request.Repo,
+            Project: project,
+            TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: null,
             ExtraFetch: [pullHead]);
-        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var directory = prepared.Root;
+        var clone = prepared.TargetClone;
         var baseRef = Branches.Remote(pull.Base.Ref);
-        var files = await git.ChangedFilesAsync(directory, baseRef, sha, cancellationToken);
+        var files = await git.ChangedFilesAsync(clone, baseRef, sha, cancellationToken);
 
-        if (files.Count == 0 || PathGlob.AllMatch(files, repo.Review.SkipPaths))
+        if (files.Count == 0 || PathGlob.AllMatch(files, project.Settings.Review.SkipPaths))
         {
             stateStore.SetReview(request.Repo, pull.Number, new ReviewState(sha, previous?.CommentId, "skipped"));
             return new JobOutcome(
                 "skipped", files.Count == 0 ? "no changed files" : "only skipPaths files changed", Quiet: true);
         }
 
-        var diff = await git.DiffAsync(directory, baseRef, sha, cancellationToken);
+        var diff = await git.DiffAsync(clone, baseRef, sha, cancellationToken);
         var diffFile = Path.Combine(directory, "diff.patch");
         await File.WriteAllTextAsync(diffFile, diff, cancellationToken);
         var changedFilesFile = Path.Combine(directory, "changed-files.txt");
         await File.WriteAllLinesAsync(changedFilesFile, files, cancellationToken);
 
-        var linked = await gitBucketClient.LinkedIssueAsync(request.Repo, pull, run, cancellationToken);
+        var pullLink = new PullLink(project, request.Repo, pull);
+        var linked = await gitBucketClient.LinkedIssueAsync(pullLink, run, cancellationToken);
 
         // The people's comments are part of the review input; the planner only read them when a fix was possible.
         var pullComments = readComments
@@ -92,7 +97,7 @@ public sealed class ReviewPullRequestJob(
         run.Save("context.md", context);
         run.Save("diff.patch", diff);
 
-        var model = repo.ModelFor(Workflows.Review);
+        var model = project.Settings.ModelFor(Workflows.Review);
         var timeout = TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes);
         var output = await copilot.RunCopilotAsync(
             new CopilotRequest(directory, Prompt, Agent, model, timeout)

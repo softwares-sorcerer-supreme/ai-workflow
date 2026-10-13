@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace AiRunner.Core;
 
-public sealed record SubIssueInfo(int Parent, int Order, int Total, string BaseBranch);
+/// <param name="Component">The component this sub-issue is built in. Null for a sub-issue written before components existed.</param>
+public sealed record SubIssueInfo(int Parent, int Order, int Total, string BaseBranch, string? Component);
 
 /// <summary>Which sub-issue of which parent: "#12.2" is Parent 12, Order 2.</summary>
 public sealed record SubIssueSlot(int Parent, int Order);
@@ -34,6 +35,7 @@ public static class SubIssueBody
 
         var builder = new StringBuilder();
         builder.AppendLine($"Parent: #{parent}");
+        builder.AppendLine($"Component: {task.Component}");
         builder.AppendLine($"Order: {task.Order} of {total}");
         builder.AppendLine($"Base branch: {Branches.Feature(parent)}");
         builder.AppendLine($"Depends on: {dependencies}");
@@ -42,7 +44,9 @@ public static class SubIssueBody
         if (task.NeedsDeveloper)
         {
             builder.AppendLine("**A developer builds this sub-task.** The analysis could not make it simple enough for Copilot.");
-            builder.AppendLine($"When it is done, merge it into `{Branches.Feature(parent)}` or close this issue, and the next sub-issue starts.");
+            builder.AppendLine("When it is done, close this issue, and the next sub-issue starts.");
+            builder.AppendLine(
+                $"A PR counts only from branch `{Branches.SubIssue(parent, task.Order)}` into `{Branches.Feature(parent)}`.");
             builder.AppendLine();
         }
 
@@ -83,11 +87,13 @@ public static class SubIssueBody
 
         var parentNumber = int.Parse(parentMatch.Groups[1].Value);
         var baseBranchMatch = Regex.Match(body, @"^Base branch:\s*(\S+)\s*$", RegexOptions.Multiline);
+        var componentMatch = Regex.Match(body, @"^Component:\s*(\S+)\s*$", RegexOptions.Multiline);
 
         var order = int.Parse(orderMatch.Groups[1].Value);
         var total = int.Parse(orderMatch.Groups[2].Value);
         var baseBranch = baseBranchMatch.Success ? baseBranchMatch.Groups[1].Value : Branches.Feature(parentNumber);
-        return new SubIssueInfo(parentNumber, order, total, baseBranch);
+        var component = componentMatch.Success ? componentMatch.Groups[1].Value : null;
+        return new SubIssueInfo(parentNumber, order, total, baseBranch, component);
     }
 
     /// <summary>True when the issue is the sub-issue number "order" of "parent" (read from its body, not its title).</summary>
@@ -108,15 +114,19 @@ public static class SubIssueBody
     /// feature branch, or when a human closed it (e.g. a developer built it another way).
     /// </summary>
     public static bool IsDone(GbIssue sub, SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
-        !sub.IsOpen() ||
-        pulls.Any(pull =>
-            pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
-            pull.Base.Ref == Branches.Feature(slot.Parent) &&
-            pull.IsMerged());
+        !sub.IsOpen() || SubIssueSequencer.MergedPull(slot, pulls) is not null;
 
     // ---- the list of sub-issues, kept as a hidden line in the parent comment ----
 
     private const string ListPrefix = "<!-- SUBISSUES:";
+
+    /// <summary>Hidden tag of the parent comment that lists the final PRs (one per repo).</summary>
+    public const string FinalPrsMarker = "<!-- FINAL_PRS -->";
+
+    /// <summary>True when the parent already has the comment that lists its final PRs.</summary>
+    public static bool HasFinalList(IEnumerable<GbComment> comments) =>
+        comments.Any(comment => BotComments.IsBot(comment) &&
+                                comment.Body!.Contains(FinalPrsMarker, StringComparison.Ordinal));
 
     public static string ListMarker(IEnumerable<int> numbers) => $"{ListPrefix} {string.Join(",", numbers)} -->";
 

@@ -9,6 +9,17 @@ runs GitHub Copilot CLI (`copilot -p --agent ...`) for issue analysis, breakdown
 then writes the results back as comments, labels, branches and PRs. The design doc lives one folder up:
 `../AI Dev Workflow – Design Document (GitBucket + Jenkins + Copilot CLI).md`. Workflow 4 (GitHub mirror / cloud agent) is
 intentionally not built; `needs-cloud-agent` and `ai:on-github` only make the planner skip an issue.
+Work is organised in **projects** (`docs/specs/projects-and-components.md`): a project groups **components** (repo + optional folder),
+every job checks out all of them under `work/<project>/` and changes code in one. Issues and sub-issues live in the project's
+`issues_in` component only; PRs are polled in every repo that holds a `code: true` component. `repos.yml` is snake_case and strict
+(an unknown key stops the start); `defaults:` is merged into each project (objects key by key, lists replace); the old flat
+`repos:` list becomes one-component projects. Analysis names its components (`**Components affected:**`, SPEC plan column `Component`; more than one component = `complex`),
+and the breakdown creates every sub-issue in the issues repo with a `Component:` line and a `feat/issue-<n>` branch in each repo
+that has one (spec delivery steps 1-2). Implement, review and review fix work in one component (delivery step 3): the target is the
+sub-issue's `Component:` line or the simple issue's `Components affected` (`JobSupport.TargetOfIssue`; no component on old data = the only
+code component, else the job asks for a new analysis); `AgentSession` undoes every edit outside it (scope guard); the PR is opened in the
+component's repo and links the issue with `Issue: owner/repo#n` (never `Closes`); the runner closes issues after the merge
+(`SequenceSubIssuesJob`, `FinishIssueJob`). The spec's four delivery steps are built (step 4: claims, README layouts and migration note, `onboarding/PROJECT.md`).
 PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
 `ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR.
 Review fix (workflow `fix`, `FixReviewJob`): a new `@ai` comment on a PR in that same scope (whatever `review.scope` says) makes
@@ -24,6 +35,10 @@ dotnet run --project src/AiRunner -- --copilot-test     # start copilot as a chi
 dotnet run --project src/AiRunner -- --attachment-test <url>   # download one _attached file, show the answer (no Copilot)
 ```
 
+- Config: `Configuration/ConfigResolver` reads `repos.yml` strictly into the raw `RunnerFile` types and merges them into
+  `ProjectConfig` / `ComponentConfig` / `ProjectSettings`; `RunnerConfig.FindProject(repo)` is the lookup. Nothing outside
+  `Configuration/` sees the raw types. A job that needs "the" code component but is not told which uses
+  `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
 - Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test` or the loop yourself: they spend Copilot premium requests
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
@@ -46,9 +61,15 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 
 Key mechanics that span several files:
 
+- **Project workspace.** `Infrastructure/Workspace.PrepareAsync` clones or fetches every distinct repo of the project to
+  `work/<project>/<repo-name>/` (target repo at the request's start point, the others detached at `origin/<default>`), deletes the
+  runner files of the last job from the project root, copies the templates to `<root>/.ai-workflow/templates/` and writes
+  `components.md` (`Core/ComponentsDoc`). Runner files live in the project root, never in a clone (each clone also excludes them).
+  Copilot always starts in the project root; build/test/lint run in the component folder (`commands.run_in`). The `.git/config`
+  guard in `AgentSession` covers every clone.
 - **Attachments.** Files people link from human text (`/_attached/<id>` on the GitBucket host; the JSON has no attachment list) are
-  downloaded by `Jobs/AttachmentFetcher` right after `IWorkspace.PrepareAsync` (the next `git clean` removes them) into
-  `.ai-workflow/attachments/`, and `AttachmentReport` appends an "Attachments" section to context.md / plan.md. Analyze, review,
+  downloaded by `Jobs/AttachmentFetcher` right after `IWorkspace.PrepareAsync` (the next prepare removes them) into
+  `<project root>/.ai-workflow/attachments/`, and `AttachmentReport` appends an "Attachments" section to context.md / plan.md. Analyze, review,
   implement and review fix all use it; bot comments are skipped. `GitBucketClient.DownloadAttachmentAsync` is the only code that
   knows the quirks: a second `HttpClient` that never follows redirects (a redirect to the login page = "token not accepted"), the
   token goes only to the GitBucket host, the size cap is enforced while streaming. Images and PDFs also go to Copilot with
@@ -66,6 +87,39 @@ Key mechanics that span several files:
 - **No database dependency for correctness.** Bot comments carry a hidden `<!-- ai-runner -->` marker plus a visible `**[ai-runner]**` line;
   analysis/SPEC/review comments keep their `<!-- X_START -->` / `<!-- X_END -->` markers; the parent's sub-issue list is
   `<!-- SUBISSUES: ... -->`. The runner finds its own comments by these, so deleting `ai-runner.db` is safe — keep it that way.
+- **Scope guard** (`AgentSession.GuardScopeAsync`, so implement and fix both get it). After every agent round and again after every
+  run of the checks (build/test/lint write files too, and the commit stages everything), each time after the `.git/config` guard: every clone of the project is asked for its changed paths (`IGitClient.ChangedPathsAsync`: tracked
+  changes against HEAD plus untracked files, ignored files left out). `Core/ScopeRules` decides what goes: every change in a non-target
+  repo, in the target repo everything outside the writable component folders, and everything matching `never_edit` (gitignore-like,
+  case-insensitive, against the path from the repo root). `IGitClient.RestorePathsAsync` restores tracked paths from HEAD and deletes
+  untracked ones (never outside the clone). The list (`AgentResult.Undone`) goes into the PR body or fix reply ("Changes undone by
+  ai-runner") and into `fix.md` when a fix round happens anyway; an undo alone starts no fix round. Size limits count the target clone only,
+  after the guard. A review fix may change one component (the linked issue's `Component:` line, else its `Components affected` inside the PR's
+  repo); with no link every code component of the PR's repo is writable (`AgentRunContext.Writable`).
+- **Closing after merge.** GitBucket cannot close an issue of another repo, so the runner does it, from GitBucket data on every poll (a runner that
+  was off during a merge catches up). `SequenceSubIssuesJob` reads the PRs in the repo of each sub-issue's component (`SubIssueRef`,
+  `SequenceInput`); a sub-issue whose PR `ai/issue-<p>-<o>` is merged into `feat/issue-<p>` gets the PR link as a comment, loses
+  `ai:implementing` and is closed, then the next one starts (one global order across repos). After the last one: one final PR per repo that
+  has sub-issues (`feat/issue-<p>` into its default branch, body ends with `Issue: owner/repo#<p>`), one parent comment with the
+  `<!-- FINAL_PRS -->` tag lists them, and when all are merged the parent is closed. `JobType.FinishIssue` (planned as a routine decision for an
+  open non-sub-issue with `ai:implementing` and without `ai-implement`) does the same for a simple issue: the PR (head `ai/issue-<n>`) is looked
+  up in the target component's repo; merged = comment + close; closed without merge = comment + drop `ai:implementing`; open or none = quiet.
+  A sub-issue never loops: a too-big implement run adds `ai:failed` to it (sequencer waits on `Failed`), and a sub-issue whose PR was closed
+  without a merge (`SubIssueSequencer.ClosedWithoutMerge`) gets a comment, loses `ai:implementing` and gets `ai:failed` (a human removes it to retry).
+  A ready complex analysis must carry a readable breakdown (`AnalyzeIssueJob` checks it like the SPEC); if it still cannot be read when
+  `ai-breakdown` runs, `BreakdownIssueJob` explains, removes `ai-breakdown` and asks for a new analysis (no `ai:failed`, so `@ai` works again).
+- **Claims** (`claim_enabled` per project, `runner_name` global; rules in `Core/Claims`, GitBucket calls in `Jobs/ClaimService`). `JobWorker`
+  claims the issue or PR before a normal job; a routine job (`JobInfo.Routine`: `SequenceSubIssues`, `FinishIssue`) claims through
+  `JobRun.ClaimAsync` just before its first write, so a poll that finds nothing writes nothing. A claim = the `ai:claimed` label + ONE
+  comment edited in place, tag `<!-- AI_CLAIM runner=X state=claimed|released|withdrawn at=ISO [until=ISO] -->` (`at` is the claim time, `until` the deadline of
+  the claiming job, `ClaimWindow`; only bot comments count, so a human cannot fake a claim). After writing, the runner reads again: the oldest claim comment is the claim;
+  a newer duplicate of this runner is edited to `withdrawn` (never deleted). A fresh claim of another runner ends the job as
+  `NotNeeded(Quiet)`; a claim is taken over once its `until` and 30 minutes have passed (progress comments like "Copilot started" do not count); a
+  claim without `until` (older runner) after 30 minutes with no non-claim bot comment after it. The worker releases (label off,
+  comment `released`) when the job ends, success or failure, but not on shutdown (the same name takes it back on the next start).
+- **Linked issue of a PR** (`Core/IssueLinks.Find`): `Issue: owner/repo#n` line (the last one), any `owner/repo#n`, `close/fix/resolve #n`,
+  the first `#n` (the last two in the PR's repo). A repo outside the project is ignored. The issue is read from its own repo
+  (`JobSupport.LinkedIssueAsync`, which also returns the components it names).
 - **Implement = agent stages + runner safety net.** `agents/implement-issue.agent.md` makes the agent verify (build/test/lint),
   review and simplify via the read-only `code-reviewer` subagent, and write PR_BODY.md before it stops. `ImplementIssueJob` then re-runs
   the checks and `PrBodyParser`; `ImplementGate` decides on a fix round (`fix.md` from `ContextBuilder.ForFix` + `diff.patch`, max
@@ -91,7 +145,10 @@ Key mechanics that span several files:
   `LoadPullAsync`, which read comments only when `PlanPull` says `NeedsComments`. `Markers.Wrap` neutralises `<!--` in the
   block text, so agent output can never fake a marker or a `context-upto` tag.
 - **Agent output contract.** `templates/` (ASCII) define what agents write; `Core` parsers validate it strictly (status/complexity/verdict/severity
-  vocabularies, the 5-column breakdown table `| # | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
+  vocabularies, `Components affected` names (code components only; `unknown` only while questions are open), the SPEC technical plan
+  `| Step | Component | File | Change |` (`SpecParser`), the 6-column breakdown table
+  `| # | Component | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
+  `AnalysisParser`, `SpecParser` and `BreakdownParser` take the project's code component names; a name outside them fails the job.
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
 
 ## GitBucket and security constraints
@@ -137,3 +194,18 @@ Key mechanics that span several files:
 - Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeGitBucket`)
   and build data with `Samples.Issue/Human/Bot` and the filled templates in `Samples.cs`.
 - `SQLitePCLRaw.lib.e_sqlite3` is pinned in the csproj to fix NU1903; don't drop it.
+
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitBucket (`ai-bot/ai-workflow`, GitHub-compatible API, no `gh`); agents draft issue text and the user posts it. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context; the glossary is `CONTEXT.md`. See `docs/agents/domain.md`.

@@ -25,10 +25,24 @@ public sealed record AgentTask(
     public IReadOnlyList<string> Attachments { get; init; } = [];
 }
 
-/// <summary>Where an agent runs: the repo it works on, its clone, and the log of the job.</summary>
-public sealed record AgentRunContext(RepoConfig Repo, string Directory, JobRun Run);
+/// <summary>
+/// Where an agent runs: the project, the component it may change, the prepared project folder (the agent starts
+/// in its root) and the log of the job.
+/// </summary>
+public sealed record AgentRunContext(
+    ProjectConfig Project,
+    ComponentConfig Target,
+    PreparedWorkspace Workspace,
+    JobRun Run)
+{
+    /// <summary>
+    /// The components the agent may change, all in the target repo. Default: the target alone. A review fix of a PR
+    /// that no issue ties to one component may change every code component of the PR's repo.
+    /// </summary>
+    public IReadOnlyList<ComponentConfig> Writable { get; init; } = [Target];
+}
 
-/// <summary>Work in the clone that gets committed and pushed to a branch.</summary>
+/// <summary>Work in the clone of the target repo that gets committed and pushed to a branch.</summary>
 public sealed record WorkToSave(string Directory, string Message, string Branch);
 
 /// <summary>A command the runner ran after the agent stopped.</summary>
@@ -44,6 +58,9 @@ public sealed record AgentResult(
     IReadOnlyList<string> OutputProblems,
     IReadOnlyList<string> Rounds)
 {
+    /// <summary>Edits the scope guard undid (outside the target component, read-only repos, never_edit).</summary>
+    public IReadOnlyList<UndoneChange> Undone { get; init; } = [];
+
     public bool Failing => Checks.Any(check => !check.Result.Ok);
 }
 
@@ -51,8 +68,9 @@ public sealed record AgentResult(
 /// The part Workflow 2 and the review fix share: setup, then the agent goes through its stages
 /// (verify, review and simplify, output file) and the runner checks the result on its own. Build,
 /// test, lint or output file problems go back for up to implement.maxFixRounds fix rounds. The
-/// agent runs code in the clone, so .git/config is guarded after every step. Committing and
-/// pushing stay with the job.
+/// agent runs code in the clone, so .git/config is guarded after every step. The scope guard undoes every
+/// edit outside the target component (and in never_edit files) after each agent round and after each run of the checks.
+/// Committing and pushing stay with the job.
 /// </summary>
 public sealed class AgentSession(
     RunnerConfig config,
@@ -64,8 +82,8 @@ public sealed class AgentSession(
     /// <summary>Setup, then per round Copilot and the checks (each up to the same timeout); the repo with the most fix rounds counts.</summary>
     public static TimeSpan JobTimeout(RunnerConfig config)
     {
-        var mostFixRounds = config.Repos
-            .Select(repoConfig => Math.Max(0, repoConfig.Implement.MaxFixRounds))
+        var mostFixRounds = config.Projects
+            .Select(project => Math.Max(0, project.Settings.Implement.MaxFixRounds))
             .DefaultIfEmpty(0)
             .Max();
 
@@ -77,12 +95,20 @@ public sealed class AgentSession(
         AgentRunContext context,
         CancellationToken cancellationToken)
     {
-        var (repo, directory, run) = context;
+        var (project, target, prepared, run) = context;
+        var settings = project.Settings;
+        var rootFolder = prepared.Root;
+        var targetClone = prepared.TargetClone;
         var timeout = TimeSpan.FromMinutes(config.Copilot.ImplementTimeoutMinutes);
 
-        async Task<ProcessResult> RunCommandAsync(string command, string logName)
+        // Every component the agent may change is set up and checked, each in its own folder.
+        var componentsToCheck = context.Writable
+            .Select(component => (component.Commands, Folder: component.CommandFolder(targetClone)))
+            .ToList();
+
+        async Task<ProcessResult> RunCommandAsync(string command, string commandFolder, string logName)
         {
-            var processSpec = ProcessSpec.Shell(command, directory, timeout);
+            var processSpec = ProcessSpec.Shell(command, commandFolder, timeout);
             var result = await processRunner.RunAsync(processSpec, cancellationToken);
             var report = result.Report(command);
             run.Save(logName, report);
@@ -91,36 +117,84 @@ public sealed class AgentSession(
         }
 
         // Dependencies first: the work folder was cleaned, so node_modules, .venv etc. are gone.
-        if (!string.IsNullOrWhiteSpace(repo.Commands.Setup))
+        var setupNumber = 0;
+        foreach (var (componentCommands, folder) in componentsToCheck)
         {
-            var setupCommand = repo.Commands.Setup.Trim();
-            var setup = await RunCommandAsync(setupCommand, "setup.txt");
+            if (string.IsNullOrWhiteSpace(componentCommands.Setup))
+            {
+                continue;
+            }
+
+            setupNumber++;
+            var setupCommand = componentCommands.Setup.Trim();
+            var setupLog = setupNumber == 1 ? "setup.txt" : $"setup-{setupNumber}.txt";
+            var setup = await RunCommandAsync(setupCommand, folder, setupLog);
             if (!setup.Ok)
             {
                 throw new JobFailedException(
-                    $"The setup command `{repo.Commands.Setup}` {Status(setup)}: {setup.Tail(600)}");
+                    $"The setup command `{setupCommand}` {Status(setup)}: {setup.Tail(600)}");
             }
         }
 
-        var gitConfig = git.ConfigFingerprint(directory);
+        var gitConfigs = prepared.Clones.ToDictionary(
+            clone => clone.Key,
+            clone => git.ConfigFingerprint(clone.Value),
+            StringComparer.OrdinalIgnoreCase);
 
-        // The agent and the checks run code in this clone. If .git/config changed, git itself could be
-        // made to run that code or send the token elsewhere: run no more git here, throw the clone away.
+        // The agent and the checks run code in the project folder. If any .git/config changed, git itself could
+        // be made to run that code or send the token elsewhere: run no more git there, throw that clone away.
         void GuardGitConfig()
         {
-            if (git.ConfigFingerprint(directory) == gitConfig)
+            foreach (var (repo, clone) in prepared.Clones)
             {
-                return;
-            }
+                if (git.ConfigFingerprint(clone) == gitConfigs[repo])
+                {
+                    continue;
+                }
 
-            workspace.Discard(repo.FullName);
-            throw new JobFailedException("Something in the work folder changed .git/config during the run. " +
-                                         "I deleted the clone and pushed nothing. Please check the agent output in the log.");
+                workspace.Discard(project, repo);
+                throw new JobFailedException(
+                    $"Something in the work folder changed .git/config of {repo} during the run. " +
+                    "I deleted the clone and pushed nothing. Please check the agent output in the log.");
+            }
+        }
+
+        // The agent writes only in the target component of the target repo. Whatever else it touched is undone and
+        // remembered, so the PR shows what was tried. An undo alone does not start a fix round.
+        var undone = new List<UndoneChange>();
+        var writeScope = new WriteScope(
+            context.Writable.Select(component => component.Path).ToList(),
+            settings.NeverEdit);
+
+        async Task GuardScopeAsync()
+        {
+            foreach (var (repo, clone) in prepared.Clones)
+            {
+                var isTargetRepo = string.Equals(repo, prepared.TargetRepo, StringComparison.OrdinalIgnoreCase);
+                var changedPaths = await git.ChangedPathsAsync(clone, cancellationToken);
+                var undoneHere = ScopeRules.ToUndo(repo, changedPaths, isTargetRepo ? writeScope : null);
+                if (undoneHere.Count == 0)
+                {
+                    continue;
+                }
+
+                var pathsToRestore = undoneHere.Select(change => change.Path).ToList();
+                await git.RestorePathsAsync(clone, pathsToRestore, cancellationToken);
+                undone.AddRange(undoneHere);
+
+                foreach (var change in undoneHere)
+                {
+                    run.Info($"undid {change.Path} in {change.Repo}: {change.Reason}");
+                }
+            }
         }
 
         // Returns the failure instead of throwing: round 1 is the job's call, a failed fix round still ends well.
-        var model = repo.ModelFor(task.Workflow);
-        var allowTools = AllowTools(repo.Commands);
+        var model = settings.ModelFor(task.Workflow);
+        var allowTools = context.Writable
+            .SelectMany(component => AllowTools(component.Commands))
+            .Distinct()
+            .ToList();
 
         async Task<JobFailedException?> RunAgentAsync(string prompt, int round)
         {
@@ -129,7 +203,7 @@ public sealed class AgentSession(
             {
                 var transcriptFile = Path.Combine(run.Dir, $"round-{round}-transcript.md");
                 await copilot.RunCopilotAsync(
-                    new CopilotRequest(directory, prompt, task.Agent, model, timeout)
+                    new CopilotRequest(rootFolder, prompt, task.Agent, model, timeout)
                     {
                         AllowTools = allowTools,
                         DenyTools = DenyTools,
@@ -143,6 +217,8 @@ public sealed class AgentSession(
             }
 
             GuardGitConfig();
+            await GuardScopeAsync();
+
             return failure;
         }
 
@@ -151,22 +227,32 @@ public sealed class AgentSession(
         async Task<List<CheckRun>> RunChecksAsync(int round)
         {
             var checks = new List<CheckRun>();
-            var buildFirst = !string.IsNullOrWhiteSpace(repo.Commands.Build);   // Verification() starts with Build
-            foreach (var command in repo.Commands.Verification())
+            foreach (var (componentCommands, folder) in componentsToCheck)
             {
-                var result = await RunCommandAsync(command, $"round-{round}-check-{checks.Count + 1}.txt");
-                checks.Add(new CheckRun(command, result));
-                if (!result.Ok && buildFirst && checks.Count == 1)
+                var buildFirst = !string.IsNullOrWhiteSpace(componentCommands.Build);   // Verification() starts with Build
+                var componentChecks = 0;
+                foreach (var command in componentCommands.Verification())
                 {
-                    break;
+                    var logName = $"round-{round}-check-{checks.Count + 1}.txt";
+                    var result = await RunCommandAsync(command, folder, logName);
+                    checks.Add(new CheckRun(command, result));
+                    componentChecks++;
+                    if (!result.Ok && buildFirst && componentChecks == 1)
+                    {
+                        break;
+                    }
                 }
             }
 
+            // The commands run code too: a lockfile or snapshot they write outside the target component must not
+            // reach the commit, which stages everything.
             GuardGitConfig();
+            await GuardScopeAsync();
+
             return checks;
         }
 
-        var outputFile = Path.Combine(directory, task.OutputFile);
+        var outputFile = Path.Combine(rootFolder, task.OutputFile);
 
         // The agent verifies, reviews and writes its output file itself. The runner checks the result on its
         // own (the agent's claim is not enough) and, while fix rounds are left, sends back what is wrong.
@@ -186,7 +272,7 @@ public sealed class AgentSession(
             // A fix round that changed no code (only the output file, or Copilot failed early)
             // keeps the checks it had.
             if (diffBeforeFix is null ||
-                await git.StageAndDiffAsync(directory, task.DiffBase, cancellationToken) != diffBeforeFix)
+                await git.StageAndDiffAsync(targetClone, task.DiffBase, cancellationToken) != diffBeforeFix)
             {
                 checks = await RunChecksAsync(round);
             }
@@ -208,7 +294,7 @@ public sealed class AgentSession(
                 ChecksOk: checksOk,
                 PrBodyProblems: problems.Count,
                 FixRoundsUsed: round - 1,
-                MaxFixRounds: repo.Implement.MaxFixRounds,
+                MaxFixRounds: settings.Implement.MaxFixRounds,
                 CanRunAgain: fixFailure is null && timeLeft);
             var step = ImplementGate.Decide(progress);
             if (step != ImplementStep.Fix)
@@ -229,12 +315,15 @@ public sealed class AgentSession(
                 Round: next,
                 Failures: failures,
                 OutputFile: task.OutputFile,
-                OutputProblems: problems);
+                OutputProblems: problems)
+            {
+                Undone = [.. undone],
+            };
             var fix = ContextBuilder.ForFix(fixInput);
-            diffBeforeFix = await git.StageAndDiffAsync(directory, task.DiffBase, cancellationToken);
-            var fixFile = Path.Combine(directory, "fix.md");
+            diffBeforeFix = await git.StageAndDiffAsync(targetClone, task.DiffBase, cancellationToken);
+            var fixFile = Path.Combine(rootFolder, "fix.md");
             await File.WriteAllTextAsync(fixFile, fix, cancellationToken);
-            var diffFile = Path.Combine(directory, "diff.patch");
+            var diffFile = Path.Combine(rootFolder, "diff.patch");
             await File.WriteAllTextAsync(diffFile, diffBeforeFix, cancellationToken);
             run.Save($"fix-{next}.md", fix);
             run.Info($"{rounds[^1]}; starting fix round {next}");
@@ -248,7 +337,10 @@ public sealed class AgentSession(
         }
 
         run.SaveCopy(outputFile, task.OutputFile);
-        return new AgentResult(null, checks, outputText, problems, rounds);
+        return new AgentResult(null, checks, outputText, problems, rounds)
+        {
+            Undone = [.. undone],
+        };
     }
 
     /// <summary>
@@ -328,6 +420,16 @@ public sealed class AgentSession(
         foreach (var roundLine in result.Rounds)
         {
             builder.AppendLine($"- {roundLine}");
+        }
+
+        if (result.Undone.Count > 0)
+        {
+            builder.AppendLine().AppendLine("### Changes undone by ai-runner");
+            builder.AppendLine("The agent changed these paths where it may not write, so the runner removed the edits:");
+            foreach (var change in result.Undone)
+            {
+                builder.AppendLine($"- `{change.Path}` in {change.Repo} ({change.Reason})");
+            }
         }
 
         if (result.OutputProblems.Count > 0)

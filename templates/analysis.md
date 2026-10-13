@@ -3,6 +3,7 @@
 
 **Status:** questions-open | ready
 **Complexity:** simple | complex
+**Components affected:** <names, comma separated> | all
 
 ### What I understand
 2-5 sentences in simple English, restating the request.
@@ -23,15 +24,15 @@
 - `path/to/file` - <role in this change>
 
 ### Proposed breakdown
-| # | Title | Scope | Touches | Depends on |
-| --- | --- | --- | --- | --- |
-| 1 | <short title> | <one or two sentences: what this sub-task does> | <files or layers> | - |
-| 2 | <short title> | <scope> | <files or layers> | 1 |
+| # | Component | Title | Scope | Touches | Depends on |
+| --- | --- | --- | --- | --- | --- |
+| 1 | <one component name> | <short title> | <one or two sentences: what this sub-task does> | <files or layers> | - |
+| 2 | <one component name> | <short title> | <scope> | <files or layers> | 1 |
 
 Shared contract: <exact names all sub-tasks must use: entities, DTOs, endpoints, enums, functions>
 
 ### Risks
 - <risk> -> <how to reduce it>
 
-_Answer by number (Q1: ..., A2: wrong, it is ...), then write @ai in your comment._
+_Answer by number (Q1: ..., A2: wrong, it is ...), then write the trigger keyword (@ai by default) in your comment._
 <!-- ANALYSIS_END -->

@@ -8,7 +8,7 @@ using AiRunner.Jobs;
 //   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C
 //   --once          poll once, run the queued jobs, exit
 //   --dry-run       print what would be queued; run nothing (with --once: a single poll)
-//   --setup-labels  create the runner's labels in every repo of repos.yml
+//   --setup-labels  create the runner's labels in every repo of every project in repos.yml
 //   --copilot-test  start copilot as a child process and show its output
 //   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
 var runOnce = args.Contains("--once");
@@ -76,8 +76,11 @@ builder.Services.AddSingleton<IJob, ImplementIssueJob>();
 builder.Services.AddSingleton<IJob, ReviewPullRequestJob>();
 builder.Services.AddSingleton<IJob, SequenceSubIssuesJob>();
 builder.Services.AddSingleton<IJob, FixReviewJob>();
+builder.Services.AddSingleton<IJob, FinishIssueJob>();
 builder.Services.AddSingleton<JobFactory>();
 builder.Services.AddSingleton<JobLoader>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ClaimService>();
 
 // Hosting.
 builder.Services.AddSingleton<JobQueue>();
@@ -121,10 +124,11 @@ identity.Login = currentUser.Login;
 var logger = services.GetRequiredService<ILogger<Program>>();
 var fullConfigPath = Path.GetFullPath(configPath);
 logger.LogInformation(
-    "ai-runner as {Login} on {Url}, {Repos} repo(s), config {Config}",
+    "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
     identity.Login,
     config.GitBucket.BaseUrl,
-    config.Repos.Count,
+    config.Projects.Count,
+    config.AllRepos().Count(),
     fullConfigPath);
 
 if (setupLabels)

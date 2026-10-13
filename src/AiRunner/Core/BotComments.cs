@@ -33,9 +33,12 @@ public static class BotComments
             .Where(comment => !IsBot(comment))
             .OrderBy(comment => comment.Id);
 
-    public static bool MentionsAi(GbComment comment) =>
+    public static bool MentionsAi(GbComment comment) => MentionsAi(comment, "@ai");
+
+    /// <summary>A people's comment that contains the project's trigger keyword as a word of its own.</summary>
+    public static bool MentionsAi(GbComment comment, string keyword) =>
         !IsBot(comment) && comment.Body is not null &&
-        Regex.IsMatch(comment.Body, @"(^|[^\w])@ai\b", RegexOptions.IgnoreCase);
+        Regex.IsMatch(comment.Body, @"(^|[^\w])" + Regex.Escape(keyword) + @"(?!\w)", RegexOptions.IgnoreCase);
 
     public static int Count(IEnumerable<GbComment> comments, string marker) =>
         comments.Count(comment => Is(comment, marker));

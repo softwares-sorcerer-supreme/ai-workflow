@@ -47,7 +47,7 @@ public sealed class FixReviewJob(
         {
             var timeout = AgentSession.JobTimeout(config);
             return new(Workflows.Fix, "AI review fix", timeout, OnPullRequest: true,
-                Retry: "Write a new comment with @ai to try again.");
+                Retry: $"Write a new comment with {JobInfo.KeywordPlaceholder} to try again.");
         }
     }
 
@@ -62,39 +62,74 @@ public sealed class FixReviewJob(
 
     public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
     {
-        var (repo, pull, readComments, decision) = await jobLoader.LoadPullAsync(request, cancellationToken);
+        var (project, pull, readComments, decision) = await jobLoader.LoadPullAsync(request, cancellationToken);
         if (decision.Job?.Type != Type)
         {
             return JobOutcome.NotNeeded(decision.Reason);
         }
 
         var comments = readComments!;   // a fix is only planned from comments
+        var settings = project.Settings;
+
+        // The fix changes the code in the PR's repo, in the component the linked issue is for (its Component: line,
+        // else the components its analysis names). Without such a link every code component in the repo may change.
+        var pullLink = new PullLink(project, request.Repo, pull);
+        var linked = await gitBucketClient.LinkedIssueAsync(pullLink, run, cancellationToken);
+        var componentsInRepo = project.CodeComponentsIn(request.Repo).ToList();
+        if (componentsInRepo.Count == 0)
+        {
+            throw new JobFailedException($"{request.Repo} has no code component in project `{project.Name}`.");
+        }
+
+        var named = componentsInRepo.Where(component => linked.Components.Contains(component.Name)).ToList();
+        if (linked.Components.Count > 0 && named.Count == 0)
+        {
+            var names = string.Join(", ", linked.Components);
+            throw new JobFailedException(
+                $"The linked issue is for component(s) {names}, but none of them is in {request.Repo}. " +
+                "The fix would change the wrong repo, so I changed nothing.");
+        }
+
+        var writable = named.Count > 0 ? named : componentsInRepo;
+        var target = writable[0];
 
         // The local cursor only matters for Trigger, which the planner already used.
-        var thread = AtAiThread.Of(comments, Markers.ReviewFix, 0);
-        var number = thread.Next(repo.Limits.MaxReviewFixes).Number;
+        var fixKind = new ThreadKind(Markers.ReviewFix, settings.TriggerKeyword);
+        var thread = AtAiThread.Of(comments, fixKind, 0);
+        var number = thread.Next(settings.Limits.MaxReviewFixes).Number;
         var replyTarget = new ReviewFixThread(request.Repo, pull.Number, thread);
 
         // The PR head is fetched too (refs/pull), so a fork PR gets the refusal below instead of a git error.
         var sha = pull.Head.Sha;
         var pullHead = Branches.PullHead(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
-            Repo: request.Repo,
+            Project: project,
+            TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: pull.Head.Ref,
-            ExtraFetch: [pullHead]);
-        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+            ExtraFetch: [pullHead])
+        {
+            Writable = true,
+            TargetComponent = writable.Count == 1 ? target.Name : null,
+        };
+        var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var directory = prepared.Root;
+        var clone = prepared.TargetClone;
         var defaultBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
         var remoteHead = Branches.Remote(pull.Head.Ref);
-        var pushTarget = await git.ResolveAsync(directory, remoteHead, cancellationToken);
-        var fixCheck = new FixCheckInput(repo, pull, comments, defaultBranch, pushTarget);
-        var refusalReason = JobPlanner.WhyNotFix(fixCheck);
+        var pushTarget = await git.ResolveAsync(clone, remoteHead, cancellationToken);
+
+        // Every component the fix may change is checked afterwards, so each one needs a command to do it with.
+        var refusalReason = writable
+            .Select(component => JobPlanner.WhyNotFix(
+                new FixCheckInput(project, component, pull, comments, defaultBranch, pushTarget)))
+            .FirstOrDefault(reason => reason is not null);
+
         if (refusalReason is not null)
         {
             return await RefuseAsync(replyTarget, refusalReason, cancellationToken);
         }
 
-        var linked = await gitBucketClient.LinkedIssueAsync(request.Repo, pull, run, cancellationToken);
         var latestReview = JobSupport.LatestBlock(comments, Markers.Review);
         var lastReply = JobSupport.LatestBlock(comments, Markers.ReviewFix);
         var planInput = new ReviewFixPlanInput(
@@ -109,7 +144,8 @@ public sealed class FixReviewJob(
         var attachmentRequest = AttachmentRequest.Of(directory, description, thread.RequestsSinceReply);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
 
-        var plan = ContextBuilder.PlanForReviewFix(planInput) + fetched.Section;
+        var plan = ContextBuilder.PlanForReviewFix(planInput) + fetched.Section +
+                   JobSupport.WhereToWorkSection(writable, prepared);
         var planFile = Path.Combine(directory, "plan.md");
         await File.WriteAllTextAsync(planFile, plan, cancellationToken);
         run.Save("plan.md", plan);
@@ -128,7 +164,10 @@ public sealed class FixReviewJob(
         {
             Attachments = fetched.ForCopilot,
         };
-        var context = new AgentRunContext(repo, directory, run);
+        var context = new AgentRunContext(project, target, prepared, run)
+        {
+            Writable = writable,
+        };
         var result = await session.RunAsync(task, context, cancellationToken);
 
         // Half-done work is not pushed onto a PR someone is reviewing.
@@ -139,13 +178,13 @@ public sealed class FixReviewJob(
 
         // Red code is never pushed onto a PR someone is reviewing;
         // it is kept on a side branch so the work is not lost.
-        var target = result.Failing ? Branches.ReviewFix(pull.Number, number) : pull.Head.Ref;
+        var pushBranch = result.Failing ? Branches.ReviewFix(pull.Number, number) : pull.Head.Ref;
         IReadOnlyList<DiffStat>? stats = null;
         string? sidePushError = null;
         try
         {
             var commitMessage = $"PR #{pull.Number}: review fix {number} (Copilot)";
-            var work = new WorkToSave(directory, commitMessage, target);
+            var work = new WorkToSave(clone, commitMessage, pushBranch);
             stats = await session.SaveWorkAsync(work, run, cancellationToken);
         }
         catch (InvalidOperationException exception) when (result.Failing)
@@ -163,13 +202,13 @@ public sealed class FixReviewJob(
         string reply;
         if (result.Failing)
         {
-            var redFix = new ReviewFixResult(number, target, changed, result, SidePushError: sidePushError);
-            reply = RedReply(redFix);
+            var redFix = new ReviewFixResult(number, pushBranch, changed, result, SidePushError: sidePushError);
+            reply = RedReply(redFix, settings.TriggerKeyword);
         }
         else
         {
             // The pushed commit is only looked up when something was pushed.
-            var commit = stats is null ? null : await git.ResolveAsync(directory, "HEAD", cancellationToken);
+            var commit = stats is null ? null : await git.ResolveAsync(clone, "HEAD", cancellationToken);
             var pushedFix = new ReviewFixResult(number, pull.Head.Ref, changed, result, Commit: commit);
             reply = Reply(pushedFix);
         }
@@ -195,7 +234,7 @@ public sealed class FixReviewJob(
     }
 
     /// <summary>Build, test or lint still failed after the fix rounds, so the fix is not on the PR.</summary>
-    private static string RedReply(ReviewFixResult fix)
+    private static string RedReply(ReviewFixResult fix, string keyword)
     {
         var (number, sideBranch, changedFiles, result, _, sidePushError) = fix;
         var builder = new StringBuilder();
@@ -206,7 +245,7 @@ public sealed class FixReviewJob(
             : changedFiles == 0
                 ? "Copilot changed no file."
                 : $"The {changedFiles} changed files are saved on branch `{sideBranch}`, not on this PR. " +
-                  "Finish it by hand there, or write @ai again with more detail.").AppendLine();
+                  $"Finish it by hand there, or write {keyword} again with more detail.").AppendLine();
         AppendOutput(builder, result);
 
         return builder.ToString();

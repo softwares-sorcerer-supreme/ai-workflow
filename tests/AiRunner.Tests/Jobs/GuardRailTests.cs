@@ -9,12 +9,13 @@ namespace AiRunner.Tests.Jobs;
 /// <summary>Safety and robustness paths added after the first code review.</summary>
 public sealed class ImplementGuardRailTests : IDisposable
 {
-    private readonly JobTestKit _kit = new(repo => repo.Commands.Setup = "npm ci");
+    private readonly JobTestKit _kit = new();
     private ImplementIssueJob Job =>
         new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
     public ImplementGuardRailTests()
     {
+        _kit.Component.Commands.Setup = "npm ci";
         _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         var specComment = Markers.Wrap(Samples.Spec, Markers.Spec);
         _kit.GitBucket.AddBotComment(12, specComment);
@@ -128,7 +129,7 @@ public sealed class ReviewGuardRailTests : IDisposable
     [Fact]
     public async Task Sub_issue_pr_gets_the_sub_issue_body_as_its_spec()
     {
-        var task = new SubTask(1, "Entity", "Add the Export entity", "Domain", [], false);
+        var task = new SubTask(1, "demo", "Entity", "Add the Export entity", "Domain", [], false);
         var draft = new SubIssueDraft(12, task, 2, "entity Export");
         var subIssueBody = SubIssueBody.Build(draft);
         _kit.GitBucket.AddIssue(20, "#12.1 Entity", subIssueBody, "ai", Labels.SubIssue);
@@ -147,7 +148,7 @@ public sealed class ReviewGuardRailTests : IDisposable
 
         var contextFile = Path.Combine(_kit.Workspace.Dir, "context.md");
         var context = File.ReadAllText(contextFile);
-        Assert.Contains("Linked issue #20", context);
+        Assert.Contains("Linked issue james/demo#20", context);
         Assert.Contains("entity Export", context);
     }
 }

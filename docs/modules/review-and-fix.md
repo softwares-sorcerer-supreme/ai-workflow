@@ -43,6 +43,12 @@ flowchart LR
 
 *Both jobs start by planning the PR through `JobSupport`. The review is read-only. The fix reuses the implement loop with a different `AgentTask`.*
 
+## Projects and components
+
+- **Linked issue.** `IssueLinks.Find` reads the PR body: an `Issue: owner/repo#n` line first, then any `owner/repo#n`, then `close/fix/resolve #n` and the first `#n` (same repo as the PR). A repo outside the project is ignored. The analysis and SPEC are read from that issue's own repo, so the spec check works across repos. A sub-issue's body is its SPEC.
+- **Review.** The whole project is checked out with the PR's repo at the head commit; every other component is read-only (the review denies `write` and `shell`). The agent reads `components.md` and checks contracts (API paths, DTO names, the shared contract) against sibling components.
+- **Review fix target.** In this order: the linked issue's `Component:` line, the linked issue's `Components affected`, else every code component of the PR's repo. Only the components in the PR's repo count. The scope guard undoes edits outside them and in other repos; the list goes into the reply ("Changes undone by ai-runner"). `WhyNotFix` uses the first target component's commands.
+
 ## Key files
 
 | File | One line |

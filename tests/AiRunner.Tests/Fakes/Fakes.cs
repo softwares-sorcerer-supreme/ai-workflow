@@ -52,6 +52,13 @@ public sealed class FakeGit : IGitClient
     public List<DiffStat> Staged { get; set; } = [new("src/a.txt", 10, 2)];
     public List<string> ChangedFiles { get; set; } = ["src/a.txt"];
     public List<(string Source, string Branch)> Pushes { get; } = [];
+
+    /// <summary>Every push with the clone it came from: lets a test see which repo got which branch.</summary>
+    public List<(string Directory, string Source, string Branch)> PushLog { get; } = [];
+
+    // A branch made by a push exists only in the clones that pushed it (each repo has its own remote);
+    // refs a test sets by hand exist in every clone.
+    private readonly Dictionary<string, HashSet<string>> _pushedOnlyIn = [];
     public List<string> Commits { get; } = [];
 
     public Task CloneOrFetchAsync(string repo, string directory, CancellationToken cancellationToken) =>
@@ -66,9 +73,18 @@ public sealed class FakeGit : IGitClient
     public Task FetchAsync(string directory, string refspec, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
+    public string DefaultBranch { get; set; } = "origin/main";
+
+    public Task<string> DefaultBranchAsync(string directory, CancellationToken cancellationToken) =>
+        Task.FromResult(DefaultBranch);
+
     public Task<bool> RefExistsAsync(string directory, string gitRef, CancellationToken cancellationToken)
     {
         var refExists = Refs.ContainsKey(gitRef);
+        if (refExists && _pushedOnlyIn.TryGetValue(gitRef, out var directories))
+        {
+            refExists = directories.Contains(directory);
+        }
 
         return Task.FromResult(refExists);
     }
@@ -113,7 +129,21 @@ public sealed class FakeGit : IGitClient
         }
 
         Pushes.Add((source, branch));
-        Refs["origin/" + branch] = Refs["HEAD"];
+        PushLog.Add((directory, source, branch));
+
+        var remoteRef = "origin/" + branch;
+        if (!Refs.ContainsKey(remoteRef) || _pushedOnlyIn.ContainsKey(remoteRef))
+        {
+            if (!_pushedOnlyIn.TryGetValue(remoteRef, out var pushedIn))
+            {
+                pushedIn = [];
+                _pushedOnlyIn[remoteRef] = pushedIn;
+            }
+
+            pushedIn.Add(directory);
+        }
+
+        Refs[remoteRef] = Refs["HEAD"];
 
         return Task.CompletedTask;
     }
@@ -136,6 +166,30 @@ public sealed class FakeGit : IGitClient
         string headRef,
         CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(ChangedFiles);
 
+    /// <summary>Paths that differ from HEAD per clone folder, as the pretend agent left them. A restore removes them.</summary>
+    public Dictionary<string, List<string>> Changed { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every path the scope guard restored, with the clone it was in.</summary>
+    public List<(string Directory, string Path)> Restored { get; } = [];
+
+    public Task<IReadOnlyList<string>> ChangedPathsAsync(string directory, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> paths = Changed.TryGetValue(directory, out var changed) ? [.. changed] : [];
+
+        return Task.FromResult(paths);
+    }
+
+    public Task RestorePathsAsync(string directory, IReadOnlyList<string> paths, CancellationToken cancellationToken)
+    {
+        foreach (var path in paths)
+        {
+            Restored.Add((directory, path));
+            Changed.GetValueOrDefault(directory)?.Remove(path);
+        }
+
+        return Task.CompletedTask;
+    }
+
     /// <summary>Returned in order; the last value repeats. Two different values = config changed.</summary>
     public Queue<string> Fingerprints { get; } = new();
 
@@ -152,13 +206,25 @@ public sealed class FakeWorkspace : IWorkspace, IDisposable
     public List<(string StartPoint, string? Branch)> Prepared { get; } = [];
     public List<string> Discarded { get; } = [];
 
-    public void Discard(string repo) => Discarded.Add(repo);
+    public List<WorkspaceRequest> Requests { get; } = [];
 
-    public Task<string> PrepareAsync(WorkspaceRequest request, CancellationToken cancellationToken)
+    public void Discard(ProjectConfig project, string repo) => Discarded.Add(repo);
+
+    /// <summary>The root is the temp folder; each repo of the project gets a clone folder in it.</summary>
+    public Task<PreparedWorkspace> PrepareAsync(WorkspaceRequest request, CancellationToken cancellationToken)
     {
         Prepared.Add((request.StartPoint, request.NewBranch));
+        Requests.Add(request);
 
-        return Task.FromResult(Dir);
+        var clones = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var repo in request.Project.Repos)
+        {
+            var clone = Path.Combine(Dir, ProjectConfig.FolderOf(repo));
+            Directory.CreateDirectory(clone);
+            clones[repo] = clone;
+        }
+
+        return Task.FromResult(new PreparedWorkspace(Dir, request.TargetRepo, clones));
     }
 
     public void Dispose() => FileSystem.DeleteDirectory(Dir);
@@ -174,6 +240,9 @@ public sealed class FakeProcesses : IProcessRunner
     public Dictionary<string, Queue<int>> ExitCodeSequence { get; } = [];
     public List<string> Commands { get; } = [];
 
+    /// <summary>Called with the command line of every run, to let a test model a command that writes files.</summary>
+    public Action<string>? OnCommand { get; set; }
+
     /// <summary>Printed by every command instead of "ran {command}".</summary>
     public string? StdOut { get; set; }
 
@@ -181,6 +250,7 @@ public sealed class FakeProcesses : IProcessRunner
     {
         var command = processSpec.RawArguments ?? string.Join(" ", processSpec.Args);
         Commands.Add(command);
+        OnCommand?.Invoke(command);
 
         var sequence = ExitCodeSequence.FirstOrDefault(entry => command.Contains(entry.Key)).Value;
         var exitCode = sequence is { Count: > 0 }
@@ -196,6 +266,16 @@ public sealed class FakeProcesses : IProcessRunner
             duration,
             false));
     }
+}
+
+/// <summary>A clock a test can move, for the 30 minute claim rule.</summary>
+public sealed class FakeTime : TimeProvider
+{
+    private DateTimeOffset _now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+
+    public override DateTimeOffset GetUtcNow() => _now;
+
+    public void Advance(TimeSpan span) => _now += span;
 }
 
 /// <summary>Everything a job test needs, wired like Program.cs but with fakes.</summary>
@@ -216,21 +296,23 @@ public sealed class JobTestKit : IDisposable
 
     private readonly string _tempFolder = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
 
-    public JobTestKit(Action<RepoConfig>? configure = null)
+    /// <param name="configure">Changes the settings of the project.</param>
+    /// <param name="project">A project of its own (see TestProjects) instead of the one-component default.</param>
+    public JobTestKit(Action<ProjectSettings>? configure = null, ProjectConfig? project = null)
     {
-        var repo = new RepoConfig
+        var component = new ComponentConfig
         {
-            Owner = "james",
             Name = "demo",
-            Workflows = [.. Workflows.All],
+            Repo = Repo,
             Commands = new CommandsConfig { Build = "make build", Test = "make test" },
         };
-        configure?.Invoke(repo);
+        Project = project ?? new ProjectConfig { Name = "demo", IssuesIn = "demo", Components = [component] };
+        configure?.Invoke(Project.Settings);
 
         Config = new RunnerConfig
         {
             GitBucket = new GitBucketConfig { BaseUrl = BaseUrl },
-            Repos = [repo],
+            Projects = [Project],
         };
         Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
         var stateFile = Path.Combine(_tempFolder, "state.db");
@@ -241,7 +323,12 @@ public sealed class JobTestKit : IDisposable
         Run = new JobRun(runFolder, NullLogger.Instance);
     }
 
-    public RepoConfig RepoConfig => Config.Repos[0];
+    /// <summary>The one project of the kit: one component in james/demo, which also holds the issues.</summary>
+    public ProjectConfig Project { get; }
+
+    public ProjectSettings Settings => Project.Settings;
+
+    public ComponentConfig Component => Project.Components[0];
 
     public AgentSession Session => new(Config, Workspace, Git, Copilot, Processes);
 
@@ -249,14 +336,26 @@ public sealed class JobTestKit : IDisposable
 
     public AttachmentFetcher Attachments => new(Config, GitBucket, Copilot);
 
-    public JobRequest Request(JobType type, int number, string? payload = null) => new(type, Repo, number, payload);
+    /// <summary>A request for an issue job (in the issues repo) or a PR job (in the first code repo).</summary>
+    public JobRequest Request(JobType type, int number, string? payload = null)
+    {
+        var isPullJob = type is JobType.ReviewPullRequest or JobType.FixReview;
+        var repo = isPullJob ? Project.CodeRepos[0] : Project.IssuesRepo;
+
+        return new JobRequest(type, repo, number, payload);
+    }
 
     /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
     public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs)
     {
         var logsFolder = Path.Combine(_tempFolder, "logs");
         var logs = Directory.CreateDirectory(logsFolder).FullName;
-        var config = new RunnerConfig { Repos = Config.Repos, Paths = new PathsConfig { Logs = logs } };
+        var config = new RunnerConfig
+        {
+            Projects = Config.Projects,
+            Paths = new PathsConfig { Logs = logs },
+            RunnerName = Config.RunnerName,
+        };
         var queue = new JobQueue(State, NullLogger<JobQueue>.Instance);
         var worker = new JobWorker(
             config,
@@ -266,10 +365,14 @@ public sealed class JobTestKit : IDisposable
             new CostLog(config, State, NullLogger<CostLog>.Instance),
             State,
             GitBucket,
+            new ClaimService(config, GitBucket, Time),
             NullLogger<JobWorker>.Instance);
 
         return (worker, queue, logs);
     }
+
+    /// <summary>The clock of the claims; a test moves it to age a claim.</summary>
+    public FakeTime Time { get; } = new();
 
     public void Dispose()
     {

@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using AiRunner.Tests.Fakes;
+using AiRunner.Jobs;
 using AiRunner.Infrastructure;
 
 namespace AiRunner.Tests.Infrastructure;
@@ -13,15 +16,20 @@ public sealed class GitWorkspaceTests : IDisposable
     private readonly RunnerConfig _config;
     private readonly GitClient _gitClient;
     private readonly Workspace _workspace;
+    private readonly ProjectConfig _project;
 
     public GitWorkspaceTests()
     {
         var reposFile = Path.Combine(_root, "repos.yml");
         File.WriteAllText(reposFile, $"""
-            gitBucket:
-              baseUrl: {new Uri(_root).AbsoluteUri}
+            git_bucket:
+              base_url: {new Uri(_root).AbsoluteUri}
+            repos:
+              - owner: o
+                name: r
             """);
         _config = RunnerConfig.Load(reposFile);
+        _project = _config.Projects.Single();
         var templatesFolder = Path.Combine(_root, "templates");
         Directory.CreateDirectory(templatesFolder);
         var templateFile = Path.Combine(_root, "templates", "analysis.md");
@@ -45,11 +53,43 @@ public sealed class GitWorkspaceTests : IDisposable
 
     public void Dispose() => FileSystem.DeleteDirectory(_root);
 
-    private Task<string> PrepareAsync(string startPoint, string? newBranch, params string[] extraFetch)
+    /// <summary>Prepares the project and returns the clone of o/r.</summary>
+    private async Task<string> PrepareAsync(string startPoint, string? newBranch, params string[] extraFetch)
     {
-        var request = new WorkspaceRequest("o/r", startPoint, newBranch, extraFetch);
+        var request = new WorkspaceRequest(_project, "o/r", startPoint, newBranch, extraFetch);
+        var prepared = await _workspace.PrepareAsync(request, default);
 
-        return _workspace.PrepareAsync(request, default);
+        return prepared.TargetClone;
+    }
+
+    private async Task<PreparedWorkspace> PrepareProjectAsync(ProjectConfig project, string targetRepo)
+    {
+        var request = new WorkspaceRequest(project, targetRepo, "origin/main", null, [])
+        {
+            Writable = true,
+        };
+
+        return await _workspace.PrepareAsync(request, default);
+    }
+
+    /// <summary>A second bare repo with one commit on main, like o/r.</summary>
+    private void SeedRepo(string repo, params (string Path, string Content)[] files)
+    {
+        var bare = Path.Combine(_root, "git", repo.Replace('/', Path.DirectorySeparatorChar) + ".git");
+        Git(_root, "init", "--bare", "-b", "main", bare);
+
+        var seed = Path.Combine(_root, "seed-" + repo.Replace('/', '-'));
+        Git(_root, "clone", bare, seed);
+        foreach (var (path, content) in files)
+        {
+            var file = Path.Combine(seed, path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, content);
+        }
+
+        Git(seed, "add", "-A");
+        Git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init");
+        Git(seed, "push", "origin", "HEAD:refs/heads/main");
     }
 
     [Fact]
@@ -57,7 +97,8 @@ public sealed class GitWorkspaceTests : IDisposable
     {
         var directory = await PrepareAsync("origin/main", "ai/issue-1");
 
-        var installedTemplate = Path.Combine(directory, ".ai-workflow", "templates", "analysis.md");
+        var projectRoot = Path.GetDirectoryName(directory)!;
+        var installedTemplate = Path.Combine(projectRoot, ".ai-workflow", "templates", "analysis.md");
         Assert.True(File.Exists(installedTemplate));
         var planFile = Path.Combine(directory, "plan.md");
         File.WriteAllText(planFile, "runner file, must not be committed");
@@ -149,6 +190,343 @@ public sealed class GitWorkspaceTests : IDisposable
             "extraHeader",
             File.ReadAllText(gitConfigFile),
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Every_repo_of_the_project_is_cloned_once_below_the_project_folder()
+    {
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        var project = new ProjectConfig
+        {
+            Name = "duo",
+            IssuesIn = "r",
+            Components =
+            [
+                new ComponentConfig { Name = "r", Repo = "o/r" },
+                new ComponentConfig { Name = "s", Repo = "o/s" },
+            ],
+        };
+
+        var prepared = await PrepareProjectAsync(project, "o/s");
+
+        var workFolder = _config.ResolvePath(_config.Paths.Work);
+        Assert.Equal(Path.Combine(workFolder, "duo"), prepared.Root);
+        Assert.Equal(Path.Combine(prepared.Root, "r"), prepared.CloneOf("o/r"));
+        Assert.Equal(Path.Combine(prepared.Root, "s"), prepared.TargetClone);
+        Assert.True(File.Exists(Path.Combine(prepared.CloneOf("o/r"), "app.txt")));
+        Assert.True(File.Exists(Path.Combine(prepared.CloneOf("o/s"), "lib.txt")));
+
+        // The target is on its start point, the sibling is detached at its default branch.
+        var siblingBranch = await GitOutputAsync(prepared.CloneOf("o/r"), "branch", "--show-current");
+        Assert.Equal("", siblingBranch.Trim());
+    }
+
+    [Fact]
+    public async Task Components_in_one_repo_share_one_clone()
+    {
+        SeedRepo("o/mono", ("apps/web/index.txt", "web\n"), ("apps/api/main.txt", "api\n"));
+        var project = new ProjectConfig
+        {
+            Name = "mono",
+            IssuesIn = "web",
+            Components =
+            [
+                new ComponentConfig { Name = "web", Repo = "o/mono", Path = "apps/web" },
+                new ComponentConfig { Name = "api", Repo = "o/mono", Path = "apps/api" },
+            ],
+        };
+
+        var prepared = await PrepareProjectAsync(project, "o/mono");
+
+        Assert.Single(prepared.Clones);
+        var clones = Directory.GetDirectories(prepared.Root).Where(folder => !folder.EndsWith(".ai-workflow"));
+        Assert.Equal([Path.Combine(prepared.Root, "mono")], clones);
+    }
+
+    [Fact]
+    public async Task An_existing_clone_is_fetched_not_cloned_again()
+    {
+        var first = await PrepareAsync("origin/main", null);
+        var keepFile = Path.Combine(first, ".git", "kept-between-jobs");
+        File.WriteAllText(keepFile, "x");
+
+        // A new commit on the server must be visible after the second prepare.
+        var seed = Path.Combine(_root, "seed");
+        File.WriteAllText(Path.Combine(seed, "app.txt"), "v2\n");
+        Git(seed, "add", "-A");
+        Git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "second");
+        Git(seed, "push", "origin", "HEAD:refs/heads/main");
+
+        var second = await PrepareAsync("origin/main", null);
+
+        Assert.True(File.Exists(keepFile));
+        Assert.Equal("v2\n", File.ReadAllText(Path.Combine(second, "app.txt")));
+    }
+
+    [Fact]
+    public async Task Runner_files_of_the_last_job_are_deleted_from_the_project_folder()
+    {
+        var clone = await PrepareAsync("origin/main", null);
+        var root = Path.GetDirectoryName(clone)!;
+        string[] stale = ["context.md", "plan.md", "PR_BODY.md", "fix.md", "diff.patch", "changed-files.txt"];
+        foreach (var name in stale)
+        {
+            File.WriteAllText(Path.Combine(root, name), "old job");
+        }
+
+        var attachments = Path.Combine(root, ".ai-workflow", "attachments");
+        Directory.CreateDirectory(attachments);
+        File.WriteAllText(Path.Combine(attachments, "old.png"), "old job");
+
+        await PrepareAsync("origin/main", null);
+
+        foreach (var name in stale)
+        {
+            Assert.False(File.Exists(Path.Combine(root, name)), name);
+        }
+
+        Assert.False(File.Exists(Path.Combine(attachments, "old.png")));
+        Assert.True(File.Exists(Path.Combine(root, ".ai-workflow", "templates", "analysis.md")));
+    }
+
+    [Fact]
+    public async Task Runner_files_stay_out_of_the_clone_and_out_of_a_commit()
+    {
+        var clone = await PrepareAsync("origin/main", "ai/issue-3");
+        var root = Path.GetDirectoryName(clone)!;
+
+        Assert.True(File.Exists(Path.Combine(root, "components.md")));
+        Assert.False(File.Exists(Path.Combine(clone, "components.md")));
+
+        // Even a runner file the agent writes inside the clone is never staged.
+        File.WriteAllText(Path.Combine(clone, "components.md"), "agent copy");
+        File.WriteAllText(Path.Combine(clone, "real.txt"), "work\n");
+        var stats = await _gitClient.StageAllAsync(clone, default);
+
+        Assert.Equal(["real.txt"], stats.Select(stat => stat.Path));
+    }
+
+    [Fact]
+    public async Task Components_md_lists_every_component_with_its_folder_and_role()
+    {
+        SeedRepo("o/docs", ("PROJECT.md", "about\n"));
+        SeedRepo("o/app", ("AGENTS.md", "app rules\n"), ("sub/AGENTS.md", "sub rules\n"));
+        var project = new ProjectConfig
+        {
+            Name = "app",
+            IssuesIn = "docs",
+            Components =
+            [
+                new ComponentConfig { Name = "docs", Repo = "o/docs", Code = false },
+                new ComponentConfig { Name = "app", Repo = "o/app", Path = "." },
+            ],
+        };
+
+        var prepared = await PrepareProjectAsync(project, "o/app");
+
+        var componentsFile = Path.Combine(prepared.Root, "components.md");
+        var text = File.ReadAllText(componentsFile);
+        var docsLine = text.Split('\n').Single(line => line.StartsWith("| docs "));
+        var appLine = text.Split('\n').Single(line => line.StartsWith("| app "));
+
+        Assert.Contains("Project description (read it first)", text);
+        Assert.Contains(Path.Combine(prepared.Root, "docs", "PROJECT.md"), text);
+        Assert.Contains("| no |", docsLine);
+        Assert.Contains("read-only", docsLine);
+        Assert.Contains("target - you may write here", appLine);
+        Assert.Contains(Path.Combine(prepared.Root, "app", "AGENTS.md"), appLine);
+    }
+
+    [Fact]
+    public async Task Discard_deletes_only_that_clone()
+    {
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        var project = new ProjectConfig
+        {
+            Name = "duo",
+            IssuesIn = "r",
+            Components =
+            [
+                new ComponentConfig { Name = "r", Repo = "o/r" },
+                new ComponentConfig { Name = "s", Repo = "o/s" },
+            ],
+        };
+        var prepared = await PrepareProjectAsync(project, "o/r");
+
+        _workspace.Discard(project, "o/s");
+
+        Assert.False(Directory.Exists(prepared.CloneOf("o/s")));
+        Assert.True(Directory.Exists(prepared.CloneOf("o/r")));
+    }
+
+    // ---- scope guard: the git side ----
+
+    private async Task<string> PrepareSingleRepoAsync(string repo, params (string Path, string Content)[] files)
+    {
+        SeedRepo(repo, files);
+        var project = new ProjectConfig
+        {
+            Name = "solo",
+            IssuesIn = "g",
+            Components = [new ComponentConfig { Name = "g", Repo = repo }],
+        };
+        var prepared = await PrepareProjectAsync(project, repo);
+
+        return prepared.TargetClone;
+    }
+
+    private static void Write(string clone, string path, string content)
+    {
+        var file = Path.Combine(clone, path.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, content);
+    }
+
+    private static string Read(string clone, string path) =>
+        File.ReadAllText(Path.Combine(clone, path.Replace('/', Path.DirectorySeparatorChar)));
+
+    private static bool Exists(string clone, string path) =>
+        File.Exists(Path.Combine(clone, path.Replace('/', Path.DirectorySeparatorChar)));
+
+    [Fact]
+    public async Task Changed_paths_list_tracked_untracked_and_deleted_files_but_not_ignored_ones()
+    {
+        var clone = await PrepareSingleRepoAsync(
+            "o/g", (".gitignore", "bin/\n"), ("keep.txt", "k\n"), ("gone.txt", "g\n"), ("sub/a.txt", "a\n"));
+        Write(clone, "keep.txt", "changed\n");
+        Write(clone, "staged.txt", "staged\n");
+        Write(clone, "new file [1].txt", "new\n");
+        Write(clone, "sub/n.txt", "n\n");
+        Write(clone, "bin/out.dll", "ignored\n");
+        File.Delete(Path.Combine(clone, "gone.txt"));
+        Git(clone, "add", "staged.txt");
+
+        var paths = await _gitClient.ChangedPathsAsync(clone, default);
+
+        Assert.Equal(
+            ["gone.txt", "keep.txt", "new file [1].txt", "staged.txt", "sub/n.txt"],
+            paths.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Restore_puts_tracked_files_back_and_deletes_untracked_ones()
+    {
+        var clone = await PrepareSingleRepoAsync(
+            "o/g", (".gitignore", "bin/\n"), ("keep.txt", "k\n"), ("gone.txt", "g\n"), ("sub/a.txt", "a\n"));
+        Write(clone, "keep.txt", "changed\n");
+        Write(clone, "sub/a.txt", "changed\n");
+        Write(clone, "new file [1].txt", "new\n");
+        Write(clone, "sub/n.txt", "n\n");
+        File.Delete(Path.Combine(clone, "gone.txt"));
+        Git(clone, "add", "-A");   // a staged change must go too
+
+        string[] toUndo = ["keep.txt", "gone.txt", "new file [1].txt", "sub/n.txt"];
+        await _gitClient.RestorePathsAsync(clone, toUndo, default);
+
+        Assert.Equal("k\n", Read(clone, "keep.txt"));
+        Assert.Equal("g\n", Read(clone, "gone.txt"));
+        Assert.False(Exists(clone, "new file [1].txt"));
+        Assert.False(Exists(clone, "sub/n.txt"));
+        Assert.Equal("changed\n", Read(clone, "sub/a.txt"));   // not asked for, so it stays
+        Assert.Equal(["sub/a.txt"], await _gitClient.ChangedPathsAsync(clone, default));
+    }
+
+    [Fact]
+    public async Task Restore_never_deletes_outside_the_clone()
+    {
+        var clone = await PrepareSingleRepoAsync("o/g", ("keep.txt", "k\n"));
+        var outside = Path.Combine(Path.GetDirectoryName(clone)!, "outside.txt");
+        File.WriteAllText(outside, "mine");
+
+        await _gitClient.RestorePathsAsync(clone, ["../outside.txt"], default);
+
+        Assert.True(File.Exists(outside));
+    }
+
+    [Fact]
+    public async Task The_scope_guard_keeps_the_target_component_and_undoes_everything_else()
+    {
+        SeedRepo(
+            "o/mono",
+            ("README.md", "readme\n"),
+            ("apps/web/w.txt", "w\n"),
+            ("apps/api/a.txt", "a\n"),
+            ("apps/api/migrations/001.sql", "create\n"));
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        var project = new ProjectConfig
+        {
+            Name = "mono",
+            IssuesIn = "web",
+            Components =
+            [
+                new ComponentConfig { Name = "web", Repo = "o/mono", Path = "apps/web" },
+                new ComponentConfig { Name = "api", Repo = "o/mono", Path = "apps/api" },
+                new ComponentConfig { Name = "sib", Repo = "o/s" },
+            ],
+        };
+        project.Settings.NeverEdit = ["migrations/"];
+        var request = new WorkspaceRequest(project, "o/mono", "origin/main", "ai/issue-1", [])
+        {
+            Writable = true,
+            TargetComponent = "api",
+        };
+        var prepared = await _workspace.PrepareAsync(request, default);
+        var mono = prepared.CloneOf("o/mono");
+        var sibling = prepared.CloneOf("o/s");
+
+        var copilot = new FakeCopilot();
+        copilot.OnRun = (_, _) =>
+        {
+            Write(mono, "apps/api/a.txt", "a changed\n");
+            Write(mono, "apps/api/new.txt", "new\n");
+            Write(mono, "apps/web/w.txt", "w changed\n");
+            Write(mono, "README.md", "readme changed\n");
+            Write(mono, "apps/api/migrations/001.sql", "drop\n");
+            Write(sibling, "lib.txt", "lib changed\n");
+            Write(sibling, "extra.txt", "extra\n");
+        };
+        var session = new AgentSession(_config, _workspace, _gitClient, copilot, new FakeProcesses());
+        var task = new AgentTask(
+            "implement-issue", Workflows.Implement, "implement", "prompt", "fix prompt", "PR_BODY.md", _ => [], "origin/main");
+        var runFolder = Path.Combine(_root, "run");
+        var run = new JobRun(runFolder, NullLogger.Instance);
+        var context = new AgentRunContext(project, project.Components[1], prepared, run);
+
+        var result = await session.RunAsync(task, context, default);
+
+        // Kept: the edits inside the target component. Undone: all other edits, listed with a reason.
+        Assert.Equal("a changed\n", Read(mono, "apps/api/a.txt"));
+        Assert.Equal("new\n", Read(mono, "apps/api/new.txt"));
+        Assert.Equal("w\n", Read(mono, "apps/web/w.txt"));
+        Assert.Equal("readme\n", Read(mono, "README.md"));
+        Assert.Equal("create\n", Read(mono, "apps/api/migrations/001.sql"));
+        Assert.Equal("lib\n", Read(sibling, "lib.txt"));
+        Assert.False(Exists(sibling, "extra.txt"));
+
+        Assert.Equal(
+            [
+                ("o/mono", "README.md", ScopeRules.OutsideReason),
+                ("o/mono", "apps/api/migrations/001.sql", ScopeRules.NeverEditReason),
+                ("o/mono", "apps/web/w.txt", ScopeRules.OutsideReason),
+                ("o/s", "extra.txt", ScopeRules.ReadOnlyReason),
+                ("o/s", "lib.txt", ScopeRules.ReadOnlyReason),
+            ],
+            result.Undone
+                .Select(change => (change.Repo, change.Path, change.Reason))
+                .OrderBy(change => change.Repo, StringComparer.Ordinal)
+                .ThenBy(change => change.Path, StringComparer.Ordinal));
+
+        // What is committed is the target component only.
+        var stats = await _gitClient.StageAllAsync(mono, default);
+        Assert.Equal(["apps/api/a.txt", "apps/api/new.txt"], stats.Select(stat => stat.Path).Order());
+    }
+
+    private async Task<string> GitOutputAsync(string directory, params string[] args)
+    {
+        var timeout = TimeSpan.FromMinutes(1);
+        var result = await _processRunner.RunAsync(new ProcessSpec("git", args, directory, timeout), default);
+
+        return result.StdOut;
     }
 
     [Fact]

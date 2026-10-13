@@ -79,6 +79,10 @@ flowchart TD
 
 *Order matters: `ai:failed` and cloud labels win over everything; `ai-implement` wins over `ai-breakdown`, which wins over `ai:parent`, which wins over analysis. If a workflow is switched off for the repo, the answer is "Skip". Source: `Core/JobPlanner.cs:22-55`. ImplementIssue/BreakdownIssue are queued even when the labels are wrong, so the **job** can explain the refusal and remove the label (`JobPlanner.cs:33-36`).*
 
+### Finishing a simple issue
+
+An open issue with `ai:implementing`, without `ai-implement`, `ai:parent` and `ai:sub-issue`, is planned as `FinishIssue` (a routine decision, logged at Debug). The job looks for the PR `ai/issue-<n>` in the target component's repo: merged = comment and close the issue; closed without a merge = comment and drop `ai:implementing`; open or no PR = quiet. Sub-issues are closed by the sequencer of their parent instead.
+
 ## Flow: planning an issue (part 2 - analysis rules)
 
 ```mermaid

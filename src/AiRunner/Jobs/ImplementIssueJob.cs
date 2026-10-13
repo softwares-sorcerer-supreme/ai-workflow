@@ -5,14 +5,18 @@ using AiRunner.Infrastructure;
 
 namespace AiRunner.Jobs;
 
-/// <summary>What ImplementIssueJob works on once it has an issue, its branches and a clone.</summary>
+/// <summary>What ImplementIssueJob works on once it has an issue, its branches and the project folder.</summary>
+/// <param name="Target">The component the code is changed in; its repo gets the branch and the PR.</param>
+/// <param name="IssueRepo">The repo that holds the issue: the project's issues repo.</param>
 /// <param name="BaseBranch">The branch the PR goes into.</param>
 /// <param name="Branch">The branch the work is pushed to.</param>
 /// <param name="Plan">The text of plan.md.</param>
 public sealed record ImplementationRequest(
-    RepoConfig Repo,
+    ProjectConfig Project,
+    ComponentConfig Target,
+    string IssueRepo,
     GbIssue Issue,
-    string Directory,
+    PreparedWorkspace Workspace,
     string BaseBranch,
     string Branch,
     string Plan)
@@ -59,7 +63,7 @@ public sealed class ImplementIssueJob(
 
     public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
     {
-        var (repo, issue, comments, decision) = await jobLoader.LoadIssueAsync(request, cancellationToken);
+        var (project, issue, comments, decision) = await jobLoader.LoadIssueAsync(request, cancellationToken);
         if (decision.Job?.Type != Type)
         {
             return JobOutcome.NotNeeded(decision.Reason);
@@ -72,14 +76,21 @@ public sealed class ImplementIssueJob(
             return await RejectAsync(request.Repo, issue, rejectionReason, cancellationToken);
         }
 
-        // Base branch, work branch and plan: a sub-issue builds on the parent's feature branch.
+        // The issue is in the issues repo; the code, the branch and the PR are in the target component's repo.
+        // A sub-issue names its component; a simple issue gets it from its analysis.
         var subIssue = issue.HasLabel(Labels.SubIssue)
             ? JobSupport.Parse(() => SubIssueBody.Parse(issue.Body), "The sub-issue body")
             : null;
+        var target = subIssue is not null
+            ? project.TargetComponent(subIssue.Component)
+            : project.TargetOfIssue(comments);
+        var targetRepo = target.Repo;
+
+        // Base branch, work branch and plan: a sub-issue builds on the parent's feature branch.
         string baseBranch, branch, plan;
         if (subIssue is not null)
         {
-            var waitingFor = await PreviousSubIssueNotDoneAsync(request.Repo, subIssue, cancellationToken);
+            var waitingFor = await PreviousSubIssueNotDoneAsync(project, subIssue, cancellationToken);
             if (waitingFor is not null)
             {
                 var waitingReason =
@@ -97,7 +108,7 @@ public sealed class ImplementIssueJob(
         {
             var spec = JobSupport.LatestBlock(comments, Markers.Spec)
                 ?? throw new JobFailedException("No SPEC comment on this issue. Run the analysis until Status is ready.");
-            baseBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
+            baseBranch = await gitBucketClient.DefaultBranchAsync(targetRepo, cancellationToken);
             branch = Branches.Issue(issue.Number);
             plan = ContextBuilder.PlanFromSpec(issue, spec);
         }
@@ -108,7 +119,7 @@ public sealed class ImplementIssueJob(
         }
 
         // A PR from this branch is already open (e.g. an earlier run stopped right after opening it).
-        var openPulls = await gitBucketClient.ListPullsAsync(request.Repo, "open", cancellationToken);
+        var openPulls = await gitBucketClient.ListPullsAsync(targetRepo, "open", cancellationToken);
         var openPull = openPulls.Find(branch, baseBranch);
         if (openPull is not null)
         {
@@ -126,22 +137,28 @@ public sealed class ImplementIssueJob(
         var baseRemote = Branches.Remote(baseBranch);
         var branchRemote = Branches.Remote(branch);
         var workspaceRequest = new WorkspaceRequest(
-            Repo: request.Repo,
+            Project: project,
+            TargetRepo: targetRepo,
             StartPoint: baseRemote,
             NewBranch: branch,
-            ExtraFetch: []);
-        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+            ExtraFetch: [])
+        {
+            Writable = true,
+            TargetComponent = target.Name,
+        };
+        var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var clone = prepared.TargetClone;
 
         // The commits are only counted when the branch exists.
-        var branchExists = await git.RefExistsAsync(directory, branchRemote, cancellationToken);
+        var branchExists = await git.RefExistsAsync(clone, branchRemote, cancellationToken);
         var savedCommitCount = branchExists
-            ? await git.CountCommitsAsync(directory, baseRemote, branchRemote, cancellationToken)
+            ? await git.CountCommitsAsync(clone, baseRemote, branchRemote, cancellationToken)
             : 0;
         if (savedCommitCount > 0)
         {
             // Only the runner's own commits (saved work of an earlier run) are continued;
             // anything else belongs to a person.
-            var authors = await git.AuthorsAsync(directory, baseRemote, branchRemote, cancellationToken);
+            var authors = await git.AuthorsAsync(clone, baseRemote, branchRemote, cancellationToken);
             var hasForeignAuthor = authors.Any(
                 author => !string.Equals(author, config.Git.UserEmail, StringComparison.OrdinalIgnoreCase));
             if (hasForeignAuthor)
@@ -152,7 +169,7 @@ public sealed class ImplementIssueJob(
             }
 
             var continueRequest = workspaceRequest with { StartPoint = branchRemote };
-            directory = await workspace.PrepareAsync(continueRequest, cancellationToken);
+            prepared = await workspace.PrepareAsync(continueRequest, cancellationToken);
             plan += "\n\nEarlier work from a previous run is already on this branch. Continue from it; do not start again.\n";
             run.Info($"continuing from the saved work on {branch}");
         }
@@ -160,11 +177,12 @@ public sealed class ImplementIssueJob(
         // A sub-issue plan is its own body (the parent thread is not part of it), so only that body is scanned.
         var issueBody = new AttachmentSource("the issue body", issue.Body);
         IReadOnlyList<GbComment> attachmentComments = subIssue is null ? comments : [];
-        var attachmentRequest = AttachmentRequest.Of(directory, issueBody, attachmentComments);
+        var attachmentRequest = AttachmentRequest.Of(prepared.Root, issueBody, attachmentComments);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
         plan += fetched.Section;
 
-        var planFile = Path.Combine(directory, "plan.md");
+        plan += JobSupport.WhereToWorkSection([target], prepared);
+        var planFile = Path.Combine(prepared.Root, "plan.md");
         await File.WriteAllTextAsync(planFile, plan, cancellationToken);
         run.Save("plan.md", plan);
 
@@ -177,9 +195,11 @@ public sealed class ImplementIssueJob(
             cancellationToken);
 
         var implementation = new ImplementationRequest(
-            Repo: repo,
+            Project: project,
+            Target: target,
+            IssueRepo: request.Repo,
             Issue: issue,
-            Directory: directory,
+            Workspace: prepared,
             BaseBranch: baseBranch,
             Branch: branch,
             Plan: plan)
@@ -204,7 +224,8 @@ public sealed class ImplementIssueJob(
         JobRun run,
         CancellationToken cancellationToken)
     {
-        var (repo, issue, directory, baseBranch, branch, plan) = implementation;
+        var (project, target, issueRepo, issue, prepared, baseBranch, branch, plan) = implementation;
+        var settings = project.Settings;
         var diffBase = Branches.Remote(baseBranch);
         var task = new AgentTask(
             Agent,
@@ -218,7 +239,7 @@ public sealed class ImplementIssueJob(
         {
             Attachments = implementation.Attachments,
         };
-        var context = new AgentRunContext(repo, directory, run);
+        var context = new AgentRunContext(project, target, prepared, run);
         var result = await session.RunAsync(task, context, cancellationToken);
         if (result.FirstFailure is { } firstFailure)
         {
@@ -238,43 +259,51 @@ public sealed class ImplementIssueJob(
                     ?? throw new JobFailedException("Copilot finished without changing any file.");
 
         var lines = stats.Sum(diffStat => diffStat.Lines);
-        if (!repo.Limits.Allows(stats.Count, lines))
+        if (!settings.Limits.Allows(stats.Count, lines))
         {
+            var isSubIssue = issue.HasLabel(Labels.SubIssue);
+            var tooBigAdvice = isSubIssue
+                ? $"A sub-issue cannot be split again. Finish it by hand on that branch (open a PR from `{branch}` into " +
+                  $"`{baseBranch}`), or delete the branch to start over, then remove `{Labels.Failed}`."
+                : $"Please split the issue (write {settings.TriggerKeyword} and ask for a breakdown) " +
+                  "or finish it by hand on that branch. To start over, delete the branch.";
             await gitBucketClient.AddCommentAsync(
-                repo.FullName,
+                issueRepo,
                 issue.Number,
                 $"The change grew beyond \"simple\": {stats.Count} files and {lines} changed lines " +
-                $"(limits: {repo.Limits.MaxChangedFiles} files, {repo.Limits.MaxDiffLines} lines). I did not open a PR, " +
-                $"but the code is saved on branch `{branch}`. " +
-                "Please split the issue (write @ai and ask for a breakdown) or finish it by hand on that branch. " +
-                "To start over, delete the branch.",
+                $"(limits: {settings.Limits.MaxChangedFiles} files, {settings.Limits.MaxDiffLines} lines). " +
+                $"I did not open a PR, but the code is saved on branch `{branch}`. " + tooBigAdvice,
                 cancellationToken);
 
-            var tooBigChange = LabelChange.Removing(Labels.Implement, Labels.Implementing);
-            await gitBucketClient.ApplyLabelsAsync(repo.FullName, issue.Number, tooBigChange, cancellationToken);
+            // Without ai:failed the sequencer would start this sub-issue again on the next poll, and so on forever.
+            var tooBigChange = new LabelChange(
+                Add: isSubIssue ? [Labels.Failed] : [],
+                Remove: [Labels.Implement, Labels.Implementing]);
+            await gitBucketClient.ApplyLabelsAsync(issueRepo, issue.Number, tooBigChange, cancellationToken);
 
             return new JobOutcome(
                 "too-big", $"{stats.Count} files, {lines} lines, {result.Rounds.Count} copilot calls");
         }
 
-        var openPulls = await gitBucketClient.ListPullsAsync(repo.FullName, "open", cancellationToken);
+        var openPulls = await gitBucketClient.ListPullsAsync(target.Repo, "open", cancellationToken);
         var pull = openPulls.Find(branch, baseBranch);
 
         // Only open a PR when none from this branch exists yet.
         if (pull is null)
         {
             var pullTitle = (failing ? "[WIP - checks failing] " : "") + issue.Title;
-            var pullBody = PullBody(issue.Number, prBody, result);
+            var issueRef = new IssueRef(issueRepo, issue.Number);
+            var pullBody = PullBody(issueRef, prBody, result);
             var newPull = new NewPull(pullTitle, branch, baseBranch, pullBody);
-            pull = await gitBucketClient.CreatePullAsync(repo.FullName, newPull, cancellationToken);
+            pull = await gitBucketClient.CreatePullAsync(target.Repo, newPull, cancellationToken);
         }
 
         var finishedChange = LabelChange.Removing(Labels.Implement);
-        await gitBucketClient.ApplyLabelsAsync(repo.FullName, issue.Number, finishedChange, cancellationToken);
+        await gitBucketClient.ApplyLabelsAsync(issueRepo, issue.Number, finishedChange, cancellationToken);
         await gitBucketClient.AddCommentAsync(
-            repo.FullName,
+            issueRepo,
             issue.Number,
-            $"Copilot opened PR #{pull.Number} from `{branch}` into `{baseBranch}`." +
+            $"Copilot opened PR {JobSupport.PullRef(pull.Number, issueRepo, target.Repo)} from `{branch}` into `{baseBranch}`." +
             (failing ? " Build, test or lint is still failing; the PR is marked WIP." : ""),
             cancellationToken);
 
@@ -291,19 +320,24 @@ public sealed class ImplementIssueJob(
     {
         var issue = implementation.Issue;
         var message = $"#{issue.Number}: {issue.Title} (Copilot)";
-        var work = new WorkToSave(implementation.Directory, message, implementation.Branch);
+        var work = new WorkToSave(implementation.Workspace.TargetClone, message, implementation.Branch);
 
         return session.SaveWorkAsync(work, run, cancellationToken);
     }
 
+    /// <summary>
+    /// The number of the previous sub-issue when it is not done yet, else null. Its PR is in the repo of its own
+    /// component, which can differ from the repo of this sub-issue.
+    /// </summary>
     private async Task<int?> PreviousSubIssueNotDoneAsync(
-        string repoName, SubIssueInfo subIssue, CancellationToken cancellationToken)
+        ProjectConfig project, SubIssueInfo subIssue, CancellationToken cancellationToken)
     {
         if (subIssue.Order <= 1)
         {
             return null;
         }
 
+        var repoName = project.IssuesRepo;
         var parentComments = await gitBucketClient.ListCommentsAsync(repoName, subIssue.Parent, cancellationToken);
         var subIssueNumbers = SubIssueBody.FindList(parentComments)
             ?? throw new JobFailedException($"Parent #{subIssue.Parent} has no sub-issue list; cannot check the order.");
@@ -316,7 +350,14 @@ public sealed class ImplementIssueJob(
 
         var previous = await gitBucketClient.GetIssueAsync(
             repoName, subIssueNumbers[subIssue.Order - 2], cancellationToken);
-        var pulls = await gitBucketClient.ListPullsAsync(repoName, "closed", cancellationToken);
+        if (!previous.IsOpen())
+        {
+            return null;
+        }
+
+        var previousInfo = JobSupport.Parse(() => SubIssueBody.Parse(previous.Body), "The previous sub-issue body");
+        var previousRepo = project.TargetComponent(previousInfo?.Component).Repo;
+        var pulls = await gitBucketClient.ListPullsAsync(previousRepo, "closed", cancellationToken);
 
         var previousSlot = new SubIssueSlot(subIssue.Parent, subIssue.Order - 1);
         var isPreviousDone = SubIssueBody.IsDone(previous, previousSlot, pulls);
@@ -332,7 +373,7 @@ public sealed class ImplementIssueJob(
         return new JobOutcome("rejected", reason);
     }
 
-    private static string PullBody(int number, string prBody, AgentResult result)
+    private static string PullBody(IssueRef issue, string prBody, AgentResult result)
     {
         var builder = new StringBuilder();
         if (result.Failing)
@@ -344,8 +385,15 @@ public sealed class ImplementIssueJob(
         var trimmedPrBody = prBody.Trim();
         builder.AppendLine(trimmedPrBody).AppendLine();
         AgentSession.AppendReport(builder, result, "PR description problems");
-        builder.AppendLine().AppendLine($"Closes #{number}");
 
-        return builder.ToString();
+        // The agent is told not to write "Closes #n", but nothing else stops it. GitBucket could then close an
+        // unrelated issue with that number in the PR's repo, so the keyword is neutralised in everything the agent
+        // or the checks wrote. The runner's own line below comes after, so it is never touched.
+        var safeText = CloseKeywords.Neutralize(builder.ToString());
+
+        // Never "Closes": GitBucket would not close an issue in another repo, and the runner closes the issue itself.
+        var issueLine = $"Issue: {issue.Repo}#{issue.Number}";
+
+        return safeText + Environment.NewLine + issueLine + Environment.NewLine;
     }
 }

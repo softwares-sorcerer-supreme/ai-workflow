@@ -18,6 +18,16 @@ public sealed class JobRun(string directory, ILogger logger)
 
     public TimeSpan TimeLeft => Deadline - DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// Set by JobWorker for a routine job when claims are on. The job calls <see cref="ClaimAsync"/> just before its
+    /// first write; without a claimer (claims off, or a test) the answer is always yes.
+    /// </summary>
+    public Func<CancellationToken, Task<bool>>? Claimer { get; set; }
+
+    /// <summary>True when the job may write: this runner holds the claim, or claims are off.</summary>
+    public Task<bool> ClaimAsync(CancellationToken cancellationToken) =>
+        Claimer is null ? Task.FromResult(true) : Claimer(cancellationToken);
+
     public void Save(string fileName, string content)
     {
         var directoryPath = EnsureDir();

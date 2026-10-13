@@ -138,7 +138,9 @@ public sealed class SequenceSubIssuesJobTests : IDisposable
         Assert.Equal("main", final.Base.Ref);
         Assert.Contains("#50", final.Body);
         Assert.Contains("#51", final.Body);
-        Assert.Contains("Closes #12", final.Body);
+        Assert.Contains("Issue: james/demo#12", final.Body);
+        Assert.DoesNotContain("Closes", final.Body);
+        Assert.Contains(SubIssueBody.FinalPrsMarker, _kit.GitBucket.CommentsOf(12).Last().Body);
 
         var againRequest = _kit.Request(JobType.SequenceSubIssues, 12);
         var again = await Job.RunAsync(againRequest, _kit.Run, default);

@@ -26,11 +26,14 @@ public class MarkersTests
 
 public class AnalysisParserTests
 {
+    private static readonly string[] Demo = ["demo"];
+    private static readonly string[] BackendAndFrontend = ["backend", "frontend"];
+
     [Fact]
     public void Questions_open_adds_label_and_removes_ready_and_complexity()
     {
         var block = Samples.Analysis("questions-open", "simple");
-        var result = AnalysisParser.Parse(block);
+        var result = AnalysisParser.Parse(block, Demo);
 
         Assert.Equal(AnalysisStatus.QuestionsOpen, result.Status);
         Assert.Equal([Labels.QuestionsOpen], result.LabelsToAdd);
@@ -44,7 +47,7 @@ public class AnalysisParserTests
     public void Ready_sets_ready_and_complexity(string complexity, string add, string remove)
     {
         var block = Samples.Analysis("ready", complexity);
-        var result = AnalysisParser.Parse(block);
+        var result = AnalysisParser.Parse(block, Demo);
 
         Assert.Equal([Labels.Ready, add], result.LabelsToAdd);
         Assert.Equal([Labels.QuestionsOpen, remove], result.LabelsToRemove);
@@ -55,24 +58,177 @@ public class AnalysisParserTests
     [InlineData("done", "simple")]
     [InlineData("ready", "medium")]
     public void Values_outside_the_vocabulary_fail(string status, string complexity) =>
-        Assert.Throws<FormatException>(() => AnalysisParser.Parse(Samples.Analysis(status, complexity)));
+        Assert.Throws<FormatException>(() => AnalysisParser.Parse(Samples.Analysis(status, complexity), Demo));
 
     [Fact]
     public void Missing_status_line_fails() =>
-        Assert.Throws<FormatException>(() => AnalysisParser.Parse("**Complexity:** simple"));
+        Assert.Throws<FormatException>(() => AnalysisParser.Parse("**Complexity:** simple", Demo));
 
     [Fact]
     public void Plain_field_without_bold_is_read() =>
         Assert.Equal("ready", MarkdownSections.ReadField("Status: Ready\n", "Status"));
+
+    [Fact]
+    public void Components_affected_is_read_as_a_list_of_names()
+    {
+        var block = Samples.Analysis("ready", "complex", components: "backend, `frontend`");
+        var result = AnalysisParser.Parse(block, BackendAndFrontend);
+
+        Assert.Equal(["backend", "frontend"], result.Components);
+    }
+
+    [Fact]
+    public void All_means_every_code_component()
+    {
+        var block = Samples.Analysis("ready", "complex", components: "all");
+        var result = AnalysisParser.Parse(block, BackendAndFrontend);
+
+        Assert.Equal(["backend", "frontend"], result.Components);
+    }
+
+    [Fact]
+    public void Unknown_is_fine_while_questions_are_open_and_gives_no_components()
+    {
+        var block = Samples.Analysis("questions-open", "simple", components: "unknown");
+        var result = AnalysisParser.Parse(block, BackendAndFrontend);
+
+        Assert.Empty(result.Components);
+    }
+
+    [Fact]
+    public void Unknown_with_status_ready_fails()
+    {
+        var block = Samples.Analysis("ready", "simple", components: "unknown");
+        var exception = Assert.Throws<FormatException>(() => AnalysisParser.Parse(block, Demo));
+
+        Assert.Contains("unknown", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("questions-open")]
+    [InlineData("ready")]
+    public void A_missing_components_line_fails(string status)
+    {
+        var block = Samples.Analysis(status, "simple").Replace("**Components affected:**", "**Area:**");
+
+        Assert.Throws<FormatException>(() => AnalysisParser.Parse(block, Demo));
+    }
+
+    [Theory]
+    [InlineData("backend | all")]       // agent copied the template
+    [InlineData("<names, comma separated> | all")]
+    [InlineData("issues")]              // exists in the project, but holds no code
+    [InlineData("backend, shop")]
+    [InlineData("all, backend")]
+    [InlineData("")]
+    public void A_name_that_is_not_a_code_component_fails(string components)
+    {
+        var block = Samples.Analysis("ready", "complex", components: components);
+
+        Assert.Throws<FormatException>(() => AnalysisParser.Parse(block, BackendAndFrontend));
+    }
+
+    [Fact]
+    public void More_than_one_component_with_simple_complexity_fails()
+    {
+        var block = Samples.Analysis("ready", "simple", components: "backend, frontend");
+        var exception = Assert.Throws<FormatException>(() => AnalysisParser.Parse(block, BackendAndFrontend));
+
+        Assert.Contains("complex", exception.Message);
+    }
+
+    [Fact]
+    public void All_with_simple_complexity_fails_when_the_project_has_several_code_components()
+    {
+        var block = Samples.Analysis("ready", "simple", components: "all");
+
+        Assert.Throws<FormatException>(() => AnalysisParser.Parse(block, BackendAndFrontend));
+    }
+
+    [Fact]
+    public void All_with_simple_complexity_is_fine_when_the_project_has_one_code_component()
+    {
+        var block = Samples.Analysis("ready", "simple", components: "all");
+        var result = AnalysisParser.Parse(block, Demo);
+
+        Assert.Equal(["demo"], result.Components);
+    }
+
+    [Fact]
+    public void One_component_with_complex_complexity_is_fine()
+    {
+        var block = Samples.Analysis("ready", "complex", components: "frontend");
+        var result = AnalysisParser.Parse(block, BackendAndFrontend);
+
+        Assert.Equal(Complexity.Complex, result.Complexity);
+        Assert.Equal(["frontend"], result.Components);
+    }
+}
+
+public class SpecParserTests
+{
+    private static readonly string[] BackendAndFrontend = ["backend", "frontend"];
+
+    [Fact]
+    public void Reads_the_component_of_every_step()
+    {
+        var spec = Samples.SpecFor("backend", "frontend");
+        var steps = SpecParser.Parse(spec, BackendAndFrontend);
+
+        Assert.Equal(["backend", "frontend"], steps.Select(step => step.Component));
+        Assert.Equal("`src/Export2.cs`", steps[1].File);
+    }
+
+    [Fact]
+    public void A_component_name_is_matched_without_regard_to_case()
+    {
+        var steps = SpecParser.Parse(Samples.SpecFor("Backend"), BackendAndFrontend);
+
+        Assert.Equal("backend", Assert.Single(steps).Component);
+    }
+
+    [Theory]
+    [InlineData("all")]
+    [InlineData("backend, frontend")]
+    [InlineData("issues")]
+    [InlineData("")]
+    public void A_step_with_a_bad_component_fails(string component) =>
+        Assert.Throws<FormatException>(() => SpecParser.Parse(Samples.SpecFor(component), BackendAndFrontend));
+
+    [Fact]
+    public void The_old_three_column_table_fails()
+    {
+        var spec = """
+            ### Technical plan
+            | Step | File | Change |
+            | --- | --- | --- |
+            | 1 | `a.cs` | Add it. |
+            """;
+
+        var exception = Assert.Throws<FormatException>(() => SpecParser.Parse(spec, BackendAndFrontend));
+
+        Assert.Contains("4 cells", exception.Message);
+    }
+
+    [Fact]
+    public void A_missing_or_empty_technical_plan_fails()
+    {
+        Assert.Throws<FormatException>(() => SpecParser.Parse("### Goal\nExport.", BackendAndFrontend));
+        Assert.Throws<FormatException>(
+            () => SpecParser.Parse("### Technical plan\nNone\n\n### Data changes\nNone", BackendAndFrontend));
+    }
 }
 
 public class BreakdownParserTests
 {
+    private static readonly string[] Demo = ["demo"];
+    private static readonly string[] BackendAndFrontend = ["backend", "frontend"];
+
     [Fact]
     public void Reads_rows_dependencies_developer_tag_and_contract()
     {
         var block = Samples.Analysis("ready", "complex", Samples.BreakdownTable);
-        var breakdown = BreakdownParser.Parse(block);
+        var breakdown = BreakdownParser.Parse(block, Demo);
 
         Assert.Equal(3, breakdown.Tasks.Count);
         Assert.Equal("Export entity", breakdown.Tasks[0].Title);
@@ -88,7 +244,7 @@ public class BreakdownParserTests
     public void None_breakdown_fails_clearly()
     {
         var exception = Assert.Throws<FormatException>(
-            () => BreakdownParser.Parse(Samples.Analysis("ready", "complex")));
+            () => BreakdownParser.Parse(Samples.Analysis("ready", "complex"), Demo));
 
         Assert.Contains("None", exception.Message);
     }
@@ -98,21 +254,64 @@ public class BreakdownParserTests
         Assert.Throws<FormatException>(() => BreakdownParser.Parse(Samples.Analysis(
             "ready",
             "complex",
-            Samples.BreakdownTable.Replace("| 2 | Export command", "| 5 | Export command"))));
+            Samples.BreakdownTable.Replace("| 2 | demo | Export command", "| 5 | demo | Export command")),
+            Demo));
 
     [Fact]
     public void Missing_shared_contract_fails() =>
         Assert.Throws<FormatException>(() => BreakdownParser.Parse(Samples.Analysis(
             "ready",
             "complex",
-            Samples.BreakdownTable.Replace("Shared contract:", "Contract -"))));
+            Samples.BreakdownTable.Replace("Shared contract:", "Contract -")),
+            Demo));
 
     [Fact]
     public void Wrong_column_count_fails() =>
         Assert.Throws<FormatException>(() => BreakdownParser.Parse(Samples.Analysis(
             "ready",
             "complex",
-            "| # | Sub-task | Touches | Depends on |\n| --- | --- | --- | --- |\n| 1 | A - scope | x | - |\nShared contract: X")));
+            "| # | Sub-task | Touches | Depends on |\n| --- | --- | --- | --- |\n| 1 | A - scope | x | - |\nShared contract: X"),
+            Demo));
+
+    [Fact]
+    public void The_old_five_column_table_fails_with_the_new_layout_in_the_message()
+    {
+        var oldTable = "| # | Title | Scope | Touches | Depends on |\n| --- | --- | --- | --- | --- |\n" +
+                       "| 1 | A | scope | x | - |\nShared contract: X";
+
+        var exception = Assert.Throws<FormatException>(
+            () => BreakdownParser.Parse(Samples.Analysis("ready", "complex", oldTable), Demo));
+
+        Assert.Contains("6 cells", exception.Message);
+        Assert.Contains("Component", exception.Message);
+    }
+
+    [Fact]
+    public void Every_row_names_its_component()
+    {
+        var table = Samples.Breakdown("backend", "frontend", "backend");
+        var breakdown = BreakdownParser.Parse(Samples.Analysis("ready", "complex", table), BackendAndFrontend);
+
+        Assert.Equal(["backend", "frontend", "backend"], breakdown.Tasks.Select(task => task.Component));
+        Assert.Equal("Export entity", breakdown.Tasks[0].Title);
+        Assert.Equal("Export API", breakdown.Tasks[2].Title);
+    }
+
+    [Theory]
+    [InlineData("all")]
+    [InlineData("backend, frontend")]
+    [InlineData("issues")]
+    [InlineData("shop")]
+    [InlineData("")]
+    public void A_row_with_a_bad_component_fails(string component)
+    {
+        var table = Samples.Breakdown("backend", component, "frontend");
+        var block = Samples.Analysis("ready", "complex", table);
+
+        var exception = Assert.Throws<FormatException>(() => BreakdownParser.Parse(block, BackendAndFrontend));
+
+        Assert.Contains("row 2", exception.Message);
+    }
 }
 
 public class ReviewParserTests
@@ -150,7 +349,8 @@ public class ReviewParserTests
 
 public class SubIssueBodyTests
 {
-    private static readonly SubTask Task2 = new(2, "Export command", "Add the command.", "src/App", [1], false);
+    private static readonly SubTask Task2 =
+        new(2, "backend", "Export command", "Add the command.", "src/App", [1], false);
 
     [Fact]
     public void Build_and_parse_round_trip()
@@ -159,10 +359,40 @@ public class SubIssueBodyTests
         var body = SubIssueBody.Build(draft);
         var info = SubIssueBody.Parse(body);
 
-        Assert.Equal(new SubIssueInfo(12, 2, 3, "feat/issue-12"), info);
+        Assert.Equal(new SubIssueInfo(12, 2, 3, "feat/issue-12", "backend"), info);
         Assert.Contains("Depends on: #12.1", body);
         Assert.Contains("entity Export", body);
         Assert.Equal("#12.2 Export command", SubIssueBody.Title(12, Task2));
+    }
+
+    [Fact]
+    public void Build_writes_the_parent_and_component_lines_next_to_each_other()
+    {
+        var draft = new SubIssueDraft(12, Task2, 3, "entity Export");
+        var lines = SubIssueBody.Build(draft).Split('\n');
+
+        Assert.Equal("Parent: #12", lines[0].TrimEnd());
+        Assert.Equal("Component: backend", lines[1].TrimEnd());
+        Assert.Equal("Order: 2 of 3", lines[2].TrimEnd());
+    }
+
+    [Fact]
+    public void A_developer_sub_issue_says_it_is_done_when_closed_and_names_the_branch_that_counts()
+    {
+        var developerTask = Task2 with { NeedsDeveloper = true };
+        var body = SubIssueBody.Build(new SubIssueDraft(12, developerTask, 3, "entity Export"));
+
+        Assert.Contains("close this issue", body);
+        Assert.Contains("`ai/issue-12-2` into `feat/issue-12`", body);
+        Assert.DoesNotContain("merge it into", body);
+    }
+
+    [Fact]
+    public void A_sub_issue_written_before_components_existed_has_no_component()
+    {
+        var body = "Parent: #12\nOrder: 1 of 2\nBase branch: feat/issue-12\nDepends on: -\n\n### Scope\nx";
+
+        Assert.Null(SubIssueBody.Parse(body)!.Component);
     }
 
     [Fact]

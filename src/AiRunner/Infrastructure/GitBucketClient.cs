@@ -22,6 +22,12 @@ public interface IGitBucketClient
         string? assignee,
         CancellationToken cancellationToken);
 
+    /// <summary>Closed issues (no PRs) with the label, all pages.</summary>
+    Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
+        string repo,
+        string label,
+        CancellationToken cancellationToken);
+
     Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken);
@@ -33,6 +39,9 @@ public interface IGitBucketClient
     Task<GbComment> UpdateCommentAsync(string repo, long commentId, string body, CancellationToken cancellationToken);
 
     Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken);
+
+    /// <summary>Closes an issue (state = closed); nothing happens when it is closed already.</summary>
+    Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken);
 
     /// <summary>No error when the label is not on the issue.</summary>
     Task RemoveLabelAsync(string repo, int number, string label, CancellationToken cancellationToken);
@@ -97,6 +106,19 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
                      (assignee is null ? "" : $"&assignee={Uri.EscapeDataString(assignee)}");
         var items = await GetPagesAsync<GbIssue>(
             $"repos/{repo}/issues?state=open{filter}",
+            issue => issue.Number,
+            cancellationToken);
+
+        return items.Where(issue => !issue.IsPullRequest()).ToList();
+    }
+
+    public async Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
+        string repo,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        var items = await GetPagesAsync<GbIssue>(
+            $"repos/{repo}/issues?state=closed&labels={Uri.EscapeDataString(label)}",
             issue => issue.Number,
             cancellationToken);
 
@@ -176,6 +198,18 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             new
             {
                 body = markedBody
+            },
+            cancellationToken);
+    }
+
+    public async Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken)
+    {
+        await SendAsync<JsonElement>(
+            HttpMethod.Patch,
+            $"repos/{repo}/issues/{number}",
+            new
+            {
+                state = "closed"
             },
             cancellationToken);
     }

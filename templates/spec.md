@@ -15,10 +15,10 @@ One or two sentences.
 2. ...
 
 ### Technical plan
-| Step | File | Change |
-| --- | --- | --- |
-| 1 | `path/to/new/or/changed/file` | <what changes; name the existing file to copy the pattern from> |
-| 2 | ... | ... |
+| Step | Component | File | Change |
+| --- | --- | --- | --- |
+| 1 | <one component name> | `path/relative/to/the/component/folder` | <what changes; name the existing file to copy the pattern from> |
+| 2 | ... | ... | ... |
 
 ### Data changes
 - Entity / table / schema changes, or None. Migrations: yes / no.

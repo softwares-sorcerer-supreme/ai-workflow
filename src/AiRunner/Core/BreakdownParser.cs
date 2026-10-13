@@ -2,9 +2,11 @@ using System.Text.RegularExpressions;
 
 namespace AiRunner.Core;
 
+/// <param name="Component">The one code component this sub-task changes; its repo gets the PR.</param>
 /// <param name="NeedsDeveloper">The agent could not make this part simple; a developer builds it.</param>
 public sealed record SubTask(
     int Order,
+    string Component,
     string Title,
     string Scope,
     string Touches,
@@ -15,7 +17,8 @@ public sealed record Breakdown(IReadOnlyList<SubTask> Tasks, string SharedContra
 
 /// <summary>
 /// Reads "### Proposed breakdown" from an analysis block (Workflow 1b): a table
-/// | # | Title | Scope | Touches | Depends on | and a "Shared contract:" line.
+/// | # | Component | Title | Scope | Touches | Depends on | and a "Shared contract:" line.
+/// Each row names exactly one code component of the project.
 /// The layout is fixed by templates/analysis.md; anything else fails clearly.
 /// </summary>
 public static class BreakdownParser
@@ -23,24 +26,25 @@ public static class BreakdownParser
     private const string Heading = "Proposed breakdown";
     private const string DeveloperTag = "[developer]";
 
-    public static Breakdown Parse(string analysisBlock)
+    public static Breakdown Parse(string analysisBlock, IReadOnlyCollection<string> codeComponents)
     {
         var section = MarkdownSections.Get(analysisBlock, Heading)
             ?? throw new FormatException($"'### {Heading}' section not found in the latest analysis");
 
         if (MarkdownSections.IsNone(section))
         {
-            throw new FormatException($"'### {Heading}' is None; ask for a breakdown with @ai first");
+            throw new FormatException($"'### {Heading}' is None; ask for a breakdown in a comment first");
         }
 
         var tasks = new List<SubTask>();
 
         foreach (var cells in MarkdownSections.TableRows(section))
         {
-            if (cells.Length != 5)
+            if (cells.Length != 6)
             {
                 throw new FormatException(
-                    $"breakdown row must have 5 cells (# | Title | Scope | Touches | Depends on), got {cells.Length}: '{string.Join(" | ", cells)}'");
+                    "breakdown row must have 6 cells (# | Component | Title | Scope | Touches | Depends on), " +
+                    $"got {cells.Length}: '{string.Join(" | ", cells)}'");
             }
 
             var orderText = cells[0].Trim('#', ' ');
@@ -55,7 +59,8 @@ public static class BreakdownParser
                     $"breakdown rows must be numbered 1, 2, 3 ... in order; found {order} at position {tasks.Count + 1}");
             }
 
-            var title = cells[1];
+            var component = ComponentNames.ParseOne(cells[1], codeComponents, $"breakdown row {order}");
+            var title = cells[2];
             var needsDeveloper = title.StartsWith(DeveloperTag, StringComparison.OrdinalIgnoreCase);
 
             if (needsDeveloper)
@@ -63,22 +68,22 @@ public static class BreakdownParser
                 title = title[DeveloperTag.Length..].Trim();
             }
 
-            if (title.Length == 0 || cells[2].Length == 0)
+            if (title.Length == 0 || cells[3].Length == 0)
             {
                 throw new FormatException($"breakdown row {order} has an empty title or scope");
             }
 
-            var dependencies = Regex.Matches(cells[4], @"\d+")
+            var dependencies = Regex.Matches(cells[5], @"\d+")
                 .Select(match => int.Parse(match.Value))
                 .Distinct()
                 .ToList();
 
             if (dependencies.Any(dependency => dependency >= order))
             {
-                throw new FormatException($"breakdown row {order} depends on a later or same row ({cells[4]})");
+                throw new FormatException($"breakdown row {order} depends on a later or same row ({cells[5]})");
             }
 
-            tasks.Add(new SubTask(order, title, cells[2], cells[3], dependencies, needsDeveloper));
+            tasks.Add(new SubTask(order, component, title, cells[3], cells[4], dependencies, needsDeveloper));
         }
 
         if (tasks.Count == 0)

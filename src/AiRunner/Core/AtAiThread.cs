@@ -2,6 +2,9 @@ using System.Text.RegularExpressions;
 
 namespace AiRunner.Core;
 
+/// <summary>The block kind of the replies and the word that asks for the next one (the project's trigger_keyword).</summary>
+public sealed record ThreadKind(string Marker, string Keyword = "@ai");
+
 /// <summary>
 /// The bot replies of one block kind (Markers.Analysis, Markers.ReviewFix) on one issue or PR, and the
 /// human comments around them: which @ai comment is new, how many replies exist, what a new reply
@@ -16,18 +19,20 @@ public sealed class AtAiThread
 
     private readonly IReadOnlyList<GbComment> _comments;
     private readonly string _marker;
+    private readonly string _keyword;
     private readonly long _replyCursor;
 
-    private AtAiThread(IReadOnlyList<GbComment> comments, string marker, long localCursor)
+    private AtAiThread(IReadOnlyList<GbComment> comments, ThreadKind kind, long localCursor)
     {
         _comments = comments;
-        _marker = marker;
+        _marker = kind.Marker;
+        _keyword = kind.Keyword;
 
-        var latestReply = BotComments.Latest(comments, marker);
+        var latestReply = BotComments.Latest(comments, _marker);
         _replyCursor = latestReply is null ? 0 : ReadUpToOf(latestReply) ?? latestReply.Id;
         AnsweredUpTo = Math.Max(localCursor, _replyCursor);
         ReadUpTo = comments.Count == 0 ? 0 : comments.Max(comment => comment.Id);
-        Done = BotComments.Count(comments, marker);
+        Done = BotComments.Count(comments, _marker);
     }
 
     /// <param name="marker">The block kind of the replies: Markers.Analysis or Markers.ReviewFix.</param>
@@ -36,7 +41,11 @@ public sealed class AtAiThread
     /// <see cref="AnsweredUpTo"/> read it.
     /// </param>
     public static AtAiThread Of(IReadOnlyList<GbComment> comments, string marker, long localCursor) =>
-        new(comments, marker, localCursor);
+        new(comments, new ThreadKind(marker), localCursor);
+
+    /// <summary>Same, for a project with its own trigger keyword.</summary>
+    public static AtAiThread Of(IReadOnlyList<GbComment> comments, ThreadKind kind, long localCursor) =>
+        new(comments, kind, localCursor);
 
     /// <summary>Number of bot replies of this kind so far.</summary>
     public int Done { get; }
@@ -50,7 +59,7 @@ public sealed class AtAiThread
     /// <summary>The newest human @ai comment after <see cref="AnsweredUpTo"/>, or null.</summary>
     public GbComment? Trigger =>
         _comments
-            .Where(comment => comment.Id > AnsweredUpTo && BotComments.MentionsAi(comment))
+            .Where(comment => comment.Id > AnsweredUpTo && BotComments.MentionsAi(comment, _keyword))
             .MaxBy(comment => comment.Id);
 
     /// <summary>

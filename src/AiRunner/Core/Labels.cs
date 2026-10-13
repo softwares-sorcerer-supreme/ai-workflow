@@ -13,6 +13,7 @@ public static class Labels
     public const string Implementing = "ai:implementing";
     public const string OnGitHub = "ai:on-github";
     public const string Failed = "ai:failed";
+    public const string Claimed = "ai:claimed";
 
     // set by a human
     public const string Breakdown = "ai-breakdown";
@@ -20,10 +21,12 @@ public static class Labels
     public const string NeedsCloudAgent = "needs-cloud-agent";
 
     /// <summary>Every label the runner uses, with a color and description, for --setup-labels.</summary>
-    public static IReadOnlyList<(string Name, string Color, string Description)> All(string scopeLabel) =>
+    public static IReadOnlyList<(string Name, string Color, string Description)> All(
+        string triggerLabel,
+        string triggerKeyword = "@ai") =>
     [
-        (scopeLabel, "1d76db", "ai-runner looks at this issue"),
-        (QuestionsOpen, "fbca04", "Bot: analysis posted, author must answer (write @ai)"),
+        (triggerLabel, "1d76db", "ai-runner looks at this issue"),
+        (QuestionsOpen, "fbca04", $"Bot: analysis posted, author must answer (write {triggerKeyword})"),
         (Ready, "0e8a16", "Bot: no open questions left"),
         (Simple, "c2e0c6", "Bot: complexity guess = simple"),
         (Complex, "f9d0c4", "Bot: complexity guess = complex"),
@@ -32,6 +35,7 @@ public static class Labels
         (Implementing, "0052cc", "Bot: Copilot is working or opened a PR"),
         (OnGitHub, "bfdadc", "Bot: moved to the GitHub mirror"),
         (Failed, "b60205", "Bot: a job failed; remove this label to retry"),
+        (Claimed, "ededed", "Bot: a runner works on this item (claim_enabled)"),
         (Breakdown, "006b75", "Human: breakdown approved, create sub-issues"),
         (Implement, "0e8a16", "Human: Copilot, build this"),
         (NeedsCloudAgent, "e99695", "Human: Copilot quota empty, use the GitHub mirror"),

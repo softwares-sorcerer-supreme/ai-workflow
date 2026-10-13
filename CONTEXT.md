@@ -17,7 +17,7 @@ The bot comments of one block kind on one issue or pull request, together with t
 _Avoid_: conversation, discussion
 
 **Trigger**:
-The newest human comment that mentions `@ai` and that no reply has answered yet.
+The newest human comment that mentions the project's trigger keyword (`@ai` by default) and that no reply has answered yet.
 _Avoid_: request, ping
 
 **Reply**:
@@ -35,6 +35,14 @@ _Avoid_: handled-up-to, last handled
 **Local cursor**:
 The newest `@ai` comment the runner's own database says was handled; it covers a job that failed before it could reply.
 _Avoid_: last-handled comment
+
+**Project**:
+A group of components that are worked on together; its issues live in one place (`issues_in`). Every job checks out all components of one project.
+_Avoid_: workspace, product
+
+**Component**:
+A repo plus an optional folder (`path`) in it. A job changes code in exactly one component; the others are read-only. Components that share a repo share one clone.
+_Avoid_: module, service, package
 
 **Round**:
 One analysis reply on an issue, numbered and capped by a limit.

@@ -1,8 +1,10 @@
+using AiRunner.Tests.Fakes;
+
 namespace AiRunner.Tests.Core;
 
 public class JobPlannerTests
 {
-    private static readonly RepoConfig Repo = new() { Owner = "o", Name = "r", Workflows = [.. Workflows.All] };
+    private static readonly ProjectConfig Project = TestProjects.Single();
     private long _id = 100;
 
     private static GbIssue Issue(params string[] labels) => Samples.Issue(7, labels);
@@ -22,18 +24,18 @@ public class JobPlannerTests
         IReadOnlyList<GbComment>? comments,
         long lastHandledCommentId = 0)
     {
-        var input = new IssuePlanInput(Repo, issue, comments, lastHandledCommentId);
+        var input = new IssuePlanInput(Project, TestProjects.Repo, issue, comments, lastHandledCommentId);
 
         return JobPlanner.PlanIssue(input);
     }
 
     private static PlanDecision PlanPull(
-        RepoConfig repo,
+        ProjectConfig project,
         GbPull pull,
         string? reviewedSha = null,
         IReadOnlyList<GbComment>? comments = null)
     {
-        var input = new PullPlanInput(repo, pull, reviewedSha, BotLogin: "bot", ScopeLabel: "ai", Comments: comments);
+        var input = new PullPlanInput(project, TestProjects.Repo, pull, reviewedSha, BotLogin: "bot", Comments: comments);
 
         return JobPlanner.PlanPull(input);
     }
@@ -174,9 +176,9 @@ public class JobPlannerTests
     [Fact]
     public void Disabled_workflow_is_skipped()
     {
-        var repo = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Analyze] };
+        var repo = TestProjects.Single([Workflows.Analyze]);
         var issue = Issue("ai", Labels.Implement);
-        var input = new IssuePlanInput(repo, issue, Comments: [], LastHandledCommentId: 0);
+        var input = new IssuePlanInput(repo, TestProjects.Repo, issue, Comments: [], LastHandledCommentId: 0);
         var decision = JobPlanner.PlanIssue(input);
 
         Assert.Null(decision.Job);
@@ -200,14 +202,7 @@ public class JobPlannerTests
             Draft: draft,
             Labels: labels.Select(label => new GbLabel(label)).ToList());
 
-    private static readonly RepoConfig AllPrs =
-        new()
-        {
-            Owner = "o",
-            Name = "r",
-            Workflows = [Workflows.Review],
-            Review = new ReviewConfig { Scope = "all" }
-        };
+    private static readonly ProjectConfig AllPrs = TestProjects.Single([Workflows.Review], reviewScope: "all");
 
     [Fact]
     public void New_pr_and_new_head_are_reviewed_once()
@@ -237,25 +232,25 @@ public class JobPlannerTests
     [Fact]
     public void By_default_only_labelled_prs_and_the_runners_own_ai_prs_are_reviewed()
     {
-        Assert.True(Repo.Review.IsScoped);
+        Assert.True(Project.Settings.Review.IsScoped);
 
         var plainPull = Pull();
         var labelledPull = Pull(labels: "ai");
         var runnerAiPull = Pull(head: "ai/issue-7", user: "bot");
         var runnerFeaturePull = Pull(head: "feat/issue-12", user: "bot");
 
-        Assert.Null(PlanPull(Repo, plainPull).Job);
-        Assert.NotNull(PlanPull(Repo, labelledPull).Job);
-        Assert.NotNull(PlanPull(Repo, runnerAiPull).Job);
-        Assert.NotNull(PlanPull(Repo, runnerFeaturePull).Job);
+        Assert.Null(PlanPull(Project, plainPull).Job);
+        Assert.NotNull(PlanPull(Project, labelledPull).Job);
+        Assert.NotNull(PlanPull(Project, runnerAiPull).Job);
+        Assert.NotNull(PlanPull(Project, runnerFeaturePull).Job);
 
         // Not enough on its own: an ai/* branch pushed by someone else (or another runner),
         // or any other PR of the runner's user.
         var foreignAiPull = Pull(head: "ai/issue-7", user: "alice");
         var runnerOtherPull = Pull(user: "bot");
 
-        Assert.Null(PlanPull(Repo, foreignAiPull).Job);
-        Assert.Null(PlanPull(Repo, runnerOtherPull).Job);
+        Assert.Null(PlanPull(Project, foreignAiPull).Job);
+        Assert.Null(PlanPull(Project, runnerOtherPull).Job);
     }
 
     // ---- review fixes ----
@@ -272,7 +267,7 @@ public class JobPlannerTests
         var looksOdd = Human("looks odd");
         var atAiComment = Human("@ai 1: fix, 2: skip");
         var pull = Pull(labels: "ai");
-        var decision = PlanPull(Repo, pull, comments: [looksOdd, atAiComment]);
+        var decision = PlanPull(Project, pull, comments: [looksOdd, atAiComment]);
 
         Assert.Equal(JobType.FixReview, Type(decision));
         Assert.Equal(atAiComment.Id.ToString(), decision.Job!.Payload);
@@ -282,17 +277,17 @@ public class JobPlannerTests
     public void Without_comments_a_pr_in_fix_scope_asks_for_them_and_keeps_the_review_decision()
     {
         var labelledPull = Pull(labels: "ai");
-        var decision = PlanPull(Repo, labelledPull);
+        var decision = PlanPull(Project, labelledPull);
 
         Assert.True(decision.NeedsComments);
         Assert.Equal(JobType.ReviewPullRequest, Type(decision));
 
         var plainPull = Pull();
-        var outOfScope = PlanPull(Repo, plainPull);
+        var outOfScope = PlanPull(Project, plainPull);
 
         Assert.False(outOfScope.NeedsComments);
 
-        var reviewOnly = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Review] };
+        var reviewOnly = TestProjects.Single([Workflows.Review]);
         var reviewOnlyDecision = PlanPull(reviewOnly, labelledPull);
 
         Assert.False(reviewOnlyDecision.NeedsComments);
@@ -305,16 +300,16 @@ public class JobPlannerTests
         var labelledPull = Pull(labels: "ai");
 
         var answeredReply = FixReply(atAiComment.Id);
-        var answered = PlanPull(Repo, labelledPull, comments: [atAiComment, answeredReply]);
+        var answered = PlanPull(Project, labelledPull, comments: [atAiComment, answeredReply]);
 
         Assert.Equal(JobType.ReviewPullRequest, Type(answered));
 
         var handledInput = new PullPlanInput(
-            Repo,
+            Project,
+            TestProjects.Repo,
             labelledPull,
             ReviewedSha: null,
             BotLogin: "bot",
-            ScopeLabel: "ai",
             Comments: [atAiComment],
             LastHandledCommentId: atAiComment.Id);
         var handled = JobPlanner.PlanPull(handledInput);
@@ -322,14 +317,14 @@ public class JobPlannerTests
         Assert.Equal(JobType.ReviewPullRequest, Type(handled));
 
         var botComment = Samples.Bot(++_id, "@ai said");
-        var botOnly = PlanPull(Repo, labelledPull, comments: [botComment]);
+        var botOnly = PlanPull(Project, labelledPull, comments: [botComment]);
 
         Assert.Equal(JobType.ReviewPullRequest, Type(botOnly));
 
         // A comment written while the fix ran is newer than what the reply read: still a request.
         var during = Human("@ai also rename it");
         var newerReply = FixReply(atAiComment.Id);
-        var request = PlanPull(Repo, labelledPull, comments: [atAiComment, during, newerReply]);
+        var request = PlanPull(Project, labelledPull, comments: [atAiComment, during, newerReply]);
 
         Assert.Equal(JobType.FixReview, Type(request));
     }
@@ -337,13 +332,7 @@ public class JobPlannerTests
     [Fact]
     public void Review_fix_needs_the_fix_workflow_and_a_pr_in_scope()
     {
-        var reviewOnly = new RepoConfig
-        {
-            Owner = "o",
-            Name = "r",
-            Workflows = [Workflows.Review],
-            Review = new ReviewConfig { Scope = "all" }
-        };
+        var reviewOnly = TestProjects.Single([Workflows.Review], reviewScope: "all");
         var labelledPull = Pull(labels: "ai");
         var fixComment = Human("@ai fix");
         var reviewOnlyDecision = PlanPull(reviewOnly, labelledPull, comments: [fixComment]);
@@ -351,13 +340,7 @@ public class JobPlannerTests
         Assert.Equal(JobType.ReviewPullRequest, Type(reviewOnlyDecision));
 
         // review.scope: all reviews every PR, but a fix still only pushes to PRs labelled ai or the runner's own.
-        var all = new RepoConfig
-        {
-            Owner = "o",
-            Name = "r",
-            Workflows = [.. Workflows.All],
-            Review = new ReviewConfig { Scope = "all" }
-        };
+        var all = TestProjects.Single(reviewScope: "all");
         var plainPull = Pull();
         var plainDecision = PlanPull(all, plainPull, comments: [fixComment]);
 
@@ -368,7 +351,7 @@ public class JobPlannerTests
 
         Assert.Equal(JobType.FixReview, Type(runnerDecision));
 
-        var fixOnly = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Fix] };
+        var fixOnly = TestProjects.Single([Workflows.Fix]);
         var fixOnlyDecision = PlanPull(fixOnly, labelledPull, comments: [fixComment]);
 
         Assert.Equal(JobType.FixReview, Type(fixOnlyDecision));
@@ -392,8 +375,8 @@ public class JobPlannerTests
             MergedAt = DateTimeOffset.UtcNow
         };
         var fixComment = Human("@ai fix");
-        var closedDecision = PlanPull(Repo, closed, comments: [fixComment]);
-        var mergedDecision = PlanPull(Repo, merged, comments: [fixComment]);
+        var closedDecision = PlanPull(Project, closed, comments: [fixComment]);
+        var mergedDecision = PlanPull(Project, merged, comments: [fixComment]);
 
         Assert.Null(closedDecision.Job);
         Assert.Null(mergedDecision.Job);
@@ -403,21 +386,17 @@ public class JobPlannerTests
     public void A_review_fix_needs_a_command_to_check_it_with()
     {
         var pull = Pull(head: "ai/issue-7", labels: "ai");
-        var noCommands = new RepoConfig { Owner = "o", Name = "r", Workflows = [Workflows.Fix] };
-        var withBuild = new RepoConfig
-        {
-            Owner = "o",
-            Name = "r",
-            Workflows = [Workflows.Fix],
-            Commands = new CommandsConfig { Build = "make build" }
-        };
+        var noCommands = TestProjects.Single([Workflows.Fix]);
+        var withBuild = TestProjects.Single([Workflows.Fix], commands: new CommandsConfig { Build = "make build" });
 
-        var noCommandsCheck = new FixCheckInput(noCommands, pull, [], "main", pull.Head.Sha);
+        var noCommandsCheck = new FixCheckInput(
+            noCommands, noCommands.Components[0], pull, [], "main", pull.Head.Sha);
         var noCommandsReason = JobPlanner.WhyNotFix(noCommandsCheck);
 
         Assert.Contains("No build, test or lint command", noCommandsReason);
 
-        var withBuildCheck = new FixCheckInput(withBuild, pull, [], "main", pull.Head.Sha);
+        var withBuildCheck = new FixCheckInput(
+            withBuild, withBuild.Components[0], pull, [], "main", pull.Head.Sha);
         var withBuildReason = JobPlanner.WhyNotFix(withBuildCheck);
 
         Assert.Null(withBuildReason);
@@ -426,13 +405,7 @@ public class JobPlannerTests
     [Fact]
     public void Review_fix_limit_still_runs_the_job_so_it_can_answer()
     {
-        var repo = new RepoConfig
-        {
-            Owner = "o",
-            Name = "r",
-            Workflows = [Workflows.Fix],
-            Limits = new LimitsConfig { MaxReviewFixes = 1 }
-        };
+        var repo = TestProjects.Single([Workflows.Fix], maxReviewFixes: 1);
         var first = Human("@ai fix 1");
         var firstReply = FixReply(first.Id);
         var again = Human("@ai again");
@@ -485,37 +458,4 @@ public class ContextBuilderTests
     [InlineData(null, null)]
     public void Linked_issue_from_pr_body(string? body, int? expected) =>
         Assert.Equal(expected, ContextBuilder.LinkedIssue(body));
-}
-
-public class RunnerConfigTests
-{
-    [Fact]
-    public void Reads_repos_yml_with_defaults()
-    {
-        var config = RunnerConfig.Parse("""
-            gitBucket:
-              baseUrl: http://gitbucket
-            repos:
-              - owner: o
-                name: r
-                workflows: [analyze, implement]
-                models: { analyze: big-model }
-                commands:
-                  build: npm run build
-                  test: npm test
-                review: { scope: scoped, skipPaths: ["**/*.md"] }
-            """);
-
-        var repo = config.Repos.Single();
-
-        Assert.Equal("o/r", repo.FullName);
-        Assert.True(repo.IsEnabled("analyze"));
-        Assert.False(repo.IsEnabled("review"));
-        Assert.Equal("big-model", repo.ModelFor("analyze"));
-        Assert.Null(repo.ModelFor("implement"));
-        Assert.Equal(["npm run build", "npm test"], repo.Commands.Verification());
-        Assert.True(repo.Review.IsScoped);
-        Assert.Equal(15, repo.Limits.MaxChangedFiles);
-        Assert.Equal(90, config.PollIntervalSeconds);
-    }
 }

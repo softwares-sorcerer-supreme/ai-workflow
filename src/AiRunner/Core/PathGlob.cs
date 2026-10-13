@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace AiRunner.Core;
@@ -8,9 +9,12 @@ namespace AiRunner.Core;
 /// </summary>
 public static class PathGlob
 {
+    // The scope guard tests every changed path against every pattern, so each glob is compiled once.
+    private static readonly ConcurrentDictionary<string, Regex> Compiled = new();
+
     public static bool IsMatch(string path, string glob)
     {
-        var regex = ToRegex(glob);
+        var regex = Compiled.GetOrAdd(glob, ToRegex);
         var normalizedPath = path.Replace('\\', '/');
         return regex.IsMatch(normalizedPath);
     }

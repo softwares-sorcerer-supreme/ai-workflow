@@ -16,7 +16,19 @@ public sealed class FakeGitBucket : IGitBucketClient
     public Dictionary<int, GbIssue> Issues { get; } = [];
     public Dictionary<int, List<GbComment>> Comments { get; } = [];
     public List<GbPull> Pulls { get; } = [];
+
+    /// <summary>The repo of a PR, by number. A PR without an entry is in every repo (old tests with one repo).</summary>
+    public Dictionary<int, string> PullRepos { get; } = [];
     public List<(long Id, string Body)> Updated { get; } = [];
+
+    /// <summary>Called after the runner posts a comment, with the issue number: lets a test play a second runner in a race.</summary>
+    public Action<int>? OnCommentAdded { get; set; }
+
+    /// <summary>Which repo each repo-level call went to, in order: lets a test see where the runner reads and writes.</summary>
+    public List<(string Operation, string Repo)> RepoCalls { get; } = [];
+
+    public IEnumerable<string> ReposOf(string operation) =>
+        RepoCalls.Where(call => call.Operation == operation).Select(call => call.Repo).Distinct();
 
     /// <summary>Files behind _attached URLs, by absolute URL. A URL that is not here answers 404.</summary>
     public Dictionary<string, FakeAttachment> Attachments { get; } = [];
@@ -55,6 +67,7 @@ public sealed class FakeGitBucket : IGitBucketClient
         bool merged = false,
         string state = "open",
         string title = "Some change",
+        string? repo = null,
         params string[] labels)
     {
         var labelList = labels.Select(label => new GbLabel(label)).ToList();
@@ -72,6 +85,10 @@ public sealed class FakeGitBucket : IGitBucketClient
             Labels: labelList);
         Pulls.RemoveAll(existingPull => existingPull.Number == number);
         Pulls.Add(pull);
+        if (repo is not null)
+        {
+            PullRepos[number] = repo;
+        }
 
         return pull;
     }
@@ -128,8 +145,12 @@ public sealed class FakeGitBucket : IGitBucketClient
     public Task<GbUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new GbUser(Login));
 
-    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken) =>
-        Task.FromResult(new GbRepo(DefaultBranch));
+    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("repo", repo));
+
+        return Task.FromResult(new GbRepo(DefaultBranch));
+    }
 
     public Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(
         string repo,
@@ -137,6 +158,7 @@ public sealed class FakeGitBucket : IGitBucketClient
         string? assignee,
         CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("issues", repo));
         var matchingIssues = Issues.Values
             .Where(issue => issue.IsOpen()
                 && (label is null || issue.HasLabel(label))
@@ -146,20 +168,39 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult<IReadOnlyList<GbIssue>>(matchingIssues);
     }
 
+    public Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
+        string repo,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("closed-issues", repo));
+        var matchingIssues = Issues.Values
+            .Where(issue => !issue.IsOpen() && issue.HasLabel(label))
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<GbIssue>>(matchingIssues);
+    }
+
     public int CommentListCalls { get; private set; }
 
-    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken) =>
-        Task.FromResult(Issues[number]);
+    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("issue-read", repo));
+
+        return Task.FromResult(Issues[number]);
+    }
 
     public Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)
     {
         CommentListCalls++;
+        RepoCalls.Add(("comments-read", repo));
         var comments = CommentsOf(number);
         return Task.FromResult(comments);
     }
 
     public Task<GbIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("create-issue", repo));
         while (Issues.ContainsKey(++_nextNumber))
         {
         }
@@ -172,8 +213,10 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public Task<GbComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("comment", repo));
         var markedBody = body.Contains(BotComments.Marker) ? body : BotComments.Marker + "\n" + body;
         var comment = AddRaw(number, markedBody, Login);
+        OnCommentAdded?.Invoke(number);
 
         return Task.FromResult(comment);
     }
@@ -204,6 +247,17 @@ public sealed class FakeGitBucket : IGitBucketClient
         throw new GitBucketException(System.Net.HttpStatusCode.NotFound, "comment not found");
     }
 
+    public Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("close-issue", repo));
+        Issues[number] = Issues[number] with
+        {
+            State = "closed"
+        };
+
+        return Task.CompletedTask;
+    }
+
     public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken)
     {
         if (Issues.ContainsKey(number))
@@ -227,12 +281,25 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.CompletedTask;
     }
 
-    public Task<bool> CreateLabelAsync(string repo, NewLabel label, CancellationToken cancellationToken) =>
-        Task.FromResult(true);
+    /// <summary>The labels asked for, per repo, in order.</summary>
+    public List<(string Repo, NewLabel Label)> CreatedLabels { get; } = [];
+
+    public Task<bool> CreateLabelAsync(string repo, NewLabel label, CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("label", repo));
+        CreatedLabels.Add((repo, label));
+
+        return Task.FromResult(true);
+    }
 
     public Task<IReadOnlyList<GbPull>> ListPullsAsync(string repo, string state, CancellationToken cancellationToken)
     {
-        var matchingPulls = Pulls.Where(pull => state == "all" || pull.State == state).ToList();
+        RepoCalls.Add(("pulls", repo));
+        var matchingPulls = Pulls
+            .Where(pull => state == "all" || pull.State == state)
+            .Where(pull => !PullRepos.TryGetValue(pull.Number, out var pullRepo) ||
+                           string.Equals(pullRepo, repo, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         return Task.FromResult<IReadOnlyList<GbPull>>(matchingPulls);
     }
@@ -246,6 +313,7 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public Task<GbPull> CreatePullAsync(string repo, NewPull newPull, CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("create-pull", repo));
         var highestPullNumber = Pulls.Select(existingPull => existingPull.Number).DefaultIfEmpty(0).Max();
         var number = Math.Max(_nextNumber, highestPullNumber) + 1;
         _nextNumber = number;
@@ -265,6 +333,7 @@ public sealed class FakeGitBucket : IGitBucketClient
             false,
             null);
         Pulls.Add(pull);
+        PullRepos[number] = repo;
 
         return Task.FromResult(pull);
     }

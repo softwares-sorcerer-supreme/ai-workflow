@@ -36,7 +36,8 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal("Export CSV", pull.Title);
         Assert.Equal(("ai/issue-12", "main"), (pull.Head.Ref, pull.Base.Ref));
         Assert.Contains("Adds CSV export.", pull.Body);
-        Assert.Contains("Closes #12", pull.Body);
+        Assert.Contains("Issue: james/demo#12", pull.Body);
+        Assert.DoesNotContain("Closes", pull.Body);
 
         var labels = _kit.GitBucket.LabelsOf(12);
         Assert.Contains(Labels.Implementing, labels);
@@ -51,6 +52,21 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(2, _kit.Processes.Commands.Count);
         Assert.Contains("### Rounds by ai-runner", pull.Body);
         Assert.Contains("1 copilot calls", outcome.Detail);
+    }
+
+    [Fact]
+    public async Task Closing_keywords_written_by_the_agent_are_not_in_the_pr_body()
+    {
+        SimpleIssueWithSpec();
+        _kit.Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody().Replace("Adds CSV export.", "Adds CSV export. Closes #12");
+
+        var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
+        await Job.RunAsync(implementRequest, _kit.Run, default);
+
+        var pull = _kit.GitBucket.Pulls.Single();
+        Assert.DoesNotContain("Closes", pull.Body);
+        Assert.Contains("Refs #12", pull.Body);
+        Assert.Contains("Issue: james/demo#12", pull.Body);
     }
 
     [Fact]
@@ -85,6 +101,39 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Empty(_kit.GitBucket.Pulls);
         Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
         Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(12));
+    }
+
+    [Fact]
+    public async Task Too_big_sub_issue_gets_failed_so_the_sequencer_does_not_start_it_again()
+    {
+        var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
+        var body = SubIssueBody.Build(new SubIssueDraft(12, task, 3, "contract"));
+        _kit.GitBucket.AddIssue(
+            21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
+        _kit.Git.Staged = Enumerable.Range(0, 16)
+            .Select(index => new DiffStat($"f{index}.cs", 5, 0))
+            .ToList();
+
+        var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);
+
+        Assert.Equal("too-big", outcome.Result);
+        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(21));
+        Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(21));
+        Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(21));
+        Assert.Contains("cannot be split again", _kit.GitBucket.CommentsOf(21).Last().Body);
+    }
+
+    [Fact]
+    public async Task Too_big_simple_issue_does_not_get_failed_so_the_author_can_ask_for_a_breakdown()
+    {
+        SimpleIssueWithSpec();
+        _kit.Git.Staged = Enumerable.Range(0, 16)
+            .Select(index => new DiffStat($"f{index}.cs", 5, 0))
+            .ToList();
+
+        await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
+
+        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(12));
     }
 
     [Fact]
@@ -191,8 +240,8 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Sub_issue_builds_on_the_feature_branch_after_the_previous_one_is_merged()
     {
         _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
-        var firstTask = new SubTask(1, "Entity", "Add entity", "Domain", [], false);
-        var secondTask = new SubTask(2, "Command", "Add command", "App", [1], false);
+        var firstTask = new SubTask(1, "demo", "Entity", "Add entity", "Domain", [], false);
+        var secondTask = new SubTask(2, "demo", "Command", "Add command", "App", [1], false);
         var firstTitle = SubIssueBody.Title(12, firstTask);
         var firstDraft = new SubIssueDraft(12, firstTask, 2, "Export");
         var firstBody = SubIssueBody.Build(firstDraft);
@@ -293,7 +342,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Checks_still_failing_after_the_last_fix_round_open_a_wip_pr()
     {
         SimpleIssueWithSpec();
-        _kit.RepoConfig.Implement.MaxFixRounds = 1;
+        _kit.Settings.Implement.MaxFixRounds = 1;
         _kit.Processes.ExitCodes["make test"] = 1;
 
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
@@ -308,7 +357,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task No_fix_rounds_configured_means_one_copilot_run()
     {
         SimpleIssueWithSpec();
-        _kit.RepoConfig.Implement.MaxFixRounds = 0;
+        _kit.Settings.Implement.MaxFixRounds = 0;
         _kit.Processes.ExitCodes["make test"] = 1;
 
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
@@ -322,8 +371,8 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Failed_build_skips_the_other_checks()
     {
         SimpleIssueWithSpec();
-        _kit.RepoConfig.Implement.MaxFixRounds = 0;
-        _kit.RepoConfig.Commands.Lint = "make lint";
+        _kit.Settings.Implement.MaxFixRounds = 0;
+        _kit.Component.Commands.Lint = "make lint";
         _kit.Processes.ExitCodes["make build"] = 1;
 
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
@@ -336,7 +385,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     public async Task Lint_is_run_by_the_runner_and_its_tool_is_allowed_for_the_agent()
     {
         SimpleIssueWithSpec();
-        _kit.RepoConfig.Commands.Lint = "npx eslint . && dotnet format --verify-no-changes";
+        _kit.Component.Commands.Lint = "npx eslint . && dotnet format --verify-no-changes";
         _kit.Processes.ExitCodeSequence["eslint"] = new Queue<int>([1, 0]);
 
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);

@@ -23,6 +23,9 @@ public interface IGitClient
 
     Task FetchAsync(string directory, string refspec, CancellationToken cancellationToken);
 
+    /// <summary>The default branch of origin as a remote-tracking name, e.g. "origin/main".</summary>
+    Task<string> DefaultBranchAsync(string directory, CancellationToken cancellationToken);
+
     Task<bool> RefExistsAsync(string directory, string gitRef, CancellationToken cancellationToken);
 
     /// <summary>The commit sha a ref points to, or null when it does not exist.</summary>
@@ -56,6 +59,15 @@ public interface IGitClient
         string baseRef,
         string headRef,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Paths that differ from HEAD, from the repo root: changed, added and deleted files (staged or not) and
+    /// untracked files. Files that .gitignore ignores are left out.
+    /// </summary>
+    Task<IReadOnlyList<string>> ChangedPathsAsync(string directory, CancellationToken cancellationToken);
+
+    /// <summary>Undoes changes: a tracked path is restored from HEAD, an untracked path is deleted.</summary>
+    Task RestorePathsAsync(string directory, IReadOnlyList<string> paths, CancellationToken cancellationToken);
 
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string directory);
@@ -121,6 +133,23 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
     public Task FetchAsync(string directory, string refspec, CancellationToken cancellationToken) =>
         GitAsync(directory, cancellationToken, "fetch", "origin", refspec);
+
+    public async Task<string> DefaultBranchAsync(string directory, CancellationToken cancellationToken)
+    {
+        string[] readHead = ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"];
+
+        // Ask the server first: a clone keeps the origin/HEAD it was made with, and the default branch can move.
+        // If the server cannot be asked, the local origin/HEAD below is the best guess.
+        await RunAsync(directory, cancellationToken, "remote", "set-head", "origin", "--auto");
+        var result = await RunAsync(directory, cancellationToken, readHead);
+
+        if (!result.Ok)
+        {
+            throw new InvalidOperationException($"git could not find the default branch of origin: {result.Tail(300)}");
+        }
+
+        return result.StdOut.Trim();
+    }
 
     public async Task<bool> RefExistsAsync(string directory, string gitRef, CancellationToken cancellationToken) =>
         await ResolveAsync(directory, gitRef, cancellationToken) is not null;
@@ -205,6 +234,87 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         CancellationToken cancellationToken) =>
         (await GitAsync(directory, cancellationToken, "diff", "--name-only", $"{baseRef}...{headRef}"))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public async Task<IReadOnlyList<string>> ChangedPathsAsync(string directory, CancellationToken cancellationToken)
+    {
+        // -z: paths come NUL-separated and unquoted, so odd file names are safe. --no-renames lists the old and
+        // the new path of a rename separately, so both get checked.
+        var tracked = await GitAsync(
+            directory,
+            cancellationToken,
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "HEAD");
+        var untracked = await GitAsync(
+            directory,
+            cancellationToken,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z");
+
+        return SplitNul(tracked)
+            .Concat(SplitNul(untracked))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public async Task RestorePathsAsync(
+        string directory,
+        IReadOnlyList<string> paths,
+        CancellationToken cancellationToken)
+    {
+        // Only paths inside the clone: the paths come from git, but a path that climbs out is never touched.
+        var fullDirectory = Path.GetFullPath(directory);
+        var safePaths = paths
+            .Where(path => IsInside(fullDirectory, path))
+            .ToList();
+        if (safePaths.Count == 0)
+        {
+            return;
+        }
+
+        // Literal pathspecs: a file named "[1].txt" or ":(top)x" must not be read as a pattern.
+        var inHead = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var chunk in safePaths.Chunk(100))
+        {
+            string[] listArguments = ["--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", "HEAD", "--", .. chunk];
+            var listed = await GitAsync(directory, cancellationToken, listArguments);
+            inHead.UnionWith(SplitNul(listed));
+        }
+
+        var tracked = safePaths.Where(inHead.Contains).ToList();
+        foreach (var chunk in tracked.Chunk(100))
+        {
+            string[] restoreArguments = ["--literal-pathspecs", "checkout", "HEAD", "--", .. chunk];
+            await GitAsync(directory, cancellationToken, restoreArguments);
+        }
+
+        // Not in HEAD: the agent made the file, so it goes.
+        foreach (var path in safePaths.Where(path => !inHead.Contains(path)))
+        {
+            var file = Path.GetFullPath(Path.Combine(fullDirectory, path));
+            if (File.Exists(file))
+            {
+                File.Delete(file);
+            }
+        }
+    }
+
+    private static bool IsInside(string fullDirectory, string path)
+    {
+        var file = Path.GetFullPath(Path.Combine(fullDirectory, path));
+
+        return file.StartsWith(fullDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>NUL-separated git output. The process runner reads lines, so a newline can trail the last NUL.</summary>
+    private static IEnumerable<string> SplitNul(string text) =>
+        text.Split((char)0, StringSplitOptions.RemoveEmptyEntries)
+            .Select(entry => entry.Trim('\r', '\n'))
+            .Where(entry => entry.Length > 0);
 
     public string ConfigFingerprint(string directory)
     {

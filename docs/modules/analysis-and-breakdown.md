@@ -45,8 +45,9 @@ flowchart LR
 | `Jobs/AnalyzeIssueJob.cs` | Workflow 1. Builds `context.md`, runs `grill-issue`, validates, posts analysis (+ SPEC), sets labels. |
 | `Jobs/BreakdownIssueJob.cs` | Workflow 1b step 1. Creates `feat/issue-N` and sub-issues, posts the parent comment with the hidden list. |
 | `Jobs/SequenceSubIssuesJob.cs` | Workflow 1b step 2. Every poll for `ai:parent` issues: start next sub-issue or open the final PR. |
-| `Core/AnalysisParser.cs` | Reads `**Status:**` and `**Complexity:**` -> labels to add/remove. |
-| `Core/BreakdownParser.cs` | Reads the 5-column table and `Shared contract:`. |
+| `Core/AnalysisParser.cs` | Reads `**Status:**`, `**Complexity:**` and `**Components affected:**` -> labels to add/remove, components. |
+| `Core/SpecParser.cs` | Checks the SPEC technical plan table (`Step | Component | File | Change`). |
+| `Core/BreakdownParser.cs` | Reads the 6-column table (with `Component`) and `Shared contract:`. |
 | `Core/SubIssueBody.cs` | Builds/parses sub-issue bodies, the hidden `SUBISSUES` list and `IsDone`. |
 | `Core/SubIssueSequencer.cs` | Pure decision: `Wait`, `StartNext`, `OpenFinalPr`. |
 | `Core/ContextBuilder.cs:ForIssue` | `context.md` for the agent (issue, then comments oldest first, bot comments tagged `[bot]`). |
@@ -170,10 +171,11 @@ flowchart TD
 
 - **Analysis rounds**: capped by `limits.maxAnalysisRounds` (5). At the cap the job fails on purpose with advice to clarify in a call.
 - **Max 7 questions**, Given/When/Then criteria, "simple" = up to 5 production files (test files, docs, lock files don't count). These live in the agent file (`agents/grill-issue.agent.md`), not in C#.
-- **Breakdown table is strict**: exactly 5 cells, rows numbered 1..N in order, `Depends on` may only name earlier rows, title/scope not empty, `Shared contract:` line required (`BreakdownParser.cs`). Violations fail the job with the exact reason.
-- **`[developer]` prefix** in a title: that sub-issue does **not** get `ai:ready`/`ai:simple`. The body tells a human to build it. The sequencer then waits at it ("waits for a developer") until someone merges or closes it.
+- **Breakdown table is strict**: exactly 6 cells (`# | Component | Title | Scope | Touches | Depends on`), rows numbered 1..N in order, `Depends on` may only name earlier rows, title/scope not empty, `Shared contract:` line required (`BreakdownParser.cs`). Violations fail the analysis job (a ready complex analysis is checked before it is posted) with the exact reason. If an unreadable breakdown still reaches `ai-breakdown`, the job comments the reason, removes the label and asks for a new analysis (`@ai`); it does not add `ai:failed`.
+- **`[developer]` prefix** in a title: that sub-issue does **not** get `ai:ready`/`ai:simple`. The body tells a human to build it. The sequencer then waits at it ("waits for a developer") until someone closes it (a PR counts only from branch `ai/issue-<p>-<o>` into `feat/issue-<p>`).
 - **Sub-issue body header** (`Parent`, `Order`, `Base branch`, `Depends on`) is what the implement job reads (`SubIssueBody.Parse`). A body with `Parent:` but no `Order:` throws `FormatException`.
 - **Final PR** is opened once; the parent comment and PR body list each sub-issue PR. A sub-issue closed without a runner PR is shown as "closed without a runner PR".
+- **Sub-issues that stop**: a too-big implement run, or a sub-issue PR closed without a merge, leaves the sub-issue with `ai:failed` and a comment. The sequencer waits until a human removes `ai:failed` (or builds it by hand and closes it).
 
 ## Dependencies
 

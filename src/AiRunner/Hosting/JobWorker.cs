@@ -26,6 +26,7 @@ public sealed class JobWorker(
     ICostLog costLog,
     IStateStore stateStore,
     IGitBucketClient gitBucketClient,
+    ClaimService claims,
     ILogger<JobWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -81,8 +82,37 @@ public sealed class JobWorker(
         run.Deadline = DateTimeOffset.UtcNow + timeout;
         timeoutSource.CancelAfter(timeout);
 
+        // Claims (claim_enabled): a normal job claims its issue or PR up front, a routine one just before its first
+        // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
+        var target = new ClaimTarget(request.Repo, request.Number) { Until = run.Deadline };
+        var isClaimHeld = false;
+
         try
         {
+            if (claims.IsEnabled(request.Repo))
+            {
+                if (job.Info.Routine)
+                {
+                    run.Claimer = async token =>
+                    {
+                        isClaimHeld = isClaimHeld || await claims.TryClaimAsync(target, token);
+
+                        return isClaimHeld;
+                    };
+                }
+                else
+                {
+                    isClaimHeld = await claims.TryClaimAsync(target, timeoutSource.Token);
+                    if (!isClaimHeld)
+                    {
+                        logger.LogDebug("{Request}: claimed by another runner", request);
+                        stateStore.DeleteJob(stored.Id);
+                        FileSystem.DeleteDirectory(run.Dir);
+                        return;
+                    }
+                }
+            }
+
             var outcome = await job.RunAsync(request, run, timeoutSource.Token);
             if (outcome.Quiet)
             {
@@ -138,6 +168,27 @@ public sealed class JobWorker(
             var failure = new JobFailure(job, request, message, logFolder);
             await ReportFailureAsync(failure);
         }
+        finally
+        {
+            // On shutdown the claim stays: this runner takes it back at once on the next start (same name).
+            if (isClaimHeld && !cancellationToken.IsCancellationRequested)
+            {
+                await ReleaseClaimAsync(target);
+            }
+        }
+    }
+
+    private async Task ReleaseClaimAsync(ClaimTarget target)
+    {
+        try
+        {
+            await claims.ReleaseAsync(target, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            // The claim then goes stale after 30 minutes and any runner can take it over.
+            logger.LogError("Could not release the claim on {Repo}#{Number}: {Message}", target.Repo, target.Number, exception.Message);
+        }
     }
 
     private async Task RecoverAsync()
@@ -162,9 +213,11 @@ public sealed class JobWorker(
     {
         var (job, request, message, logFolder) = failure;
         var where = logFolder is null ? "" : $" (`{Path.Combine(config.Paths.Logs, "jobs", logFolder)}`)";
+        var keyword = config.TriggerKeywordOf(request.Repo);
+        var retry = job.Info.Retry?.Replace(JobInfo.KeywordPlaceholder, keyword);
         var text = $"{job.Info.Description} failed: {message}\n\n" +
                    $"The full log is in the runner's log folder{where}. " +
-                   (job.Info.Retry ?? (job.Info.OnPullRequest
+                   (retry ?? (job.Info.OnPullRequest
                        ? "I will try again on the next commit."
                        : $"To retry, fix the cause and remove the `{Labels.Failed}` label."));
 

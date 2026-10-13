@@ -149,11 +149,41 @@ public class GitBucketClientTests
     }
 
     [Fact]
+    public async Task Closed_issue_list_asks_for_closed_issues_with_the_label_and_drops_pull_requests()
+    {
+        var (client, handler) = Create(request => Page(request) > 1 ? "[]" : """
+            [
+              {"number":1,"title":"sub","body":null,"user":{"login":"a"},"labels":[{"name":"ai:sub-issue"}],"updated_at":"2026-10-07T10:00:00Z","state":"closed"},
+              {"number":2,"title":"a PR","user":{"login":"a"},"labels":[],"updated_at":"2026-10-07T10:00:00Z","pull_request":{"url":"x"}}
+            ]
+            """);
+
+        var issues = await client.ListClosedIssuesAsync("o/r", "ai:sub-issue", default);
+
+        Assert.Equal([1], issues.Select(issue => issue.Number));
+        Assert.Contains("state=closed", handler.Urls[0]);
+        Assert.Contains("labels=ai%3Asub-issue", handler.Urls[0]);
+    }
+
+    [Fact]
     public async Task Repo_default_branch_is_mapped()
     {
         var (client, _) = Create(_ => """{"name":"r","full_name":"o/r","default_branch":"develop"}""");
 
         Assert.Equal("develop", (await client.GetRepoAsync("o/r", default)).DefaultBranch);
+    }
+
+    [Fact]
+    public async Task Closing_an_issue_patches_its_state_in_its_own_repo()
+    {
+        var (client, handler) = Create(_ => """{"number":7,"title":"t","state":"closed"}""");
+
+        await client.CloseIssueAsync("o/issues", 7, default);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Patch, request.Method);
+        Assert.Equal("/api/v3/repos/o/issues/issues/7", request.RequestUri!.AbsolutePath);
+        Assert.Equal("closed", System.Text.Json.JsonDocument.Parse(handler.Bodies.Single()).RootElement.GetProperty("state").GetString());
     }
 
     [Fact]

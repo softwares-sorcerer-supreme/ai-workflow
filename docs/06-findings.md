@@ -45,7 +45,7 @@ flowchart LR
 | # | Severity | Finding | Where |
 | --- | --- | --- | --- |
 | R1 | Medium | `ImplementIssueJob` does not catch a rejected push. A rejected `git push` in `SaveWorkAsync` surfaces as `InvalidOperationException` and is reported as `InvalidOperationException: git push failed ...`, not as a friendly message (only `FixReviewJob` catches it). | `Jobs/ImplementIssueJob.cs:125,135`, `Jobs/AgentSession.cs:182-192` |
-| R2 | Medium | `BreakdownIssueJob` looks for existing sub-issues only among **open** issues with label `ai:sub-issue` in the whole repo. If a human closed one before a retry, a duplicate for that order is created. | `Jobs/BreakdownIssueJob.cs:52-58` |
+| R2 | Fixed | `BreakdownIssueJob` now also looks at **closed** `ai:sub-issue` issues (`ListClosedIssuesAsync`), so a retry does not create a duplicate. | `Jobs/BreakdownIssueJob.cs` |
 | R3 | Low | `JobWorker.ReportFailureAsync` calls `job.OnFailed` first and posts the comment second. If GitBucket is unreachable, the local cursor/state changes but no comment appears. | `Hosting/JobWorker.cs:112-126` |
 | R4 | Low | Multi-step GitBucket writes are not atomic. Analysis posts the comment, then labels, then the SPEC comment. A failure in between leaves a partial state (e.g. labels set, no SPEC), and the next round may not repeat the SPEC. | `Jobs/AnalyzeIssueJob.cs:58-62` |
 

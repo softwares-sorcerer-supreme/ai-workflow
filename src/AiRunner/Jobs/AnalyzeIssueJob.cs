@@ -19,7 +19,8 @@ public sealed class AnalyzeIssueJob(
 {
     public const string Agent = "grill-issue";
     public const string Prompt =
-        "Analyze the issue in context.md. Follow the grill-issue agent rules and fill the templates in .ai-workflow/templates/.";
+        "Analyze the issue in context.md. Read components.md first, then the project description (PROJECT.md) it points to, if it exists. " +
+        "Follow the grill-issue agent rules and fill the templates in .ai-workflow/templates/.";
 
     public JobType Type => JobType.AnalyzeIssue;
 
@@ -34,30 +35,33 @@ public sealed class AnalyzeIssueJob(
 
     public async Task<JobOutcome> RunAsync(JobRequest request, JobRun run, CancellationToken cancellationToken)
     {
-        var (repo, issue, comments, decision) = await jobLoader.LoadIssueAsync(request, cancellationToken);
+        var (project, issue, comments, decision) = await jobLoader.LoadIssueAsync(request, cancellationToken);
+        var settings = project.Settings;
         if (decision.Job?.Type != Type)
         {
             return JobOutcome.NotNeeded(decision.Reason);
         }
 
         // The local cursor only matters for Trigger, which the planner already used.
-        var thread = AtAiThread.Of(comments, Markers.Analysis, 0);
-        var (round, limitReached) = thread.Next(repo.Limits.MaxAnalysisRounds);
+        var thread = AtAiThread.Of(comments, new ThreadKind(Markers.Analysis, settings.TriggerKeyword), 0);
+        var (round, limitReached) = thread.Next(settings.Limits.MaxAnalysisRounds);
         if (limitReached)
         {
             throw new JobFailedException(
-                $"{repo.Limits.MaxAnalysisRounds} analysis rounds reached. Please clarify this issue in a call " +
+                $"{settings.Limits.MaxAnalysisRounds} analysis rounds reached. Please clarify this issue in a call " +
                 "and update the issue text; the bot will not ask more questions here.");
         }
 
         var defaultBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
         var startPoint = Branches.Remote(defaultBranch);
         var workspaceRequest = new WorkspaceRequest(
-            Repo: request.Repo,
+            Project: project,
+            TargetRepo: request.Repo,
             StartPoint: startPoint,
             NewBranch: null,
             ExtraFetch: []);
-        var directory = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
+        var directory = prepared.Root;
 
         var issueBody = new AttachmentSource("the issue body", issue.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, issueBody, comments);
@@ -68,7 +72,7 @@ public sealed class AnalyzeIssueJob(
         await File.WriteAllTextAsync(contextFile, context, cancellationToken);
         run.Save("context.md", context);
 
-        var model = repo.ModelFor(Workflows.Analyze);
+        var model = settings.ModelFor(Workflows.Analyze);
         var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);
         var output = await copilot.RunCopilotAsync(
             new CopilotRequest(directory, Prompt, Agent, model, timeout)
@@ -79,8 +83,20 @@ public sealed class AnalyzeIssueJob(
 
         // Check everything before posting anything, so a bad answer is never half-applied.
         var analysis = JobSupport.RequireBlock(output, Markers.Analysis, run);
-        var parsed = JobSupport.Parse(() => AnalysisParser.Parse(analysis), "The analysis");
+        var codeComponents = project.CodeComponentNames;
+        var parsed = JobSupport.Parse(() => AnalysisParser.Parse(analysis, codeComponents), "The analysis");
         var spec = parsed.Status == AnalysisStatus.Ready ? JobSupport.RequireBlock(output, Markers.Spec, run) : null;
+
+        // A ready complex issue is next broken down by a human label; a bad table would only show up then.
+        if (parsed.Status == AnalysisStatus.Ready && parsed.Complexity == Complexity.Complex)
+        {
+            JobSupport.Parse(() => BreakdownParser.Parse(analysis, codeComponents), "The proposed breakdown");
+        }
+
+        if (spec is not null)
+        {
+            JobSupport.Parse(() => SpecParser.Parse(spec, codeComponents), "The SPEC");
+        }
 
         var reply = thread.Reply(analysis);
         await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, reply, cancellationToken);

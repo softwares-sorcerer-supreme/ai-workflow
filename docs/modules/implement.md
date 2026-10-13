@@ -36,6 +36,13 @@ flowchart LR
 
 *The job knows about issues, branches and PRs. `AgentSession` knows about rounds, checks and the `.git/config` guard. Neither knows how Copilot or git are started.*
 
+## Projects and components
+
+- **Target component.** A sub-issue names it in its `Component:` line; a simple issue gets it from its latest analysis (`Components affected`, exactly one). Data from before components existed names none: a project with one code component uses that one, otherwise the job fails and asks for the analysis to run again (`JobSupport.TargetOfIssue`, `TargetComponent`). The branch, the work and the PR are in the target component's repo; the issue, its labels and its comments stay in the issues repo.
+- **Scope guard.** After every agent round (and before the checks) `AgentSession` asks each clone of the project for its changed paths and undoes what the agent may not change: all edits in other repos, edits outside the target component folder, and files matching `never_edit` (`Core/ScopeRules`, `IGitClient.ChangedPathsAsync` and `RestorePathsAsync`). The undone paths are listed in the PR body ("Changes undone by ai-runner") and, if a fix round happens anyway, in `fix.md`. An undo alone does not start a fix round.
+- **PR link.** The PR body ends with `Issue: owner/repo#n` and never has `Closes`. The runner closes the issue after the merge (`FinishIssueJob`; sub-issues by `SequenceSubIssuesJob`).
+- **Previous sub-issue.** "Is the previous sub-issue merged" looks at the PRs of the repo of the previous sub-issue's component.
+
 ## Key files
 
 | File | One line |

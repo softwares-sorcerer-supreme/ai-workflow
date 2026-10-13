@@ -62,7 +62,81 @@ Add the token to .NET user secrets; do not put credentials in `repos.yml`:
 dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner
 ```
 
-Configure `gitBucket.baseUrl` and at least one repository in [`repos.yml`](repos.yml). For implementation and review fixes, configure the repository's setup/build/test/lint commands there. The commands are stack-agnostic and run in the product repository's working clone.
+Configure `git_bucket.base_url` and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root). The old flat `repos:` list still works: each entry becomes a project with one component.
+
+### Project layouts
+
+The same rules work for every layout, because every decision goes through `component.repo` and `component.path`. Issues and sub-issues always go to the `issues_in` component; **issues filed anywhere else are ignored**. PRs are polled in every repo that holds a `code: true` component.
+
+**Multi-repo** (a backend and a frontend repo; issues live in one of them):
+
+```yaml
+projects:
+  shop:
+    issues_in: backend
+    components:
+      backend:  { repo: org/shop-backend,  path: ., commands: { build: "dotnet build", test: "dotnet test" } }
+      frontend: { repo: org/shop-frontend, path: ., commands: { setup: "npm ci", build: "npm run build", test: "npm test" } }
+```
+
+**Separate issues repo** (a `code: false` component holds issues and docs; it is never changed and never gets a PR):
+
+```yaml
+projects:
+  shop:
+    issues_in: issues
+    components:
+      issues:   { repo: org/shop-issues,   path: ., code: false }
+      backend:  { repo: org/shop-backend,  path: ., commands: { build: "dotnet build", test: "dotnet test" } }
+      frontend: { repo: org/shop-frontend, path: ., commands: { setup: "npm ci", build: "npm run build", test: "npm test" } }
+```
+
+**Monorepo** (components share one repo and one clone, each with its own folder; a `code: true` path may not overlap another):
+
+```yaml
+projects:
+  shop:
+    issues_in: api
+    commands: { run_in: repo, build: "npx nx build", test: "npx nx test" }   # project-level fallback for all components
+    components:
+      api: { repo: org/shop, path: apps/api }
+      web: { repo: org/shop, path: apps/web, commands: { build: "npm run build --workspace web" } }
+```
+
+Put a short `PROJECT.md` (default name, set with `context:`) in the `issues_in` component; the agent reads it first. A template is in [`onboarding/PROJECT.md`](onboarding/PROJECT.md).
+
+### Settings levels
+
+| Level | Keys |
+| --- | --- |
+| Global only | `git_bucket`, `poll_interval_seconds`, `runner_name`, `copilot`, `paths`, `log_retention_days`, `attachments`, `git` |
+| `defaults:`, overridable per project | `trigger_label`, `trigger_keyword`, `workflows`, `models`, `limits`, `implement`, `review`, `never_edit`, `auto_start_first_sub_issue`, `claim_enabled` |
+| Per component | `repo`, `path`, `code` (default true), `commands` |
+
+`commands` is never in `defaults` (a global command would assume a stack). A component's `commands` override the project's key by key. Objects merge key by key; lists replace the default list. Limits, models and `never_edit` are per project, not per component.
+
+### Several runners (claims)
+
+Set `claim_enabled: true` (in `defaults:` or in one project) to let several runners work on the same projects. Give each runner its own global `runner_name` (empty = the machine user name) and run `--setup-labels` once, so `ai:claimed` exists.
+
+- Before a job runs, the runner puts `ai:claimed` on the issue or PR and keeps **one** claim comment (`Claimed by <runner_name>`) that it edits in place. Another runner that sees a fresh claim skips the item without a trace.
+- If two runners write at once, the oldest claim comment wins; the other one edits its comment to "withdrawn" and backs off. Comments are never deleted.
+- The claim also names the deadline of its job (the job timeout). Once that deadline and at least 30 minutes have passed, any runner takes the claim over, so a crashed runner never blocks an item, whatever comments the job wrote before it died. A claim without a deadline (older runner version) is taken over after 30 minutes when no bot comment follows it.
+- When the job ends (success or failure) the label is removed and the comment says "released". The routine checks (closing after a merge) claim only just before they write.
+
+The claim is the `runner_name` in the comment, not the GitBucket account, so runners may share one token. The race handling narrows the window but cannot close it (GitBucket has no atomic compare-and-set); a job re-plans on fresh data, so a rare double run does no harm beyond the cost.
+
+### Migrating from the old `repos.yml`
+
+1. Rename every key to snake_case (`pollIntervalSeconds` -> `poll_interval_seconds`, `maxDiffLines` -> `max_diff_lines`, `scopeLabel` -> `trigger_label`, ...). An unknown key stops the start and the message suggests the new name; there is no camelCase support.
+2. Optional: move shared values into `defaults:` and describe your repos as `projects:`. The old flat `repos:` list still works (each entry becomes a one-component project named after the repo), and both forms may be in one file.
+3. Run `dotnet run --project src/AiRunner -- --setup-labels`: it creates the labels in every repo of every project, including `code: false` repos.
+4. Delete the old `work/<owner>/` clones. Clones are now under `work/<project>/<repo>/`.
+5. Move open issues to the `issues_in` repo (or finish them first). Issues in other repos of a project are no longer polled.
+6. Add a `PROJECT.md` to the issues repo (optional, but it saves the agent from guessing).
+7. Run `--once --dry-run` and check the planned jobs before the first real run.
+
+Copilot now starts in `work/<project>/`, which is not a git repo. A product repo's own `.github/agents/` files no longer replace the runner's agents. Update the Copilot CLI (`copilot update`) and try one cheap `copilot -p` in an empty non-git folder before the first real run.
 
 ### Run
 
@@ -115,11 +189,11 @@ flowchart TB
 
 `Hosting` schedules work, `Core` makes decisions and parses agent output without doing I/O, `Jobs` orchestrate each workflow, and `Infrastructure` owns external side effects. `AgentSession` shares the agent, verification, and repair-round process between implementation and review fixes.
 
-The runner keeps working clones under `work/`, job logs under `logs/`, and queue/polling state in `ai-runner.db`. GitBucket comments also contain markers that let the runner recognize its own output, so deleting the local database does not erase workflow history.
+The runner keeps one folder per project under `work/<project>/`, with one clone per repo inside (components that share a repo share its clone) and the runner's own files (`context.md`, `plan.md`, `components.md`, `.ai-workflow/`) beside the clones, never inside them. Copilot starts in that project folder. Job logs under `logs/`, and queue/polling state in `ai-runner.db`. GitBucket comments also contain markers that let the runner recognize its own output, so deleting the local database does not erase workflow history.
 
 ### Security Note
 
-The runner removes GitBucket credentials from child-process environments and does not give the Copilot CLI the GitBucket token. However, setup/build/test/lint commands execute repository code with the developer's operating-system permissions. This is **not a sandbox**: use a machine without sensitive production access, and review all generated changes before merging. Anyone with permission to label an issue or comment `@ai` on an in-scope pull request may trigger work, including paid Copilot requests.
+The runner removes GitBucket credentials from child-process environments and does not give the Copilot CLI the GitBucket token. However, setup/build/test/lint commands execute repository code with the developer's operating-system permissions. This is **not a sandbox**: use a machine without sensitive production access, and review all generated changes before merging. Anyone with permission to label an issue or comment the trigger keyword (`@ai` by default) on an in-scope pull request may trigger work, including paid Copilot requests.
 
 ## Repository Guide
 

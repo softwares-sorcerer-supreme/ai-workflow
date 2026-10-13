@@ -2,7 +2,7 @@ namespace AiRunner.Core;
 
 public enum JobType
 {
-    AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues, FixReview
+    AnalyzeIssue, BreakdownIssue, ImplementIssue, ReviewPullRequest, SequenceSubIssues, FixReview, FinishIssue
 }
 
 /// <summary>

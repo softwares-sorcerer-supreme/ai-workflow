@@ -9,7 +9,8 @@ Delete these comments and the examples you do not need.
 ## Build and test
 The agent runs these before it stops (it may also run the same tools with other arguments, e.g. one test),
 and ai-runner runs build, test and lint again after the agent stops and sends failures back to it.
-They must be the same as `commands.setup`, `commands.build`, `commands.test` and `commands.lint` for this repo in `repos.yml`.
+They must be the same as `commands.setup`, `commands.build`, `commands.test` and `commands.lint` for this component (or its project) in `repos.yml`.
+In a monorepo, put one AGENTS.md in each component folder; the runner's `components.md` points the agent to it. For the project as a whole, see `PROJECT.md`.
 
 - Setup: `<install dependencies, or delete this line>`
 - Build: `<build command>`
@@ -54,5 +55,5 @@ One or two good examples of a complete feature to copy the pattern from:
 - `<path>`: <what it shows>
 
 ## Review
-Files a review can skip (generated code, lock files, docs). Also put them in `review.skipPaths` in `repos.yml`.
+Files a review can skip (generated code, lock files, docs). Also put them in `review.skip_paths` in `repos.yml`.
 - `<glob>`
