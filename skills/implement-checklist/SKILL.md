@@ -10,6 +10,7 @@ Go through this before you leave each stage of the implement-issue agent.
 ## Before you write code
 - Do you know every file you will change, and why? Is each one in plan.md?
 - Is there an existing helper, base class or pattern for this? Reuse it instead of writing a new one.
+- Did you open the `Pattern from` file and one neighbour of the same kind? Match their naming, layout, error handling, logging, dependency handling and test style. A convention of the neighbours beats your own habit.
 - Which test file covers this code today? Add your tests next to the existing ones.
 
 ## Correctness

@@ -41,6 +41,38 @@ public class AnalysisParserTests
         Assert.Contains(Labels.Simple, result.LabelsToRemove);
     }
 
+    [Fact]
+    public void Grouped_questions_with_empty_groups_do_not_change_what_the_parser_reads()
+    {
+        var block = Samples.Analysis("questions-open", "complex", components: "demo");
+        var questions = MarkdownSections.Get(block, "Questions")!;
+
+        var result = AnalysisParser.Parse(block, Demo);
+
+        Assert.Contains("Behaviour (", questions);
+        Assert.Contains("Technical (", questions);
+        Assert.Contains("Other (", questions);
+        Assert.Contains("- None", questions);
+        Assert.Contains("Q1", questions);
+        Assert.Equal(AnalysisStatus.QuestionsOpen, result.Status);
+        Assert.Equal(Complexity.Complex, result.Complexity);
+        Assert.Equal(["demo"], AnalysisParser.ComponentsOf(block, Demo));
+    }
+
+    [Fact]
+    public void A_flat_question_list_from_an_old_round_still_parses()
+    {
+        var grouped = Samples.Analysis("questions-open", "simple");
+        var flat = grouped.Replace(
+            Samples.GroupedQuestions,
+            "- Q1: Which columns? (why I ask: 40 columns)\n- Q2: Which format?");
+
+        var result = AnalysisParser.Parse(flat, Demo);
+
+        Assert.Equal(AnalysisStatus.QuestionsOpen, result.Status);
+        Assert.Contains("Q2: Which format?", MarkdownSections.Get(flat, "Questions"));
+    }
+
     [Theory]
     [InlineData("simple", Labels.Simple, Labels.Complex)]
     [InlineData("complex", Labels.Complex, Labels.Simple)]
@@ -177,6 +209,71 @@ public class SpecParserTests
 
         Assert.Equal(["backend", "frontend"], steps.Select(step => step.Component));
         Assert.Equal("`src/Export2.cs`", steps[1].File);
+        Assert.Equal("`src/Report2.cs`", steps[1].PatternFrom);
+        Assert.Equal("Add the export code.", steps[1].Change);
+    }
+
+    [Fact]
+    public void Extra_cells_join_the_change()
+    {
+        var spec = """
+            ### Technical plan
+            | Step | Component | File | Pattern from | Change |
+            | --- | --- | --- | --- | --- |
+            | 1 | backend | `a.cs` | `b.cs` | Add it | and more |
+            """;
+
+        var step = Assert.Single(SpecParser.Parse(spec, BackendAndFrontend));
+
+        Assert.Equal("Add it | and more", step.Change);
+    }
+
+    [Fact]
+    public void A_dash_is_a_valid_pattern_from()
+    {
+        var spec = """
+            ### Technical plan
+            | Step | Component | File | Pattern from | Change |
+            | --- | --- | --- | --- | --- |
+            | 1 | backend | `a.cs` | - | New kind of file; no file of this kind exists |
+            """;
+
+        var step = Assert.Single(SpecParser.Parse(spec, BackendAndFrontend));
+
+        Assert.Equal("-", step.PatternFrom);
+    }
+
+    [Fact]
+    public void An_empty_pattern_from_fails_with_the_step_number()
+    {
+        var spec = """
+            ### Technical plan
+            | Step | Component | File | Pattern from | Change |
+            | --- | --- | --- | --- | --- |
+            | 1 | backend | `a.cs` | `b.cs` | Add it |
+            | 2 | frontend | `c.ts` |  | Add it |
+            """;
+
+        var exception = Assert.Throws<FormatException>(() => SpecParser.Parse(spec, BackendAndFrontend));
+
+        Assert.Contains("step 2", exception.Message);
+        Assert.Contains("Pattern from", exception.Message);
+    }
+
+    [Fact]
+    public void The_four_column_table_of_the_old_layout_fails_and_names_pattern_from()
+    {
+        var spec = """
+            ### Technical plan
+            | Step | Component | File | Change |
+            | --- | --- | --- | --- |
+            | 1 | backend | `a.cs` | Add it. |
+            """;
+
+        var exception = Assert.Throws<FormatException>(() => SpecParser.Parse(spec, BackendAndFrontend));
+
+        Assert.Contains("Pattern from", exception.Message);
+        Assert.Contains("5 cells", exception.Message);
     }
 
     [Fact]
@@ -207,7 +304,7 @@ public class SpecParserTests
 
         var exception = Assert.Throws<FormatException>(() => SpecParser.Parse(spec, BackendAndFrontend));
 
-        Assert.Contains("4 cells", exception.Message);
+        Assert.Contains("5 cells", exception.Message);
     }
 
     [Fact]
@@ -216,6 +313,80 @@ public class SpecParserTests
         Assert.Throws<FormatException>(() => SpecParser.Parse("### Goal\nExport.", BackendAndFrontend));
         Assert.Throws<FormatException>(
             () => SpecParser.Parse("### Technical plan\nNone\n\n### Data changes\nNone", BackendAndFrontend));
+    }
+}
+
+public class SpecContractCheckTests
+{
+    private static readonly string[] Demo = ["demo"];
+
+    [Fact]
+    public void None_and_valid_tables_pass()
+    {
+        SpecParser.Check(Samples.SpecFor("demo"));
+        SpecParser.Check(Samples.SpecWith(Demo, Samples.ApiTable, Samples.UiTable));
+        SpecParser.Check(Samples.SpecWith(Demo, Samples.ApiTable, "None"));
+    }
+
+    [Fact]
+    public void Extra_cells_join_the_last_column()
+    {
+        var api = Samples.ApiTable.TrimEnd() + " | and more |";
+
+        SpecParser.Check(Samples.SpecWith(Demo, api, "None"));
+    }
+
+    [Theory]
+    [InlineData("API changes")]
+    [InlineData("UI changes")]
+    public void A_missing_heading_fails_and_names_the_section(string heading)
+    {
+        var spec = Samples.SpecFor("demo").Replace($"### {heading}", "### Something else");
+
+        var exception = Assert.Throws<FormatException>(() => SpecParser.Check(spec));
+
+        Assert.Contains(heading, exception.Message);
+    }
+
+    [Fact]
+    public void A_short_api_row_fails_and_names_the_section()
+    {
+        var shortApi = """
+            | Method | Path | Query / paging | Request | Response | Errors | Auth |
+            | --- | --- | --- | --- | --- | --- | --- |
+            | GET | /api/exports | - | - | ExportRow |
+            """;
+
+        var exception = Assert.Throws<FormatException>(
+            () => SpecParser.Check(Samples.SpecWith(Demo, shortApi, "None")));
+
+        Assert.Contains("API changes", exception.Message);
+        Assert.Contains("7 cells", exception.Message);
+    }
+
+    [Fact]
+    public void A_short_ui_row_fails_and_names_the_section()
+    {
+        var shortUi = """
+            | Route | Page / component | Copy from | Shared components | States |
+            | --- | --- | --- | --- | --- |
+            | /exports | ExportList | ReportList |
+            """;
+
+        var exception = Assert.Throws<FormatException>(
+            () => SpecParser.Check(Samples.SpecWith(Demo, "None", shortUi)));
+
+        Assert.Contains("UI changes", exception.Message);
+        Assert.Contains("5 cells", exception.Message);
+    }
+
+    [Fact]
+    public void Free_text_instead_of_a_table_fails()
+    {
+        var exception = Assert.Throws<FormatException>(
+            () => SpecParser.Check(Samples.SpecWith(Demo, "- `GET /api/exports` -> response `Row`.", "None")));
+
+        Assert.Contains("API changes", exception.Message);
     }
 }
 
@@ -324,6 +495,14 @@ public class ReviewParserTests
 
         Assert.Equal("needs changes", result.Verdict);
         Assert.Equal((1, 0, 1), (result.Bugs, result.Risks, result.Style));
+    }
+
+    [Fact]
+    public void A_convention_finding_is_accepted_and_counted()
+    {
+        var result = ReviewParser.Parse(Samples.Review(severity: "convention"));
+
+        Assert.Equal((0, 0, 1, 1), (result.Bugs, result.Risks, result.Conventions, result.Style));
     }
 
     [Fact]

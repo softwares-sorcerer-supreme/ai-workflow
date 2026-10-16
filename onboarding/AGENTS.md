@@ -2,7 +2,9 @@
 
 <!--
 Starting point for a product repo. Copy this file to the repo root and fill it in.
-Keep it short: Copilot loads it on every run and it costs context.
+ai-runner copies this file in front of the agent on every job of this component (`instructions` in repos.yml),
+so keep it short, concrete and free of instructions that need a human answer: nobody answers the agent while
+it works. Where it is unsure, it writes the question under "Open points" in PR_BODY.md.
 Delete these comments and the examples you do not need.
 -->
 
@@ -10,7 +12,7 @@ Delete these comments and the examples you do not need.
 The agent runs these before it stops (it may also run the same tools with other arguments, e.g. one test),
 and ai-runner runs build, test and lint again after the agent stops and sends failures back to it.
 They must be the same as `commands.setup`, `commands.build`, `commands.test` and `commands.lint` for this component (or its project) in `repos.yml`.
-In a monorepo, put one AGENTS.md in each component folder; the runner's `components.md` points the agent to it. For the project as a whole, see `PROJECT.md`.
+In a monorepo, put one AGENTS.md in each component folder. For the project as a whole, see `PROJECT.md`.
 
 - Setup: `<install dependencies, or delete this line>`
 - Build: `<build command>`
@@ -43,6 +45,20 @@ Where things live, so the agent does not search the whole repo.
 - Error handling: <how errors are returned and logged>
 - Data access: <ORM / queries / repositories pattern>
 - <anything a new developer usually gets wrong>
+
+## UI conventions
+<!-- Only for a repo with a user interface: delete this whole section in a backend repo. The agent uses the ui-checklist skill when it finds it. -->
+- Design system: `<file>`. Sections to read before writing a template or a style: `<section names>`. A per-page override, if you have one: `<path>`.
+- Layout shell: `<component>`. Every page is drawn inside it.
+- Shared components, one line each on when to use it (the agent must not rebuild them):
+  - `<component>`: <when>
+- Styling: <tokens or variables only; no hard-coded colours, sizes or fonts>. No inline styles. No new global styles: <where styles go>.
+- The three states (loading, empty, error): <which component or pattern shows them, and the file where it lives>.
+- Forms and validation: <pattern, where messages appear>.
+- Texts and formatting: <translations, date, number and currency formats>.
+- Accessibility rules of the design system: <focus ring, contrast, labels>.
+- Copy from: a list `<path>`, a form `<path>`, a detail view `<path>`.
+- Tests: every new page or component gets a DOM test that renders its loading, empty, error and data states (`<path of an example>`).
 
 ## Never edit
 - `<migrations folder>`

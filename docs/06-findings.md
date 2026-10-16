@@ -66,6 +66,12 @@ flowchart LR
 | T3 | Low | `LooksLikeQuotaError` matches the words "premium request", "quota", "rate limit". The README lists the exact Copilot error text as still to verify. A false positive gives a misleading failure message. | `Infrastructure/CopilotRunner.cs:50-54` |
 | T4 | Low | Checks listed in README "Still to verify on the real server" (paging, `refs/pull/N/head`, label timestamps, git basic auth) are manual and not covered by tests. | README |
 
+## Not covered yet
+
+| # | Severity | Finding | Where |
+| --- | --- | --- | --- |
+| N1 | Low | A browser check of a changed screen (screenshot, e2e) is not run. The UI rules (`ui-checklist`, the `UI conventions` section of AGENTS.md) are checked by reading files and by a DOM test per page. When a repo has an e2e runner, a `commands.ui_check` that runs it is the next step. | `skills/ui-checklist/`, `onboarding/AGENTS.md` |
+
 ## Tech debt and duplication
 
 | # | Severity | Finding | Where |

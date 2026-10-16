@@ -92,6 +92,14 @@ public sealed class ComponentConfig
     /// <summary>Project commands overridden by this component's own, key by key.</summary>
     public CommandsConfig Commands { get; set; } = new();
 
+    /// <summary>
+    /// The files of this component that hold the rules for the agent, relative to the component folder, with "/".
+    /// The runner copies them in front of the agent on every job (AGENTS.md in the project folder).
+    /// </summary>
+    public List<string> Instructions { get; set; } = [DefaultInstructionFile];
+
+    public const string DefaultInstructionFile = "AGENTS.md";
+
     public bool IsWholeRepo => Path == ".";
 
     /// <summary>Where the commands run inside a clone: the component folder, or the clone root when run_in is repo.</summary>

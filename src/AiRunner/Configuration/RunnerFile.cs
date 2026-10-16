@@ -68,6 +68,7 @@ internal sealed class ComponentFile
     public string? Path { get; set; }
     public bool? Code { get; set; }
     public CommandsFile? Commands { get; set; }
+    public List<string>? Instructions { get; set; }
 }
 
 internal sealed class ProjectFile : SettingsFile

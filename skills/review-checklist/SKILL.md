@@ -20,13 +20,23 @@ Check these in order. Report only real problems in the diff, with a concrete fix
 - **Performance**: queries inside loops, loading full tables, missing paging, large files read into memory.
 - **Compatibility**: public API, message or file formats changed without a version or migration?
 
+## Convention (severity: convention)
+Open the `Pattern from` file of the plan (if there is one) and one neighbour of the same kind next to each changed file. Report a finding when the change differs from them in:
+- naming of files, types, functions, tests and routes;
+- file and folder layout (where the file lives, one type per file or not);
+- structure (the order and shape of the parts, the base class or helper they use);
+- error handling and logging;
+- how dependencies are obtained, and how data is accessed;
+- test style (framework, naming, setup).
+The fix names the neighbour file and line to copy. A rule written in AGENTS.md that the change breaks is a convention finding too.
+When the change has templates or styles, also use the ui-checklist skill; a violation is a convention finding.
+
 ## Tests
 - Is every acceptance criterion covered by a test?
 - Do the tests check behaviour, not implementation details?
 - Is there a test for the main error path?
 
 ## Style (severity: style)
-- Names follow the conventions in AGENTS.md and the code around the change.
 - The change is in the right layer / folder (see the folder map in AGENTS.md).
 - No copy-paste of logic that already exists; no dead code; no commented-out code.
 

@@ -7,9 +7,9 @@ poll_interval_seconds: 90
 runner_name: ""             # names this runner in claims (claim_enabled); empty = the machine user name
 
 copilot:
-  analyze_timeout_minutes: 15
-  review_timeout_minutes: 15
-  implement_timeout_minutes: 45  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
+  analyze_timeout_minutes: 30
+  review_timeout_minutes: 30
+  implement_timeout_minutes: 60  # per Copilot run; the agent now builds, tests, lints and reviews itself inside it
   extra_args: [--disable-builtin-mcps, --allow-all-tools]   # no GitHub MCP server; every tool allowed, but the runner's --deny-tool rules (git, .ai-workflow, analyze/review write+shell) still win
   command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
 
@@ -48,12 +48,12 @@ defaults:
     review: claude-sonnet-5.5      # inspect changes and identify risks
     fix: claude-sonnet-5.5         # apply targeted review fixes
   limits:
-    max_changed_files: 15
+    max_changed_files: 20
     max_diff_lines: 2000
     max_analysis_rounds: 7
     max_review_fixes: 7     # review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
   implement:
-    max_fix_rounds: 3       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
+    max_fix_rounds: 5       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
                             # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
                             # the review fix (workflow fix) uses the same number of fix rounds
   review:
@@ -77,6 +77,7 @@ projects:
       backend:
         repo: manhhai/mbhanalytics
         path: .
+        instructions: [AGENTS.md]   # files whose content the runner puts in front of the agent (relative to the component folder); default [AGENTS.md]
         commands:           # any stack; the same commands as in the repo's AGENTS.md. Empty = not used
           setup: ""         # runs after each checkout (the work folder is cleaned, so node_modules etc. are gone), e.g. "npm ci"
           build: "dotnet build MBHAnalytics.sln"
@@ -88,10 +89,11 @@ projects:
       frontend:
         repo: manhhai/mbhanalytics-fe
         path: .
+        instructions: [AGENTS.md]   # a second file is possible, e.g. [AGENTS.md, design-system/mbh-analytics/MASTER.md]; each file costs context on every job of this component
         commands:
           setup: "npm ci"
           build: "npm run build"
           test: "npm test"
-          lint: "npm run lint"
+          lint: "npm run lint && npx prettier --check ."   # type check plus formatting; ESLint would be a better lint if the repo adds it
           allow_shell: [Get-ChildItem:*, Get-Content:*, Select-Object:*, Select:*, Select-String:*, cd:*, New-Item:*, Move-Item:*, mkdir:*, mv:*, Out-Null:*, Test-Path:*, Join-Path:*, Split-Path:*, Where-Object:*, ForEach-Object:*, Sort-Object:*, Copy-Item:*]
           run_in: component

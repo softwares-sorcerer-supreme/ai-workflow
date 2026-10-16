@@ -111,6 +111,7 @@ public sealed class FixReviewJob(
         {
             Writable = true,
             TargetComponent = writable.Count == 1 ? target.Name : null,
+            OthersAt = Branches.FeatureBranchOf(pull),
         };
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;

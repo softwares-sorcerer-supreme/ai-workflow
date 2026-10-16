@@ -23,6 +23,9 @@ public sealed record ImplementationRequest(
 {
     /// <summary>Files for the Copilot --attachment flag (round 1 only).</summary>
     public IReadOnlyList<string> Attachments { get; init; } = [];
+
+    /// <summary>The plan whose acceptance criteria the PR description must list: the issue's own.</summary>
+    public string CriteriaPlan { get; init; } = "";
 }
 
 /// <summary>
@@ -46,8 +49,10 @@ public sealed class ImplementIssueJob(
     public const string Agent = "implement-issue";
     // The stages and the follow-up procedure live only in agents/implement-issue.agent.md.
     public const string Prompt =
-        "Implement the plan in plan.md. Follow the implement-issue agent rules and AGENTS.md; finish every stage before you stop.";
+        JobSupport.RulesPrefix +
+        "Implement the plan in plan.md. Follow the implement-issue agent rules; finish every stage before you stop.";
     public const string FixPrompt =
+        JobSupport.RulesPrefix +
         "Follow-up round: read fix.md and follow the Follow-up round section of the implement-issue agent rules.";
 
     public JobType Type => JobType.ImplementIssue;
@@ -87,10 +92,14 @@ public sealed class ImplementIssueJob(
         var targetRepo = target.Repo;
 
         // Base branch, work branch and plan: a sub-issue builds on the parent's feature branch.
-        string baseBranch, branch, plan;
+        // The criteria plan is the text the PR description is checked against: the issue's own, never the parent's.
+        string baseBranch, branch, plan, criteriaPlan;
         if (subIssue is not null)
         {
-            var waitingFor = await PreviousSubIssueNotDoneAsync(project, subIssue, cancellationToken);
+            // The parent's comments give the order of the sub-issues and the SPEC that every sub-issue shares.
+            var parentComments = await gitBucketClient.ListCommentsAsync(
+                project.IssuesRepo, subIssue.Parent, cancellationToken);
+            var waitingFor = await PreviousSubIssueNotDoneAsync(project, subIssue, parentComments, cancellationToken);
             if (waitingFor is not null)
             {
                 var waitingReason =
@@ -102,7 +111,9 @@ public sealed class ImplementIssueJob(
 
             baseBranch = subIssue.BaseBranch;
             branch = Branches.SubIssue(subIssue.Parent, subIssue.Order);
-            plan = ContextBuilder.PlanFromSubIssue(issue);
+            var parentSpec = JobSupport.LatestBlock(parentComments, Markers.Spec);
+            plan = ContextBuilder.PlanFromSubIssue(issue, subIssue.Parent, parentSpec);
+            criteriaPlan = ContextBuilder.PlanFromSubIssue(issue, null, null);
         }
         else
         {
@@ -111,6 +122,7 @@ public sealed class ImplementIssueJob(
             baseBranch = await gitBucketClient.DefaultBranchAsync(targetRepo, cancellationToken);
             branch = Branches.Issue(issue.Number);
             plan = ContextBuilder.PlanFromSpec(issue, spec);
+            criteriaPlan = plan;
         }
 
         if (branch == baseBranch)
@@ -145,6 +157,7 @@ public sealed class ImplementIssueJob(
         {
             Writable = true,
             TargetComponent = target.Name,
+            OthersAt = subIssue?.BaseBranch,
         };
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var clone = prepared.TargetClone;
@@ -205,6 +218,7 @@ public sealed class ImplementIssueJob(
             Plan: plan)
         {
             Attachments = fetched.ForCopilot,
+            CriteriaPlan = criteriaPlan,
         };
         try
         {
@@ -234,7 +248,7 @@ public sealed class ImplementIssueJob(
             Prompt,
             FixPrompt,
             OutputFile: "PR_BODY.md",
-            text => PrBodyParser.Problems(text, plan),
+            text => PrBodyParser.Problems(text, implementation.CriteriaPlan),
             DiffBase: diffBase)
         {
             Attachments = implementation.Attachments,
@@ -330,7 +344,10 @@ public sealed class ImplementIssueJob(
     /// component, which can differ from the repo of this sub-issue.
     /// </summary>
     private async Task<int?> PreviousSubIssueNotDoneAsync(
-        ProjectConfig project, SubIssueInfo subIssue, CancellationToken cancellationToken)
+        ProjectConfig project,
+        SubIssueInfo subIssue,
+        IReadOnlyList<GbComment> parentComments,
+        CancellationToken cancellationToken)
     {
         if (subIssue.Order <= 1)
         {
@@ -338,7 +355,6 @@ public sealed class ImplementIssueJob(
         }
 
         var repoName = project.IssuesRepo;
-        var parentComments = await gitBucketClient.ListCommentsAsync(repoName, subIssue.Parent, cancellationToken);
         var subIssueNumbers = SubIssueBody.FindList(parentComments)
             ?? throw new JobFailedException($"Parent #{subIssue.Parent} has no sub-issue list; cannot check the order.");
         if (subIssueNumbers.Count < subIssue.Order - 1)

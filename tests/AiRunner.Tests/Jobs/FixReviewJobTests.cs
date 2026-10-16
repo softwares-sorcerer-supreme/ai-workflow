@@ -38,6 +38,32 @@ public sealed class FixReviewJobTests : IDisposable
     private string ReplyBody() => _kit.GitBucket.CommentsOf(30).Last().Body!;
 
     [Fact]
+    public async Task A_fix_on_a_sub_issue_pr_reads_the_others_at_the_feature_branch_and_names_the_parent()
+    {
+        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        var parentSpec = Samples.SpecWith([Samples.DefaultComponent], Samples.ApiTable, Samples.UiTable);
+        _kit.GitBucket.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
+        var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
+        var body = SubIssueBody.Build(new SubIssueDraft(12, task, 2, "contract"));
+        _kit.GitBucket.AddIssue(21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
+        _kit.GitBucket.AddPull(
+            30, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Issue: james/demo#21", labels: "ai");
+        _kit.Git.Refs["origin/ai/issue-12-1"] = "sha1";
+        var reviewComment = Markers.Wrap(Samples.Review(), Markers.Review);
+        _kit.GitBucket.AddBotComment(30, reviewComment);
+        var trigger = _kit.GitBucket.AddHumanComment(30, "@ai 1: fix");
+
+        var outcome = await RunAsync(trigger);
+
+        Assert.Equal("ok", outcome.Result);
+        Assert.Equal("feat/issue-12", _kit.Workspace.Requests.Single().OthersAt);
+
+        var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
+        var plan = File.ReadAllText(planFile);
+        Assert.Contains("## Plan of the parent issue #12 (the linked issue #21 is a sub-issue;", plan);
+    }
+
+    [Fact]
     public async Task Fix_commits_on_the_pr_branch_and_answers_on_the_pr()
     {
         var trigger = PrWithAnswer();
@@ -46,6 +72,7 @@ public sealed class FixReviewJobTests : IDisposable
 
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(("sha1", "ai/issue-12"), _kit.Workspace.Prepared.Single());
+        Assert.Null(_kit.Workspace.Requests.Single().OthersAt);
         Assert.Equal(["PR #30: review fix 1 (Copilot)"], _kit.Git.Commits);
         Assert.Equal([("HEAD", "ai/issue-12")], _kit.Git.Pushes);
 
@@ -156,7 +183,9 @@ public sealed class FixReviewJobTests : IDisposable
 
         Assert.Equal("red", outcome.Result);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
+        Assert.Contains("AGENTS.md in this folder", _kit.Copilot.Requests[0].Prompt);
         Assert.Contains("fix.md", _kit.Copilot.Requests[1].Prompt);
+        Assert.Contains("AGENTS.md in this folder", _kit.Copilot.Requests[1].Prompt);
         Assert.Equal([("HEAD", "ai/pr-30-fix-1")], _kit.Git.Pushes);   // the side branch only, never ai/issue-12
         Assert.Contains("## AI fix 1 - not pushed to this PR: build, test or lint is still failing", ReplyBody());
         Assert.Contains("saved on branch `ai/pr-30-fix-1`", ReplyBody());

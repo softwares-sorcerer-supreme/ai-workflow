@@ -45,13 +45,21 @@ public static class Labels
 /// <summary>Branch names used by the workflows.</summary>
 public static class Branches
 {
+    private const string RemotePrefix = "origin/";
+
+    private const string FeaturePrefix = "feat/issue-";
+
     /// <summary>The remote-tracking name of a branch in the runner's clone.</summary>
-    public static string Remote(string branch) => $"origin/{branch}";
+    public static string Remote(string branch) => $"{RemotePrefix}{branch}";
+
+    /// <summary>The branch of a remote-tracking ref; a ref without the "origin/" prefix stays as it is.</summary>
+    public static string LocalName(string remoteRef) =>
+        remoteRef.StartsWith(RemotePrefix, StringComparison.Ordinal) ? remoteRef[RemotePrefix.Length..] : remoteRef;
 
     /// <summary>Refspec for a PR's head commit (refs/pull/N/head); not every GitBucket version has it.</summary>
     public static string PullHead(int number) => $"+refs/pull/{number}/head:refs/remotes/pr/{number}";
 
-    public static string Feature(int parent) => $"feat/issue-{parent}";
+    public static string Feature(int parent) => $"{FeaturePrefix}{parent}";
     public static string Issue(int number) => $"ai/issue-{number}";
     public static string SubIssue(int parent, int order) => $"ai/issue-{parent}-{order}";
 
@@ -59,9 +67,26 @@ public static class Branches
     public static string ReviewFix(int pull, int fix) => $"ai/pr-{pull}-fix-{fix}";
 
     public static bool IsAiBranch(string branch) =>
-        branch.StartsWith("ai/", StringComparison.Ordinal) ||
-        branch.StartsWith("feat/issue-", StringComparison.Ordinal);
+        branch.StartsWith("ai/", StringComparison.Ordinal) || IsFeature(branch);
 
     public static bool IsAiIssueBranch(string branch) => branch.StartsWith("ai/issue-", StringComparison.Ordinal);
+
+    /// <summary>True for the feature branch of a parent issue (feat/issue-N).</summary>
+    public static bool IsFeature(string branch) => branch.StartsWith(FeaturePrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The feature branch a PR belongs to: its base (a sub-issue PR into feat/issue-N), else its head (the final PR
+    /// feat/issue-N into the default branch), else null. The other repos of the project are read at that branch,
+    /// because that is where the work of the sibling sub-issues is.
+    /// </summary>
+    public static string? FeatureBranchOf(GbPull pull)
+    {
+        if (IsFeature(pull.Base.Ref))
+        {
+            return pull.Base.Ref;
+        }
+
+        return IsFeature(pull.Head.Ref) ? pull.Head.Ref : null;
+    }
 }
 

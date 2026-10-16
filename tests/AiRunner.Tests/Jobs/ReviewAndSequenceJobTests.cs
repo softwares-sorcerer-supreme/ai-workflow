@@ -23,7 +23,9 @@ public sealed class ReviewPullRequestJobTests : IDisposable
         _kit.Copilot.StdOut = "noise\n" + Markers.Wrap(reviewText, Markers.Review);
 
         var firstReviewRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha1");
-        await Job.RunAsync(firstReviewRequest, _kit.Run, default);
+        var firstOutcome = await Job.RunAsync(firstReviewRequest, _kit.Run, default);
+
+        Assert.Equal("needs changes: 1 bug, 0 risk, 0 convention, 1 style", firstOutcome.Detail);
 
         var first = _kit.GitBucket.CommentsOf(30).Single();
         Assert.True(BotComments.Is(first, Markers.Review));
@@ -34,6 +36,8 @@ public sealed class ReviewPullRequestJobTests : IDisposable
         Assert.Contains("SPEC - issue #12", context);
         Assert.Contains("stricter review", context);
         Assert.Equal("pr-review", _kit.Copilot.Requests.Single().Agent);
+        Assert.Contains("AGENTS.md in this folder", _kit.Copilot.Requests.Single().Prompt);
+        Assert.Null(_kit.Workspace.Requests.Single().OthersAt);
 
         _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha2", body: "Closes #12", labels: "ai");
         var secondReviewRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha2");
@@ -42,6 +46,39 @@ public sealed class ReviewPullRequestJobTests : IDisposable
         Assert.Single(_kit.GitBucket.CommentsOf(30));
         Assert.Equal(first.Id, _kit.GitBucket.Updated.Single().Id);
         Assert.Equal("sha2", _kit.State.GetReview(JobTestKit.Repo, 30)!.HeadSha);
+    }
+
+    [Fact]
+    public async Task A_sub_issue_pr_is_reviewed_with_the_parent_spec_and_the_others_at_the_feature_branch()
+    {
+        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        var parentSpec = Samples.SpecWith([Samples.DefaultComponent], Samples.ApiTable, Samples.UiTable);
+        _kit.GitBucket.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
+        var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
+        var body = SubIssueBody.Build(new SubIssueDraft(12, task, 2, "contract"));
+        _kit.GitBucket.AddIssue(21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
+        _kit.GitBucket.AddPull(
+            30, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Issue: james/demo#21", labels: "ai");
+        _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
+
+        await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
+
+        var contextFile = Path.Combine(_kit.Workspace.Dir, "context.md");
+        var context = File.ReadAllText(contextFile);
+        Assert.Contains("## Linked issue: SPEC (from parent #12)", context);
+        Assert.Contains("PaginationResponse<ExportRow>", context);
+        Assert.Equal("feat/issue-12", _kit.Workspace.Requests.Single().OthersAt);
+    }
+
+    [Fact]
+    public async Task The_final_pr_of_a_parent_issue_is_reviewed_with_the_others_at_the_feature_branch()
+    {
+        _kit.GitBucket.AddPull(30, "feat/issue-12", "main", sha: "sha1", labels: "ai");
+        _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
+
+        await Job.RunAsync(_kit.Request(JobType.ReviewPullRequest, 30, "sha1"), _kit.Run, default);
+
+        Assert.Equal("feat/issue-12", _kit.Workspace.Requests.Single().OthersAt);
     }
 
     [Fact]

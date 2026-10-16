@@ -15,7 +15,13 @@ public sealed record ComponentsDocInput(
     string TargetRepo,
     string? TargetComponent,
     bool Writable,
-    Func<string, bool> FileExists);
+    Func<string, bool> FileExists)
+{
+    /// <summary>
+    /// The ref each repo of the project was checked out at (repo -> "origin/main"), for the lines under the table.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> CheckedOutAt { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>
 /// components.md: the map the agent reads first. One row per component with where it is on disk, which AGENTS.md
@@ -49,10 +55,28 @@ public static class ComponentsDoc
         }
 
         builder.AppendLine();
-        builder.AppendLine("Read the AGENTS.md of a component before you read or change its code.");
+        AppendCheckouts(builder, input);
+        builder.AppendLine(
+            "The rules of the repositories are in AGENTS.md in the project folder, copied by the runner.");
         builder.AppendLine($"Write only where the Role says `{TargetRole}`. Everything else is `{ReadOnlyRole}`.");
 
         return builder.ToString();
+    }
+
+    private static void AppendCheckouts(StringBuilder builder, ComponentsDocInput input)
+    {
+        foreach (var repo in input.Project.Repos.Where(input.CheckedOutAt.ContainsKey))
+        {
+            var gitRef = input.CheckedOutAt[repo];
+            var isTarget = string.Equals(repo, input.TargetRepo, StringComparison.OrdinalIgnoreCase);
+            var branch = Branches.LocalName(gitRef);
+            var checkoutReason = isTarget
+                ? "the start point of this job"
+                : Branches.IsFeature(branch) ? "the feature branch of the parent issue" : "default branch";
+            builder.AppendLine($"Checked out at: {repo} at {gitRef} ({checkoutReason})");
+        }
+
+        builder.AppendLine();
     }
 
     /// <summary>The role of a component in this job.</summary>

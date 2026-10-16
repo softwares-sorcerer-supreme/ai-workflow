@@ -17,8 +17,13 @@
 - A2: ...
 
 ### Questions
+Behaviour (what the app does: flows, rules, roles, screens, data the user sees):
 - Q1: <one sentence>? (why I ask: <one short reason>)
-- Q2: ...
+Technical (how we build it: library, pattern, data access, API shape, performance):
+- Q2: <one sentence>? (why I ask: <one short reason>)
+Other (scope, timing, who decides, environments):
+- Q3: <one sentence>? (why I ask: <one short reason>)
+(One numbering for all groups; keep the numbers of earlier questions. A group with nothing says `- None`. When every group is empty, write None under the heading.)
 
 ### Related code
 - `path/to/file` - <role in this change>

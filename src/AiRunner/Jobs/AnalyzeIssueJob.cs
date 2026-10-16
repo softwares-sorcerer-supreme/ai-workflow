@@ -19,7 +19,8 @@ public sealed class AnalyzeIssueJob(
 {
     public const string Agent = "grill-issue";
     public const string Prompt =
-        "Analyze the issue in context.md. Read components.md first, then the project description (PROJECT.md) it points to, if it exists. " +
+        JobSupport.RulesPrefix +
+        "Analyze the issue in context.md. Read components.md first. " +
         "Follow the grill-issue agent rules and fill the templates in .ai-workflow/templates/.";
 
     public JobType Type => JobType.AnalyzeIssue;
@@ -95,7 +96,15 @@ public sealed class AnalyzeIssueJob(
 
         if (spec is not null)
         {
-            JobSupport.Parse(() => SpecParser.Parse(spec, codeComponents), "The SPEC");
+            JobSupport.Parse(
+                () =>
+                {
+                    var steps = SpecParser.Parse(spec, codeComponents);
+                    SpecParser.Check(spec);
+
+                    return steps;
+                },
+                "The SPEC");
         }
 
         var reply = thread.Reply(analysis);

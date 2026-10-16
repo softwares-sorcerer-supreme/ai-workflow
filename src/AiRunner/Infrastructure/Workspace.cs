@@ -1,5 +1,6 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
+using Microsoft.Extensions.Logging;
 
 namespace AiRunner.Infrastructure;
 
@@ -21,6 +22,13 @@ public sealed record WorkspaceRequest(
 
     /// <summary>The one component the agent may change; null = every code component in the target repo.</summary>
     public string? TargetComponent { get; init; }
+
+    /// <summary>
+    /// A branch name (e.g. feat/issue-12). Every other repo is checked out at origin/&lt;this&gt; when it exists
+    /// there, else at its default branch, so a job sees the work of the sibling sub-issues instead of an old default
+    /// branch.
+    /// </summary>
+    public string? OthersAt { get; init; }
 }
 
 /// <summary>The prepared project folder: runner files go in the root, code is in one clone per repo.</summary>
@@ -54,9 +62,10 @@ public interface IWorkspace
 /// share a repo share its clone). Jobs run one at a time, so a clone is fetched, reset and cleaned before each
 /// job instead of cloned again. The runner's own files sit in the project folder, outside every clone, and are
 /// deleted before each job (git clean does not reach them); each clone also lists them in .git/info/exclude,
-/// so "git add -A" never commits one the agent wrote there by mistake.
+/// so "git add -A" never commits one the agent wrote there by mistake. AGENTS.md in the root is a runner file too,
+/// but it is not excluded in the clones: a repo may have an AGENTS.md of its own that the agent may legitimately edit.
 /// </summary>
-public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWorkspace
+public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger<Workspace> logger) : IWorkspace
 {
     private const string RunnerFolder = ".ai-workflow";
     private const string TemplatesFolder = ".ai-workflow/templates";
@@ -66,6 +75,9 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWork
     [
         "context.md", "plan.md", "PR_BODY.md", "fix.md", "diff.patch", "changed-files.txt", ComponentsDoc.FileName,
     ];
+
+    /// <summary>Runner files in the project folder that must not go to the exclude list of a clone.</summary>
+    private static readonly string[] RootOnlyFiles = [InstructionsDoc.FileName];
 
     private string RootOf(ProjectConfig project)
     {
@@ -99,6 +111,7 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWork
         DeleteStaleRunnerFiles(root);
 
         var clones = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var checkedOutAt = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var repo in project.Repos)
         {
             var directory = CloneFolderOf(project, repo);
@@ -108,11 +121,13 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWork
             if (isTarget)
             {
                 await CheckoutTargetAsync(request, directory, cancellationToken);
+                checkedOutAt[repo] = request.StartPoint;
             }
             else
             {
-                var defaultBranch = await gitClient.DefaultBranchAsync(directory, cancellationToken);
-                await gitClient.CheckoutCleanAsync(directory, defaultBranch, null, cancellationToken);
+                var gitRef = await CheckoutOtherAsync(request.OthersAt, directory, cancellationToken);
+                checkedOutAt[repo] = gitRef;
+                logger.LogInformation("{Project}: {Repo} checked out at {Ref}", project.Name, repo, gitRef);
             }
 
             await WriteExcludeFileAsync(directory, cancellationToken);
@@ -129,12 +144,109 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWork
             request.TargetRepo,
             request.TargetComponent,
             request.Writable,
-            File.Exists);
+            File.Exists)
+        {
+            CheckedOutAt = checkedOutAt,
+        };
         var componentsDoc = ComponentsDoc.Build(docInput);
         var componentsFile = Path.Combine(root, ComponentsDoc.FileName);
         await File.WriteAllTextAsync(componentsFile, componentsDoc, cancellationToken);
 
+        await WriteInstructionsAsync(request, root, cancellationToken);
+
         return new PreparedWorkspace(root, request.TargetRepo, clones);
+    }
+
+    /// <summary>
+    /// A repo that is not the target: the feature branch when there is one, else the default branch. Returns the ref.
+    /// </summary>
+    private async Task<string> CheckoutOtherAsync(
+        string? othersAt,
+        string directory,
+        CancellationToken cancellationToken)
+    {
+        if (othersAt is not null)
+        {
+            var featureRef = Branches.Remote(othersAt);
+            if (await gitClient.RefExistsAsync(directory, featureRef, cancellationToken))
+            {
+                await gitClient.CheckoutCleanAsync(directory, featureRef, null, cancellationToken);
+
+                return featureRef;
+            }
+        }
+
+        var defaultBranch = await gitClient.DefaultBranchAsync(directory, cancellationToken);
+        await gitClient.CheckoutCleanAsync(directory, defaultBranch, null, cancellationToken);
+
+        return defaultBranch;
+    }
+
+    private async Task WriteInstructionsAsync(
+        WorkspaceRequest request,
+        string root,
+        CancellationToken cancellationToken)
+    {
+        var project = request.Project;
+
+        var descriptionFile = ComponentsDoc.ProjectDescriptionFile(root, project);
+        var description = File.Exists(descriptionFile)
+            ? await File.ReadAllTextAsync(descriptionFile, cancellationToken)
+            : null;
+
+        var files = new List<InstructionFile>();
+        foreach (var component in project.Components)
+        {
+            var componentFolder = ComponentsDoc.FolderOf(root, component);
+            var cloneFolder = Path.Combine(root, ProjectConfig.FolderOf(component.Repo));
+
+            foreach (var relative in component.Instructions)
+            {
+                var content = await ReadInstructionFileAsync(componentFolder, cloneFolder, relative, cancellationToken);
+                files.Add(new InstructionFile(component.Name, relative, content));
+            }
+        }
+
+        var input = new InstructionsDocInput(
+            project,
+            root,
+            request.TargetRepo,
+            request.TargetComponent,
+            request.Writable,
+            files,
+            description);
+        var document = InstructionsDoc.Build(input);
+        var instructionsFile = Path.Combine(root, InstructionsDoc.FileName);
+        await File.WriteAllTextAsync(instructionsFile, document, cancellationToken);
+
+        logger.LogInformation(
+            "{Project}: {File} written, {Characters} characters from {Count} instruction files",
+            project.Name,
+            InstructionsDoc.FileName,
+            document.Length,
+            files.Count);
+    }
+
+    /// <summary>The text of an instruction file, or null when it is missing or resolves outside the clone.</summary>
+    private async Task<string?> ReadInstructionFileAsync(
+        string componentFolder,
+        string cloneFolder,
+        string relative,
+        CancellationToken cancellationToken)
+    {
+        var file = Path.GetFullPath(Path.Combine(componentFolder, relative));
+        var fullCloneFolder = Path.GetFullPath(cloneFolder);
+        if (!GitClient.IsInside(fullCloneFolder, file))
+        {
+            logger.LogWarning(
+                "Instruction file {Path} resolves outside the clone {Clone}; treated as missing",
+                relative,
+                cloneFolder);
+
+            return null;
+        }
+
+        return File.Exists(file) ? await File.ReadAllTextAsync(file, cancellationToken) : null;
     }
 
     private async Task CheckoutTargetAsync(
@@ -164,7 +276,7 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient) : IWork
 
     private static void DeleteStaleRunnerFiles(string root)
     {
-        foreach (var name in RunnerFiles)
+        foreach (var name in RunnerFiles.Concat(RootOnlyFiles))
         {
             var file = Path.Combine(root, name);
             if (File.Exists(file))

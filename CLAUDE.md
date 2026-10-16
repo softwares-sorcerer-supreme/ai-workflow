@@ -36,7 +36,7 @@ dotnet run --project src/AiRunner -- --attachment-test <url>   # download one _a
 ```
 
 - Config: `Configuration/ConfigResolver` reads `repos.yml` strictly into the raw `RunnerFile` types and merges them into
-  `ProjectConfig` / `ComponentConfig` / `ProjectSettings`; `RunnerConfig.FindProject(repo)` is the lookup. Nothing outside
+  `ProjectConfig` / `ComponentConfig` / `ProjectSettings` (a component's `instructions` list, default `[AGENTS.md]`, is checked there: no `..`, no absolute path); `RunnerConfig.FindProject(repo)` is the lookup. Nothing outside
   `Configuration/` sees the raw types. A job that needs "the" code component but is not told which uses
   `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
@@ -62,9 +62,12 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 Key mechanics that span several files:
 
 - **Project workspace.** `Infrastructure/Workspace.PrepareAsync` clones or fetches every distinct repo of the project to
-  `work/<project>/<repo-name>/` (target repo at the request's start point, the others detached at `origin/<default>`), deletes the
+  `work/<project>/<repo-name>/` (target repo at the request's start point, the others detached at `origin/<default>`, or at `origin/<OthersAt>` when `WorkspaceRequest.OthersAt` names a branch that exists there: a sub-issue job, its review and its review fix read the other repos at the parent's `feat/issue-<p>` (`Branches.FeatureBranchOf`), and `components.md` says per repo where it is checked out), deletes the
   runner files of the last job from the project root, copies the templates to `<root>/.ai-workflow/templates/` and writes
-  `components.md` (`Core/ComponentsDoc`). Runner files live in the project root, never in a clone (each clone also excludes them).
+  `components.md` (`Core/ComponentsDoc`) and `AGENTS.md` (`Core/InstructionsDoc`: PROJECT.md, the `instructions` files of the
+  components the job works on in full, the first file of the others; Copilot loads it from its cwd, so the repositories' rules
+  reach the agent and the `code-reviewer` subagent). Runner files live in the project root, never in a clone (each clone also
+  excludes them, except `AGENTS.md`: a repo's own AGENTS.md is a real file the agent may edit).
   Copilot always starts in the project root; build/test/lint run in the component folder (`commands.run_in`). The `.git/config`
   guard in `AgentSession` covers every clone.
 - **Attachments.** Files people link from human text (`/_attached/<id>` on the GitBucket host; the JSON has no attachment list) are
@@ -145,10 +148,16 @@ Key mechanics that span several files:
   `LoadPullAsync`, which read comments only when `PlanPull` says `NeedsComments`. `Markers.Wrap` neutralises `<!--` in the
   block text, so agent output can never fake a marker or a `context-upto` tag.
 - **Agent output contract.** `templates/` (ASCII) define what agents write; `Core` parsers validate it strictly (status/complexity/verdict/severity
-  vocabularies, `Components affected` names (code components only; `unknown` only while questions are open), the SPEC technical plan
-  `| Step | Component | File | Change |` (`SpecParser`), the 6-column breakdown table
+  vocabularies (review severity: `bug | risk | convention | style`; a `convention` finding is a difference from the pattern file or the neighbours), `Components affected` names (code components only; `unknown` only while questions are open), the SPEC technical plan
+  `| Step | Component | File | Pattern from | Change |` (`SpecParser`; `Pattern from` = the existing file to copy, `-` only when none exists), the SPEC contract tables `### API changes` (7 cells: Method, Path, Query / paging,
+  Request, Response, Errors, Auth) and `### UI changes` (5 cells: Route, Page / component, Copy from, Shared components, States), each a table or `None`
+  (`SpecParser.Check`; the **contract**, binding for every sub-issue: `ContextBuilder.PlanFromSubIssue` copies the parent's whole SPEC into the
+  plan of a sub-issue, and `JobSupport.LinkedIssueAsync` does the same for its PR), the 6-column breakdown table
   `| # | Component | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
   `AnalysisParser`, `SpecParser` and `BreakdownParser` take the project's code component names; a name outside them fails the job.
+  The analysis `### Questions` section is free text for the runner (no parser reads it): three plain-line groups (Behaviour, Technical, Other),
+  one global `Q<n>` numbering, no cap. UI work is guided by the `ui-checklist` skill and the `## UI conventions` section of a repo's AGENTS.md
+  (a `convention` finding in the review); no runner logic depends on them.
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
 
 ## GitBucket and security constraints

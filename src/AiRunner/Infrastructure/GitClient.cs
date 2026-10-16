@@ -119,7 +119,7 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         CancellationToken cancellationToken)
     {
         await GitAsync(directory, cancellationToken, "reset", "--hard");
-        await GitAsync(directory, cancellationToken, "clean", "-fdx");
+        await CleanAsync(directory, cancellationToken);
 
         if (newBranch is null)
         {
@@ -129,6 +129,47 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         {
             await GitAsync(directory, cancellationToken, "checkout", "-B", newBranch, startPoint);
         }
+    }
+
+    /// <summary>
+    /// On Windows a node_modules file can be locked for a moment (a leftover node process, antivirus, OneDrive),
+    /// which makes git clean exit 1 after removing most of it. Another pass removes the rest. In a OneDrive folder
+    /// the folders are read-only, and git cannot remove a read-only folder ("Permission denied"), so the
+    /// attribute is cleared before each retry.
+    /// </summary>
+    private async Task CleanAsync(string directory, CancellationToken cancellationToken)
+    {
+        const int attempts = 3;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            var result = await RunAsync(directory, cancellationToken, "clean", "-fdx");
+            if (result.Ok)
+            {
+                return;
+            }
+
+            if (attempt == attempts)
+            {
+                throw new InvalidOperationException(
+                    $"git clean failed (exit {result.ExitCode}): {ErrorTail(result)}");
+            }
+
+            FileSystem.ClearReadOnly(directory);
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+    }
+
+    /// <summary>The warnings are on stderr; a long "Removing ..." list on stdout would otherwise hide them.</summary>
+    private static string ErrorTail(ProcessResult result)
+    {
+        var errors = result.StdErr.Trim();
+        if (errors.Length == 0)
+        {
+            return result.Tail(600);
+        }
+
+        return errors.Length <= 600 ? errors : "..." + errors[^600..];
     }
 
     public Task FetchAsync(string directory, string refspec, CancellationToken cancellationToken) =>
@@ -303,7 +344,8 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         }
     }
 
-    private static bool IsInside(string fullDirectory, string path)
+    /// <summary>True when the path (relative to the directory, or absolute) stays inside the directory.</summary>
+    internal static bool IsInside(string fullDirectory, string path)
     {
         var file = Path.GetFullPath(Path.Combine(fullDirectory, path));
 
@@ -349,7 +391,7 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         {
             var subcommand = args.FirstOrDefault(argument => !argument.StartsWith('-') && !argument.Contains('='));
             throw new InvalidOperationException(
-                $"git {subcommand} failed (exit {result.ExitCode}): {result.Tail(600)}");
+                $"git {subcommand} failed (exit {result.ExitCode}): {ErrorTail(result)}");
         }
 
         return result.StdOut;

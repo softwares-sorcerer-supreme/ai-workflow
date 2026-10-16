@@ -95,6 +95,9 @@ internal static partial class ConfigResolver
                 Path = componentFile.Path?.Trim() ?? ".",
                 Code = componentFile.Code ?? true,
                 Commands = commands,
+                Instructions = componentFile.Instructions is { } instructions
+                    ? [.. instructions.Select(entry => entry?.Trim() ?? "")]
+                    : [ComponentConfig.DefaultInstructionFile],
             });
         }
 
@@ -290,6 +293,7 @@ internal static partial class ConfigResolver
             }
 
             ValidatePath(component, what);
+            ValidateInstructions(component, what);
 
             var runIn = component.Commands.RunIn;
             if (!string.Equals(runIn, CommandsConfig.RunInComponent, StringComparison.OrdinalIgnoreCase) &&
@@ -331,16 +335,22 @@ internal static partial class ConfigResolver
         ValidateOverlap(project);
     }
 
+    /// <summary>A path inside a folder: not empty, written with "/", no drive, not absolute, no ".." segment.</summary>
+    private static bool IsSafeRelativePath(string path)
+    {
+        var hasBadSegment = path.Split('/').Any(segment => segment == "..");
+
+        return !string.IsNullOrWhiteSpace(path) &&
+               !path.Contains('\\') &&
+               !path.StartsWith('/') &&
+               !path.Contains(':') &&
+               !hasBadSegment;
+    }
+
     private static void ValidatePath(ComponentConfig component, string what)
     {
         var path = component.Path;
-        var hasBadSegment = path.Split('/').Any(segment => segment == "..");
-        var isBad = string.IsNullOrWhiteSpace(path) ||
-                    path.Contains('\\') ||
-                    path.StartsWith('/') ||
-                    path.Contains(':') ||
-                    hasBadSegment;
-        if (isBad)
+        if (!IsSafeRelativePath(path))
         {
             throw new InvalidOperationException(
                 $"{what}: path '{path}' must be relative, use '/' and have no '..' ('.' is the whole repo).");
@@ -351,6 +361,19 @@ internal static partial class ConfigResolver
         if (component.Path.Length == 0)
         {
             component.Path = ".";
+        }
+    }
+
+    private static void ValidateInstructions(ComponentConfig component, string what)
+    {
+        foreach (var entry in component.Instructions)
+        {
+            if (!IsSafeRelativePath(entry))
+            {
+                throw new InvalidOperationException(
+                    $"{what}: instructions entry '{entry}' must be a file path relative to the component folder, " +
+                    "use '/' and have no '..'.");
+            }
         }
     }
 

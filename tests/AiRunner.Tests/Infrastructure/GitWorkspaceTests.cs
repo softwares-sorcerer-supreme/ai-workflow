@@ -36,7 +36,7 @@ public sealed class GitWorkspaceTests : IDisposable
         File.WriteAllText(templateFile, "template");
 
         _gitClient = new GitClient(_config, new RunnerIdentity { Login = "bot", GitSecret = "x" }, _processRunner);
-        _workspace = new Workspace(_config, _gitClient);
+        _workspace = new Workspace(_config, _gitClient, NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main
         var bare = Path.Combine(_root, "git", "o", "r.git");
@@ -304,6 +304,165 @@ public sealed class GitWorkspaceTests : IDisposable
         var stats = await _gitClient.StageAllAsync(clone, default);
 
         Assert.Equal(["real.txt"], stats.Select(stat => stat.Path));
+    }
+
+    private static ProjectConfig DuoProject() =>
+        new()
+        {
+            Name = "duo",
+            IssuesIn = "r",
+            Components =
+            [
+                new ComponentConfig { Name = "r", Repo = "o/r" },
+                new ComponentConfig { Name = "s", Repo = "o/s" },
+            ],
+        };
+
+    /// <summary>Pushes feat/issue-12 with one extra file to the seeded repo o/s.</summary>
+    private void PushFeatureBranch()
+    {
+        var seed = Path.Combine(_root, "seed-o-s");
+        Git(seed, "checkout", "-b", "feat/issue-12");
+        File.WriteAllText(Path.Combine(seed, "feature.txt"), "from the feature branch\n");
+        Git(seed, "add", "-A");
+        Git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "feature");
+        Git(seed, "push", "origin", "HEAD:refs/heads/feat/issue-12");
+    }
+
+    [Fact]
+    public async Task The_other_repos_are_checked_out_at_the_feature_branch_when_it_exists()
+    {
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        PushFeatureBranch();
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        {
+            Writable = true,
+            OthersAt = "feat/issue-12",
+        };
+
+        var prepared = await _workspace.PrepareAsync(request, default);
+
+        var other = prepared.CloneOf("o/s");
+        Assert.True(File.Exists(Path.Combine(other, "feature.txt")));
+        Assert.Equal("", (await GitOutputAsync(other, "branch", "--show-current")).Trim());   // detached
+        Assert.Equal("", (await GitOutputAsync(other, "status", "--porcelain")).Trim());      // clean
+        var components = File.ReadAllText(Path.Combine(prepared.Root, "components.md"));
+        Assert.Contains(
+            "Checked out at: o/s at origin/feat/issue-12 (the feature branch of the parent issue)",
+            components);
+        Assert.Contains("Checked out at: o/r at origin/main (the start point of this job)", components);
+    }
+
+    [Fact]
+    public async Task The_other_repos_stay_at_the_default_branch_when_the_feature_branch_is_missing()
+    {
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        {
+            Writable = true,
+            OthersAt = "feat/issue-12",
+        };
+
+        var prepared = await _workspace.PrepareAsync(request, default);
+
+        var other = prepared.CloneOf("o/s");
+        Assert.True(File.Exists(Path.Combine(other, "lib.txt")));
+        Assert.False(File.Exists(Path.Combine(other, "feature.txt")));
+        Assert.Equal("", (await GitOutputAsync(other, "status", "--porcelain")).Trim());
+        var components = File.ReadAllText(Path.Combine(prepared.Root, "components.md"));
+        Assert.Contains("Checked out at: o/s at origin/main (default branch)", components);
+    }
+
+    [Fact]
+    public async Task Without_others_at_the_feature_branch_is_ignored_even_when_it_exists()
+    {
+        SeedRepo("o/s", ("lib.txt", "lib\n"));
+        PushFeatureBranch();
+
+        var prepared = await PrepareProjectAsync(DuoProject(), "o/r");
+
+        Assert.False(File.Exists(Path.Combine(prepared.CloneOf("o/s"), "feature.txt")));
+    }
+
+    private static ProjectConfig AppAndDocsProject(params string[] appInstructions) =>
+        new()
+        {
+            Name = "app",
+            IssuesIn = "docs",
+            Components =
+            [
+                new ComponentConfig { Name = "docs", Repo = "o/docs", Code = false },
+                new ComponentConfig { Name = "app", Repo = "o/app", Instructions = [.. appInstructions] },
+            ],
+        };
+
+    [Fact]
+    public async Task Agents_md_in_the_project_folder_holds_the_description_and_the_instruction_files()
+    {
+        SeedRepo("o/docs", ("PROJECT.md", "about the project\n"));
+        SeedRepo("o/app", ("AGENTS.md", "app rules\n"), ("docs/design.md", "design rules\n"));
+        var project = AppAndDocsProject("AGENTS.md", "docs/design.md");
+
+        var prepared = await PrepareProjectAsync(project, "o/app");
+
+        var text = File.ReadAllText(Path.Combine(prepared.Root, "AGENTS.md"));
+        Assert.Contains("about the project", text);
+        Assert.Contains("## app: AGENTS.md (target - you may write here)", text);
+        Assert.Contains("app rules", text);
+        Assert.Contains("design rules", text);
+        Assert.Contains($"Missing: {Path.Combine(prepared.Root, "docs", "AGENTS.md")} does not exist.", text);
+    }
+
+    [Fact]
+    public async Task Agents_md_of_the_last_job_is_deleted_before_the_next_prepare()
+    {
+        SeedRepo("o/docs", ("PROJECT.md", "about\n"));
+        SeedRepo("o/app", ("AGENTS.md", "app rules\n"));
+        var project = AppAndDocsProject("AGENTS.md");
+        var first = await PrepareProjectAsync(project, "o/app");
+        File.WriteAllText(Path.Combine(first.Root, "AGENTS.md"), "left by the last job");
+
+        var second = await PrepareProjectAsync(project, "o/app");
+
+        var text = File.ReadAllText(Path.Combine(second.Root, "AGENTS.md"));
+        Assert.DoesNotContain("left by the last job", text);
+        Assert.Contains("app rules", text);
+    }
+
+    [Fact]
+    public async Task Agents_md_is_not_in_the_exclude_list_of_a_clone_so_edits_to_a_repo_agents_md_are_committed()
+    {
+        SeedRepo("o/docs", ("PROJECT.md", "about\n"));
+        SeedRepo("o/app", ("AGENTS.md", "app rules\n"));
+
+        var prepared = await PrepareProjectAsync(AppAndDocsProject("AGENTS.md"), "o/app");
+
+        var excludeFile = Path.Combine(prepared.CloneOf("o/app"), ".git", "info", "exclude");
+        var lines = File.ReadAllLines(excludeFile);
+        Assert.DoesNotContain("AGENTS.md", lines);
+        Assert.Contains("components.md", lines);
+
+        File.WriteAllText(Path.Combine(prepared.CloneOf("o/app"), "AGENTS.md"), "app rules, edited\n");
+        var stats = await _gitClient.StageAllAsync(prepared.CloneOf("o/app"), default);
+
+        Assert.Equal(["AGENTS.md"], stats.Select(stat => stat.Path));
+    }
+
+    [Fact]
+    public async Task An_instruction_path_that_leaves_the_clone_is_treated_as_missing()
+    {
+        SeedRepo("o/docs", ("PROJECT.md", "about\n"));
+        SeedRepo("o/app", ("AGENTS.md", "app rules\n"));
+        var project = AppAndDocsProject("../secret.md");
+        var rootSecret = Path.Combine(_config.ResolvePath(_config.Paths.Work), "app", "secret.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(rootSecret)!);
+        File.WriteAllText(rootSecret, "do not copy me");
+
+        var prepared = await PrepareProjectAsync(project, "o/app");
+
+        var text = File.ReadAllText(Path.Combine(prepared.Root, "AGENTS.md"));
+        Assert.DoesNotContain("do not copy me", text);
+        Assert.Contains("Missing:", text);
     }
 
     [Fact]

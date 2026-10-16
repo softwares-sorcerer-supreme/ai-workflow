@@ -29,6 +29,8 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(("origin/main", "ai/issue-12"), _kit.Workspace.Prepared.Single());
+        // A simple issue reads the others at their default branch.
+        Assert.Null(_kit.Workspace.Requests.Single().OthersAt);
         Assert.Equal(["#12: Export CSV (Copilot)"], _kit.Git.Commits);
         Assert.Contains(("HEAD", "ai/issue-12"), _kit.Git.Pushes);
 
@@ -46,6 +48,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Contains("SPEC - issue #12", File.ReadAllText(planFile));
 
         var request = _kit.Copilot.Requests.Single();
+        Assert.Contains("AGENTS.md in this folder", request.Prompt);
         Assert.Equal(["write", "shell(make:*)"], request.AllowTools);
         Assert.Contains("shell(git:*)", request.DenyTools);
         Assert.Contains("write(.ai-workflow)", request.DenyTools);
@@ -283,6 +286,63 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(("ai/issue-12-2", "feat/issue-12"), (pull.Head.Ref, pull.Base.Ref));
         var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
         Assert.Contains("Shared contract", File.ReadAllText(planFile));
+    }
+
+    /// <summary>Parent 12 with an optional SPEC comment, and its first sub-issue 21 ready to build.</summary>
+    private void ParentWithSubIssue(string? parentSpec)
+    {
+        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        if (parentSpec is not null)
+        {
+            _kit.GitBucket.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
+        }
+
+        var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
+        var body = SubIssueBody.Build(new SubIssueDraft(12, task, 2, "contract"));
+        _kit.GitBucket.AddIssue(
+            21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
+    }
+
+    [Fact]
+    public async Task A_sub_issue_plan_has_the_parent_spec_and_the_others_are_read_at_the_feature_branch()
+    {
+        var parentSpec = Samples.SpecWith([Samples.DefaultComponent], Samples.ApiTable, Samples.UiTable);
+        ParentWithSubIssue(parentSpec);
+
+        var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);
+
+        Assert.Equal("ok", outcome.Result);
+        var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
+        var plan = File.ReadAllText(planFile);
+        Assert.Contains("### Scope", plan);
+        Assert.Contains("## Parent SPEC (issue #12)", plan);
+        Assert.Contains("PaginationResponse<ExportRow>", plan);
+        Assert.Contains("are binding for every sub-issue", plan);
+        Assert.Equal("feat/issue-12", _kit.Workspace.Requests.Single().OthersAt);
+    }
+
+    [Fact]
+    public async Task A_sub_issue_still_runs_when_the_parent_has_no_spec()
+    {
+        ParentWithSubIssue(parentSpec: null);
+
+        var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);
+
+        Assert.Equal("ok", outcome.Result);
+        var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
+        Assert.Contains("None: the parent issue has no SPEC", File.ReadAllText(planFile));
+    }
+
+    [Fact]
+    public async Task The_acceptance_criteria_of_the_parent_spec_are_not_counted_against_the_sub_issue_pr()
+    {
+        var parentSpec = Samples.SpecFor(Samples.DefaultComponent) + "\n\n### Acceptance criteria\n1. A\n2. B\n3. C";
+        ParentWithSubIssue(parentSpec);
+
+        var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);
+
+        Assert.Equal("ok", outcome.Result);
+        Assert.Single(_kit.Copilot.Requests);   // one criterion in PR_BODY.md, no fix round about the count
     }
 
     [Fact]

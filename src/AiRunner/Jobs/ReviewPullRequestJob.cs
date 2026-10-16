@@ -20,6 +20,7 @@ public sealed class ReviewPullRequestJob(
 {
     public const string Agent = "pr-review";
     public const string Prompt =
+        JobSupport.RulesPrefix +
         "Review the pull request described in context.md; the diff is in diff.patch. " +
         "Read components.md first: the other components are read-only. Follow the pr-review agent rules.";
 
@@ -60,7 +61,10 @@ public sealed class ReviewPullRequestJob(
             TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: null,
-            ExtraFetch: [pullHead]);
+            ExtraFetch: [pullHead])
+        {
+            OthersAt = Branches.FeatureBranchOf(pull),
+        };
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
         var clone = prepared.TargetClone;
@@ -139,7 +143,9 @@ public sealed class ReviewPullRequestJob(
 
         stateStore.SetReview(request.Repo, pull.Number, new ReviewState(sha, posted.Id, parsed.Verdict));
 
-        var detail = $"{parsed.Verdict}: {parsed.Bugs} bug, {parsed.Risks} risk, {parsed.Style} style";
+        var detail =
+            $"{parsed.Verdict}: {parsed.Bugs} bug, {parsed.Risks} risk, " +
+            $"{parsed.Conventions} convention, {parsed.Style} style";
         run.Info(detail);
         return JobOutcome.Ok(detail);
     }

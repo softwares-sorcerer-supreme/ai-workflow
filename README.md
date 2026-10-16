@@ -62,7 +62,19 @@ Add the token to .NET user secrets; do not put credentials in `repos.yml`:
 dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner
 ```
 
-Configure `git_bucket.base_url` and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root). The old flat `repos:` list still works: each entry becomes a project with one component.
+Configure `git_bucket.base_url` and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root; the sample `repos.yml` lints its frontend with a type check plus a formatting check, and a real ESLint setup would be the better lint once the repo has one). The old flat `repos:` list still works: each entry becomes a project with one component.
+
+Each component lists the files that hold the rules for the agent in `instructions` (paths relative to the component folder, default `[AGENTS.md]`; no `..`, no absolute path). They are the **instructions** of the repository, not part of the runner:
+
+```yaml
+frontend:
+  repo: org/shop-frontend
+  instructions: [AGENTS.md, docs/design-system.md]   # each file costs context on every job of this component
+```
+
+### How the rules reach the agent
+
+Copilot loads `AGENTS.md` from the folder it starts in, and the runner starts it in the project folder, which is not a clone. So before every job the runner writes `work/<project>/AGENTS.md`: the project description (`PROJECT.md`), the instruction files of the component(s) the job works on copied as they are, and the first instruction file of every other component (the rest only as a path to open). Copilot loads it by itself, the prompt of every job also tells the agent to follow it, and the `code-reviewer` subagent sees it too. A listed file that does not exist is shown as missing; that is not an error. The file is deleted before the next job and is never committed. Keep each repository's instruction file short and concrete: nobody answers the agent while it works, so "ask if unsure" rules do not work; the agent writes its questions under *Open points* in `PR_BODY.md` instead.
 
 ### Project layouts
 
@@ -103,7 +115,7 @@ projects:
       web: { repo: org/shop, path: apps/web, commands: { build: "npm run build --workspace web" } }
 ```
 
-Put a short `PROJECT.md` (default name, set with `context:`) in the `issues_in` component; the agent reads it first. A template is in [`onboarding/PROJECT.md`](onboarding/PROJECT.md).
+Put a short `PROJECT.md` (default name, set with `context:`) in the `issues_in` component; the agent reads it first. A template is in [`onboarding/PROJECT.md`](onboarding/PROJECT.md). It is copied into `AGENTS.md` of the project folder (see above).
 
 ### Settings levels
 
@@ -203,5 +215,5 @@ The runner removes GitBucket credentials from child-process environments and doe
 - [Documentation index](docs/README.md)
 - [`agents/`](agents/) contains Copilot agent definitions; [`skills/`](skills/) contains supporting skills.
 - [`templates/`](templates/) defines the structured output formats validated by the runner.
-- [`onboarding/AGENTS.md`](onboarding/AGENTS.md) is the starting point for configuring a product repository.
+- [`onboarding/AGENTS.md`](onboarding/AGENTS.md) is the starting point for configuring a product repository. [`onboarding/examples/mbh/`](onboarding/examples/mbh/) holds two full example files for the sample project (backend and frontend): copy the one you need to the root of the repo as `AGENTS.md` (the backend already has an `AGENTS.md`: the example replaces it; the frontend has none today). A `CLAUDE.md` in the same repo can keep its own content or import the file with `@AGENTS.md`, so there is one set of rules.
 - [`tests/AiRunner.Tests/`](tests/AiRunner.Tests/) contains tests organized around the source layers.

@@ -108,7 +108,10 @@ public static class ContextBuilder
             linkedIssue is null ? "## Linked issue" : $"## Linked issue {linkedName}: final analysis");
         builder.AppendLine(linkedAnalysis ?? "None");
         builder.AppendLine();
-        builder.AppendLine("## Linked issue: SPEC");
+        var specHeading = linked.ParentNumber is { } parent
+            ? $"## Linked issue: SPEC (from parent #{parent})"
+            : "## Linked issue: SPEC";
+        builder.AppendLine(specHeading);
         builder.AppendLine(linkedSpec ?? "None");
 
         return builder.ToString();
@@ -143,9 +146,39 @@ public static class ContextBuilder
     public static string PlanFromSpec(GbIssue issue, string spec) =>
         $"# Plan for issue #{issue.Number}: {issue.Title}\n\n{DataNote}\n\n{spec.Trim()}\n";
 
-    /// <summary>plan.md for a sub-issue: its own body (scope, touches, shared contract), not the parent thread.</summary>
-    public static string PlanFromSubIssue(GbIssue issue) =>
-        $"# Plan for sub-issue #{issue.Number}: {issue.Title}\n\n{DataNote}\n\n{Body(issue.Body)}\n";
+    /// <summary>
+    /// plan.md for a sub-issue: its own body (scope, touches, shared contract) and the SPEC of the parent, which holds
+    /// the whole contract. The parent thread is not part of it. With no parent number only the body is written: that
+    /// is the text whose acceptance criteria the PR description is checked against (the parent's are not its own).
+    /// </summary>
+    public static string PlanFromSubIssue(GbIssue issue, int? parent, string? parentSpec)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"# Plan for sub-issue #{issue.Number}: {issue.Title}");
+        builder.AppendLine();
+        builder.AppendLine(DataNote);
+        builder.AppendLine();
+        builder.AppendLine(Body(issue.Body));
+
+        if (parent is null)
+        {
+            return builder.ToString();
+        }
+
+        builder.AppendLine();
+        builder.AppendLine($"## Parent SPEC (issue #{parent}): the whole feature; your sub-issue is one part of it");
+        builder.AppendLine();
+        builder.AppendLine(parentSpec is null
+            ? "None: the parent issue has no SPEC (analysed before this version)"
+            : parentSpec.Trim());
+        builder.AppendLine();
+        builder.AppendLine(
+            "The `### API changes`, `### UI changes` and `### Shared contract` sections of the SPEC are binding for " +
+            "every sub-issue. Build only your `### Scope`; " +
+            "the other rows of the breakdown are built by other sub-issues.");
+
+        return builder.ToString();
+    }
 
     /// <summary>
     /// plan.md for a review fix: what to change in an open pull request. Like the plan of an issue it is the
@@ -192,7 +225,11 @@ public static class ContextBuilder
         }
         else
         {
-            builder.AppendLine($"## Plan of the linked issue #{linkedIssue} (context; the fix must not go against it)");
+            var planHeading = linked.ParentNumber is { } parent
+                ? $"## Plan of the parent issue #{parent} (the linked issue #{linkedIssue} is a sub-issue; " +
+                  "context; the fix must not go against it)"
+                : $"## Plan of the linked issue #{linkedIssue} (context; the fix must not go against it)";
+            builder.AppendLine(planHeading);
             builder.AppendLine();
             var trimmedPlan = linkedPlan.Trim();
             builder.AppendLine(trimmedPlan);

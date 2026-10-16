@@ -1,6 +1,13 @@
 namespace AiRunner.Core;
 
-public sealed record ReviewResult(string Verdict, int Bugs, int Risks, int Style);
+public sealed record ReviewResult(string Verdict, int Bugs, int Risks, int Style)
+{
+    /// <summary>
+    /// Findings where the change differs from its pattern file or its neighbours (naming, layout, error handling,
+    /// tests...).
+    /// </summary>
+    public int Conventions { get; init; }
+}
 
 /// <summary>
 /// Checks a review block (Template H): Verdict and Severity use fixed words so they can be
@@ -9,7 +16,7 @@ public sealed record ReviewResult(string Verdict, int Bugs, int Risks, int Style
 public static class ReviewParser
 {
     private static readonly string[] Verdicts = ["looks good", "needs changes", "needs discussion"];
-    private static readonly string[] Severities = ["bug", "risk", "style"];
+    private static readonly string[] Severities = ["bug", "risk", "convention", "style"];
 
     public static ReviewResult Parse(string block)
     {
@@ -37,6 +44,9 @@ public static class ReviewParser
             counts[severity]++;
         }
 
-        return new ReviewResult(verdict, counts["bug"], counts["risk"], counts["style"]);
+        return new ReviewResult(verdict, counts["bug"], counts["risk"], counts["style"])
+        {
+            Conventions = counts["convention"],
+        };
     }
 }

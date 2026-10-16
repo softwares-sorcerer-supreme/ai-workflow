@@ -11,13 +11,14 @@
 | --- | --- | --- | --- | --- |
 | 1 | bug | `path/to/file:42` | <what is wrong> | <concrete fix> |
 | 2 | risk | `path/to/file:80` | ... | ... |
-| 3 | style | ... | ... | ... |
+| 3 | convention | `path/to/file:10` | <differs from the neighbour file in naming, layout, error handling or tests> | <name the neighbour file and line to copy> |
+| 4 | style | ... | ... | ... |
 
-(Severity: bug = wrong behaviour; risk = security, performance, data loss, missing error handling; style = naming, structure, duplication. Max 10 rows; more style points are summarised in one line under the table. No findings = write None instead of the table.)
+(Severity: bug = wrong behaviour; risk = security, performance, data loss, missing error handling; convention = the change differs from the existing code around it in naming, file or folder layout, structure, error handling, logging, dependency injection, data access or test style; style = other naming or duplication points. A bug, risk or convention finding means the Verdict is needs changes. Max 10 rows; more style points are summarised in one line under the table. No findings = write None instead of the table.)
 
 ### Spec check
 (Only for branches ai/issue-*; otherwise None.)
-- [ ] Follows the technical plan in the SPEC
+- [ ] Follows the technical plan in the SPEC, and each file follows its `Pattern from` file
 - [ ] Touches only the files listed, or explains why not
 - [ ] Uses the shared contract names
 - [ ] Acceptance criteria covered: {x of y}

@@ -29,6 +29,10 @@ public class ShellPermissionsTests
         Assert.Equal(expected, ShellPermissions.For(command));
 
     [Fact]
+    public void A_lint_that_chains_two_tools_allows_both() =>
+        Assert.Equal(["shell(npm:*)", "shell(npx:*)"], ShellPermissions.For("npm run lint && npx prettier --check ."));
+
+    [Fact]
     public void A_shell_launcher_keeps_the_exact_command() =>
         Assert.Equal(
             ["shell(powershell -File build.ps1)", "shell(pwsh.exe -c ./lint.ps1)"],

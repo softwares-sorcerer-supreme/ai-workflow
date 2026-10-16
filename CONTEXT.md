@@ -44,6 +44,14 @@ _Avoid_: workspace, product
 A repo plus an optional folder (`path`) in it. A job changes code in exactly one component; the others are read-only. Components that share a repo share one clone.
 _Avoid_: module, service, package
 
+**Instructions**:
+The repository files that hold the rules for the agent (`instructions` of a component in `repos.yml`, default `AGENTS.md`). The runner copies them in front of the agent on every job, in the `AGENTS.md` of the project folder.
+_Avoid_: rules file, conventions
+
+**Contract**:
+The SPEC's API, UI and shared-name tables. It is binding for every sub-issue: the runner copies the parent's SPEC into each sub-issue's plan, so the sub-issues agree on one contract.
+_Avoid_: interface, agreement
+
 **Round**:
 One analysis reply on an issue, numbered and capped by a limit.
 _Avoid_: iteration

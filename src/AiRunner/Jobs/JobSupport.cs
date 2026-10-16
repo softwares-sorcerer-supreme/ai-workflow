@@ -16,6 +16,12 @@ public sealed record LabelChange(IEnumerable<string> Add, IEnumerable<string> Re
 /// <summary>Small steps several jobs share. No decisions here; those live in Core.</summary>
 public static class JobSupport
 {
+    /// <summary>
+    /// The first sentence of every prompt: Copilot loads the AGENTS.md of the project folder, and this makes the
+    /// agent follow it. The text is the same for every job, so it lives here once.
+    /// </summary>
+    public const string RulesPrefix = "AGENTS.md in this folder holds the rules of the repositories; follow it. ";
+
     public static ProjectConfig ProjectOf(this RunnerConfig config, string repo) =>
         config.FindProject(repo) ?? throw new JobFailedException($"{repo} is not in repos.yml");
 
@@ -194,13 +200,19 @@ public static class JobSupport
             var codeNames = project.CodeComponentNames;
             IReadOnlyList<string> components = analysis is null ? [] : AnalysisParser.ComponentsOf(analysis, codeNames);
 
+            int? parentNumber = null;
             if (spec is null)
             {
                 var issue = await gitBucketClient.GetIssueAsync(repo, number, cancellationToken);
                 if (issue.HasLabel(Labels.SubIssue))
                 {
-                    spec = ContextBuilder.PlanFromSubIssue(issue);
-                    components = SubIssueComponents(issue);
+                    var subIssueInfo = SubIssueInfoOf(issue);
+                    var parentSpec = subIssueInfo is null
+                        ? null
+                        : await ParentSpecAsync(gitBucketClient, (repo, subIssueInfo.Parent), run, cancellationToken);
+                    parentNumber = subIssueInfo?.Parent;
+                    spec = ContextBuilder.PlanFromSubIssue(issue, parentNumber, parentSpec);
+                    components = subIssueInfo?.Component is { } component ? [component] : [];
                 }
             }
 
@@ -208,6 +220,7 @@ public static class JobSupport
             {
                 Repo = repo,
                 Components = components,
+                ParentNumber = parentNumber,
             };
         }
         catch (GitBucketException exception)
@@ -220,19 +233,38 @@ public static class JobSupport
         }
     }
 
-    /// <summary>The <c>Component:</c> line of a sub-issue body, as a list of one; empty when there is none.</summary>
-    private static IReadOnlyList<string> SubIssueComponents(GbIssue issue)
+    /// <summary>The parsed header of a sub-issue body, or null when it is broken.</summary>
+    private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
     {
         try
         {
-            var info = SubIssueBody.Parse(issue.Body);
-
-            return info?.Component is { } component ? [component] : [];
+            return SubIssueBody.Parse(issue.Body);
         }
         catch (FormatException)
         {
-            // A broken body only means the component is unknown here; the plan is still given to the agent.
-            return [];
+            // A broken body only means the component and the parent are unknown here; the agent still gets the plan.
+            return null;
+        }
+    }
+
+    /// <summary>The SPEC of the parent issue, or null when it has none or cannot be read (not fatal).</summary>
+    private static async Task<string?> ParentSpecAsync(
+        IGitBucketClient gitBucketClient,
+        (string Repo, int Number) parent,
+        JobRun run,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var comments = await gitBucketClient.ListCommentsAsync(parent.Repo, parent.Number, cancellationToken);
+
+            return LatestBlock(comments, Markers.Spec);
+        }
+        catch (GitBucketException exception)
+        {
+            run.Info($"parent issue {parent.Repo}#{parent.Number} not readable: {exception.Message}");
+
+            return null;
         }
     }
 

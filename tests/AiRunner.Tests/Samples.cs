@@ -25,6 +25,18 @@ public static class Samples
     /// <summary>The component of the one-component project of <c>JobTestKit</c>.</summary>
     public const string DefaultComponent = "demo";
 
+    /// <summary>
+    /// The Questions section of an open analysis: three groups, one numbering, empty groups say None.
+    /// </summary>
+    public const string GroupedQuestions = """
+        Behaviour (what the app does: flows, rules, roles, screens, data the user sees):
+        - Q1: Which columns? (why I ask: the report has 40 columns)
+        Technical (how we build it: library, pattern, data access, API shape, performance):
+        - None
+        Other (scope, timing, who decides, environments):
+        - None
+        """;
+
     /// <param name="components">The "Components affected" value. Default: the kit's component, or unknown while questions are open.</param>
     public static string Analysis(
         string status,
@@ -47,7 +59,7 @@ public static class Samples
         - A1: Only CSV. (because: the issue says CSV)
 
         ### Questions
-        {(status == "ready" ? "None" : "- Q1: Which columns? (why I ask: the report has 40 columns)")}
+        {(status == "ready" ? "None" : GroupedQuestions)}
 
         ### Related code
         - `src/Reports/ReportService.cs` - builds the report
@@ -75,11 +87,29 @@ public static class Samples
     /// <summary>The breakdown with every row in the kit's component.</summary>
     public static readonly string BreakdownTable = Breakdown(DefaultComponent, DefaultComponent, DefaultComponent);
 
-    /// <summary>A SPEC whose technical plan has one step per component given.</summary>
-    public static string SpecFor(params string[] components)
+    /// <summary>The API changes table of a SPEC, with one endpoint.</summary>
+    public const string ApiTable = """
+        | Method | Path | Query / paging | Request | Response | Errors | Auth |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | GET | /api/exports | page, pageSize | - | PaginationResponse<ExportRow> | 401, 403 | Exports.Read |
+        """;
+
+    /// <summary>The UI changes table of a SPEC, with one page.</summary>
+    public const string UiTable = """
+        | Route | Page / component | Copy from | Shared components | States |
+        | --- | --- | --- | --- | --- |
+        | /exports | src/Pages/ExportList.cs | src/Pages/ReportList.cs | layout, panel | loading, empty, error, data |
+        """;
+
+    /// <summary>A SPEC whose technical plan has one step per component given; API and UI changes are None.</summary>
+    public static string SpecFor(params string[] components) => SpecWith(components, "None", "None");
+
+    /// <summary>A SPEC with the given API changes and UI changes sections (a table or None).</summary>
+    public static string SpecWith(string[] components, string apiChanges, string uiChanges)
     {
         var rows = components.Select((component, index) =>
-            $"| {index + 1} | {component} | `src/Export{index + 1}.cs` | Add the export code. |");
+            $"| {index + 1} | {component} | `src/Export{index + 1}.cs` | `src/Report{index + 1}.cs` | " +
+            "Add the export code. |");
         var table = string.Join("\n", rows);
 
         return $"""
@@ -89,9 +119,21 @@ public static class Samples
             Export a report as CSV.
 
             ### Technical plan
-            | Step | Component | File | Change |
-            | --- | --- | --- | --- |
+            | Step | Component | File | Pattern from | Change |
+            | --- | --- | --- | --- | --- |
             {table}
+
+            ### Data changes
+            None
+
+            ### API changes
+            {apiChanges}
+
+            ### UI changes
+            {uiChanges}
+
+            ### Shared contract (exact names)
+            - Endpoints: GET /api/exports
             """;
     }
 

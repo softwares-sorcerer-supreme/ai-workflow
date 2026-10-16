@@ -30,11 +30,19 @@ Search the repository for the answer first: similar features, existing enums, va
 - If the code shows two possible patterns, ask which one, and name both files.
 
 ## 4. Write good questions
-- One sentence. One decision per question. Numbered `Q1`..`Q7`, max 7.
+- One sentence. One decision per question. Numbered `Q1`, `Q2`, ... with one numbering for all groups, so `Q3: ...` always finds its question. There is no maximum.
 - Add `(why I ask: ...)` in a few words: what goes wrong if we guess.
 - Offer options when you can: "CSV or Excel?" is easier to answer than "Which format?".
-- Most important first. If you have more than 7, keep the 7 that change the design most; turn the rest into assumptions.
-- Never ask what the thread already answers. Never ask again with other words.
+- Most important first in each group.
+- Never ask what the thread already answers. Never ask again with other words. Never ask what the code answers: that is an assumption.
+
+### The three groups
+Put each question in the group whose person can answer it:
+- **Behaviour**: what the app does. Flows, rules, roles, screens, data the user sees. The issue author answers these. Examples: "Can a user without the admin role export?", "What does the user see when the report is empty?"
+- **Technical**: how we build it. Library, pattern, data access, API shape, performance. The tech lead answers these. Examples: "ORM or hand-written queries for this report?", "Page the list on the server or in the browser?"
+- **Other**: scope, timing, who decides, environments. Examples: "Is the mobile layout part of this issue?", "Which environment gets it first?"
+
+A group with no question says `- None`.
 
 ## 5. Write good assumptions
 - Numbered `A1`..`An`, one sentence each, with the reason.

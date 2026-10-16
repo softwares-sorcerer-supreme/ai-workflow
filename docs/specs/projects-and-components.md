@@ -1,5 +1,7 @@
 # SPEC: Projects and components (multi-repo, issues repo, monorepo)
 
+The workspace changes of `agent-cohesion.md` (instruction files, checkout of the other repos at the feature branch) build on this spec.
+
 Status: ready for an implementing agent.
 Read `CLAUDE.md` first. Its architecture, security and code-style rules apply to every line of this work.
 

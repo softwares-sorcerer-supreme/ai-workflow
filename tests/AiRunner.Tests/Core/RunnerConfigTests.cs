@@ -263,6 +263,68 @@ public class RunnerConfigTests
     }
 
     [Fact]
+    public void Instructions_default_to_agents_md()
+    {
+        var config = RunnerConfig.Parse(ThreeComponents);
+
+        var project = config.Projects.Single();
+        Assert.All(project.Components, component => Assert.Equal(["AGENTS.md"], component.Instructions));
+    }
+
+    [Fact]
+    public void Instructions_keep_the_written_order_per_component()
+    {
+        var config = RunnerConfig.Parse("""
+            projects:
+              mbh:
+                issues_in: web
+                components:
+                  web:
+                    repo: org/web
+                    instructions: [AGENTS.md, docs/design.md, docs/rules.md]
+                  api:
+                    repo: org/api
+                    instructions: []
+            """);
+
+        var project = config.Projects.Single();
+        Assert.Equal(["AGENTS.md", "docs/design.md", "docs/rules.md"], project.Components[0].Instructions);
+        Assert.Empty(project.Components[1].Instructions);
+    }
+
+    [Theory]
+    [InlineData("../secret.md")]
+    [InlineData("docs/../../secret.md")]
+    [InlineData("/etc/passwd")]
+    [InlineData("C:/secret.md")]
+    [InlineData("docs\\\\rules.md")]
+    [InlineData("''")]
+    public void A_bad_instructions_entry_stops_the_start_and_names_project_component_and_key(string entry)
+    {
+        var exception = Fails($$"""
+            projects:
+              mbh:
+                components:
+                  web:
+                    repo: org/web
+                    instructions: [{{entry}}]
+            """);
+
+        Assert.Contains("component 'web' of project 'mbh'", exception.Message);
+        Assert.Contains("instructions", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("defaults:\n  instructions: [AGENTS.md]")]
+    [InlineData("projects:\n  mbh:\n    instructions: [AGENTS.md]\n    components:\n      web: { repo: org/web }")]
+    public void Instructions_belong_to_a_component_only(string yaml)
+    {
+        var exception = Fails(yaml);
+
+        Assert.Contains("unknown key 'instructions'", exception.Message);
+    }
+
+    [Fact]
     public void Commands_are_not_allowed_in_defaults()
     {
         var exception = Fails("""
@@ -538,14 +600,8 @@ public class RunnerConfigTests
     [Fact]
     public void The_real_repos_yml_of_this_repo_loads()
     {
-        var folder = new DirectoryInfo(AppContext.BaseDirectory);
-        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "repos.yml")))
-        {
-            folder = folder.Parent;
-        }
-
-        Assert.NotNull(folder);
-        var config = RunnerConfig.Load(Path.Combine(folder.FullName, "repos.yml"));
+        var reposFile = Path.Combine(TestPaths.RepoRoot(), "repos.yml");
+        var config = RunnerConfig.Load(reposFile);
 
         Assert.NotEmpty(config.Projects);
         Assert.All(config.Projects, project => Assert.NotEmpty(project.CodeComponents));

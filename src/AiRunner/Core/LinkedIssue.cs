@@ -13,4 +13,10 @@ public sealed record LinkedIssue(int? Number, string? Analysis, string? Spec)
     /// <c>Components affected</c>. Empty when it names none (data from before components existed).
     /// </summary>
     public IReadOnlyList<string> Components { get; init; } = [];
+
+    /// <summary>
+    /// The parent issue when the linked issue is a sub-issue. Its <c>Spec</c> is then the sub-issue plan with the SPEC
+    /// of that parent, because a sub-issue has no SPEC of its own.
+    /// </summary>
+    public int? ParentNumber { get; init; }
 }
