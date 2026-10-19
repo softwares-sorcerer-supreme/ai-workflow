@@ -29,6 +29,14 @@ const HEALTH_TONES: Readonly<Record<string, Tone>> = {
   error: 'danger',
 };
 
+/** Color per job status code (C# JobStatus). Queued and running are both "the runner is on it". */
+export const JOB_STATUS_TONES: Readonly<Record<string, Tone>> = {
+  pending: 'progress',
+  running: 'progress',
+  done: 'success',
+  failed: 'danger',
+};
+
 /** Icon per worker state code (`idle` or `busy`). */
 const WORKER_ICONS: Readonly<Record<string, string>> = {
   idle: 'pause_circle',
@@ -48,4 +56,9 @@ export function healthTone(code: string | undefined): Tone {
 /** The icon of a worker state code, a neutral dot-like icon for an unknown one. */
 export function workerIcon(code: string): string {
   return WORKER_ICONS[code] ?? 'pause_circle';
+}
+
+/** The color of a job status code, neutral for an unknown one. */
+export function jobStatusTone(code: string): Tone {
+  return JOB_STATUS_TONES[code] ?? 'neutral';
 }

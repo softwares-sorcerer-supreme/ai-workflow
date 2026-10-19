@@ -1,0 +1,51 @@
+.note {
+  margin-bottom: var(--app-space-3);
+}
+
+.wrap {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.error-text {
+  color: var(--mat-sys-error);
+}
+
+// File list beside the file; one column below 900 px.
+.log {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: var(--app-space-4);
+  align-items: start;
+
+  @media (max-width: 899.98px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.files {
+  padding: 0;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-small);
+  max-height: 480px;
+  overflow-y: auto;
+
+  .app-mono {
+    font: var(--mat-sys-body-small);
+    font-family: var(--app-font-mono);
+  }
+}
+
+.viewer {
+  min-width: 0;
+}
+
+.log-text {
+  margin: 0;
+  padding: var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  background: var(--mat-sys-surface-container-high);
+  font: var(--mat-sys-body-small);
+  font-family: var(--app-font-mono);
+  white-space: pre-wrap;
+}

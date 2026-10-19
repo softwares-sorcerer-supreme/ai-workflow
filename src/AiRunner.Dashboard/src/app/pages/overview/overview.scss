@@ -14,3 +14,11 @@
 .message {
   overflow-wrap: anywhere;
 }
+
+.note {
+  margin-bottom: var(--app-space-3);
+}
+
+.queue-label {
+  font: var(--mat-sys-body-small);
+}

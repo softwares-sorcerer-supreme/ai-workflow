@@ -1,0 +1,66 @@
+<app-page-header title="Jobs" subtitle="Job history with outcome, duration and logs.">
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>Status</mat-label>
+    <mat-select [value]="status()" (selectionChange)="setStatus($event.value)">
+      <mat-option value="">All statuses</mat-option>
+      @for (option of statusOptions; track option.code) {
+        <mat-option [value]="option.code">{{ option.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>Type</mat-label>
+    <mat-select [value]="type()" (selectionChange)="setType($event.value)">
+      <mat-option value="">All types</mat-option>
+      @for (option of typeOptions; track option.code) {
+        <mat-option [value]="option.code">{{ option.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+</app-page-header>
+
+<section class="app-card" aria-labelledby="history-title">
+  <h2 id="history-title" class="app-card-title">History</h2>
+
+  <app-data-table
+    [rows]="jobs.value()?.items"
+    [columns]="columns"
+    [loading]="jobs.isLoading()"
+    [error]="jobs.error()"
+    [trackBy]="trackById"
+    [clickable]="true"
+    (rowClick)="open($event)"
+    (retry)="jobs.reload()"
+    emptyTitle="No jobs found"
+    emptyMessage="Jobs appear here once the runner has queued one. With a filter set, try All."
+  >
+    <ng-template appCell="status" let-row>
+      <app-status-chip [label]="row.statusLabel" [tone]="statusTone(row.status)" />
+    </ng-template>
+    <ng-template appCell="type" let-row>{{ row.typeLabel }}</ng-template>
+    <ng-template appCell="issue" let-row>
+      <span class="app-mono">{{ row.repo }}#{{ row.number }}</span>
+    </ng-template>
+    <ng-template appCell="startedAt" let-row><app-time [value]="row.startedAt" /></ng-template>
+    <ng-template appCell="duration" let-row>{{ row.durationSeconds | duration }}</ng-template>
+    <ng-template appCell="result" let-row>
+      <span class="result">{{ row.result ?? '-' }}</span>
+      @if (row.error) {
+        <span class="error-text">{{ row.error }}</span>
+      }
+    </ng-template>
+  </app-data-table>
+
+  @if (jobs.value(); as page) {
+    <mat-paginator
+      [length]="page.total"
+      [pageSize]="page.pageSize"
+      [pageIndex]="page.page - 1"
+      [hidePageSize]="true"
+      [showFirstLastButtons]="true"
+      (page)="onPage($event)"
+      aria-label="Pages of the job history"
+    />
+  }
+</section>

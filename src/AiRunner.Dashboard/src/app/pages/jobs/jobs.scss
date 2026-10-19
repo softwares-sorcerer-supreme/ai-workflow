@@ -1,0 +1,25 @@
+.filter {
+  width: 180px;
+}
+
+.result,
+.error-text {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+// The failure reason of a failed row, readable without opening the job.
+.error-text {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-error);
+}
+
+mat-paginator {
+  background: transparent;
+}
+
+@media (max-width: 599.98px) {
+  .filter {
+    width: 100%;
+  }
+}

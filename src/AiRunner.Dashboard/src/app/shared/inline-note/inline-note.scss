@@ -1,0 +1,27 @@
+@use '../tones';
+
+:host {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  font: var(--mat-sys-body-small);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+mat-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  color: var(--note-dot);
+}
+
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@include tones.host-variants(note);

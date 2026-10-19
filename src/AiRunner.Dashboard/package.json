@@ -24,6 +24,7 @@
     "@angular/material": "^22.2.3",
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
+    "markdown-it": "^14.3.3",
     "material-symbols": "^0.48.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
@@ -32,6 +33,7 @@
     "@angular/build": "^22.2.3",
     "@angular/cli": "^22.2.3",
     "@angular/compiler-cli": "^22.2.0",
+    "@types/markdown-it": "^14.2.0",
     "jsdom": "^30.0.0",
     "ng-openapi-gen": "^1.1.0",
     "prettier": "^3.8.1",

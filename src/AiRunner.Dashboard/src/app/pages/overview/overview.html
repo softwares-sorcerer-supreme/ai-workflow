@@ -1,7 +1,103 @@
 <app-page-header title="Overview" subtitle="What the runner is doing now." />
 
-@if (health(); as health) {
-  <div class="app-stack">
+<div class="app-stack">
+  <section class="app-card" aria-labelledby="running-title">
+    <div class="card-head">
+      <h2 id="running-title" class="app-card-title">Running job</h2>
+      @if (overview.value()?.runningJob; as running) {
+        <a mat-button [routerLink]="['/jobs', running.id]">
+          <mat-icon aria-hidden="true">article</mat-icon>
+          Open log
+        </a>
+      }
+    </div>
+
+    @if (overview.value(); as current) {
+      @if (overview.error(); as message) {
+        <app-inline-note icon="sync_problem" class="note"
+          >Showing older data. {{ message }}</app-inline-note
+        >
+      }
+
+      @if (current.runningJob; as running) {
+        <dl class="app-facts">
+          <dt>Job</dt>
+          <dd>{{ running.typeLabel }}</dd>
+
+          <dt>Issue</dt>
+          <dd class="app-mono">{{ running.repo }}#{{ running.number }}</dd>
+
+          <dt>Project</dt>
+          <dd>{{ running.project ?? '-' }}</dd>
+
+          @if (running.roundLabel) {
+            <dt>Round</dt>
+            <dd>{{ running.roundLabel }}</dd>
+          }
+
+          <dt>Started</dt>
+          <dd><app-time [value]="running.startedAt" /></dd>
+
+          <dt>Elapsed</dt>
+          <dd>{{ running.elapsedSeconds | duration }}</dd>
+        </dl>
+      } @else {
+        <app-view-state
+          kind="empty"
+          icon="pause_circle"
+          title="Nothing is running"
+          message="The worker is idle. The next queued job starts here."
+        />
+      }
+    } @else if (overview.error()) {
+      <app-view-state
+        kind="error"
+        title="Could not load the running job"
+        [message]="overview.error()"
+        [canRetry]="true"
+        (retry)="overview.reload()"
+      />
+    } @else {
+      <app-view-state kind="loading" />
+    }
+  </section>
+
+  <section id="queue" class="app-card" aria-labelledby="queue-title">
+    <div class="card-head">
+      <h2 id="queue-title" class="app-card-title">Queue</h2>
+      @if (overview.value(); as current) {
+        <span class="app-muted queue-label">{{ current.queueLabel }}</span>
+      }
+    </div>
+
+    <app-data-table
+      [rows]="overview.value()?.queue"
+      [columns]="queueColumns"
+      [loading]="overview.isLoading()"
+      [error]="overview.error()"
+      [trackBy]="trackById"
+      [clickable]="true"
+      (rowClick)="openJob($event)"
+      (retry)="overview.reload()"
+      emptyTitle="Queue is empty"
+      emptyMessage="Jobs wait here when the poller finds work while another job runs."
+    >
+      <ng-template appCell="status" let-row>
+        <app-status-chip
+          [label]="row.statusLabel"
+          [tone]="statusTone(row.status)"
+          icon="schedule"
+        />
+      </ng-template>
+      <ng-template appCell="type" let-row>{{ row.typeLabel }}</ng-template>
+      <ng-template appCell="issue" let-row>
+        <span class="app-mono">{{ row.repo }}#{{ row.number }}</span>
+      </ng-template>
+      <ng-template appCell="createdAt" let-row><app-time [value]="row.createdAt" /></ng-template>
+    </app-data-table>
+  </section>
+
+  @if (health(); as health) {
     <section class="app-card" aria-labelledby="runner-title">
       <div class="card-head">
         <h2 id="runner-title" class="app-card-title">Runner</h2>
@@ -64,19 +160,19 @@
         </ng-template>
       </app-data-table>
     </section>
-  </div>
-} @else if (error()) {
-  <section class="app-card">
-    <app-view-state
-      kind="error"
-      title="The runner is not reachable"
-      [message]="error()"
-      [canRetry]="true"
-      (retry)="reload()"
-    />
-  </section>
-} @else if (isLoading()) {
-  <section class="app-card">
-    <app-view-state kind="loading" />
-  </section>
-}
+  } @else if (error()) {
+    <section class="app-card">
+      <app-view-state
+        kind="error"
+        title="The runner is not reachable"
+        [message]="error()"
+        [canRetry]="true"
+        (retry)="reload()"
+      />
+    </section>
+  } @else if (isLoading()) {
+    <section class="app-card">
+      <app-view-state kind="loading" />
+    </section>
+  }
+</div>

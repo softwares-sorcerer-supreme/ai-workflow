@@ -1,0 +1,147 @@
+<app-page-header [title]="'Job ' + id()" subtitle="What the job did, and the files it wrote.">
+  <a mat-button actions routerLink="/jobs">
+    <mat-icon aria-hidden="true">arrow_back</mat-icon>
+    All jobs
+  </a>
+</app-page-header>
+
+<div class="app-stack">
+  <section class="app-card" aria-labelledby="job-title">
+    <h2 id="job-title" class="app-card-title">Job</h2>
+
+    @if (job.value(); as facts) {
+      @if (job.error(); as message) {
+        <app-inline-note icon="sync_problem" class="note"
+          >Showing older data. {{ message }}</app-inline-note
+        >
+      }
+
+      <dl class="app-facts">
+        <dt>Status</dt>
+        <dd><app-status-chip [label]="facts.statusLabel" [tone]="statusTone(facts.status)" /></dd>
+
+        <dt>Type</dt>
+        <dd>{{ facts.typeLabel }}</dd>
+
+        <dt>Issue</dt>
+        <dd class="app-mono">{{ facts.repo }}#{{ facts.number }}</dd>
+
+        <dt>Project</dt>
+        <dd>{{ facts.project ?? '-' }}</dd>
+
+        <dt>Queued</dt>
+        <dd><app-time [value]="facts.createdAt" /></dd>
+
+        <dt>Started</dt>
+        <dd><app-time [value]="facts.startedAt" /></dd>
+
+        <dt>Finished</dt>
+        <dd><app-time [value]="facts.finishedAt" /></dd>
+
+        <dt>Duration</dt>
+        <dd>{{ facts.durationSeconds | duration }}</dd>
+
+        <dt>Result</dt>
+        <dd>{{ facts.result ?? '-' }}</dd>
+
+        @if (facts.detail) {
+          <dt>Detail</dt>
+          <dd class="wrap">{{ facts.detail }}</dd>
+        }
+
+        @if (facts.error) {
+          <dt>Error</dt>
+          <dd class="wrap error-text">{{ facts.error }}</dd>
+        }
+      </dl>
+    } @else if (job.error()) {
+      <app-view-state
+        kind="error"
+        title="Could not load this job"
+        [message]="job.error()"
+        [canRetry]="true"
+        (retry)="job.reload()"
+      />
+    } @else {
+      <app-view-state kind="loading" />
+    }
+  </section>
+
+  <section class="app-card" aria-labelledby="log-title">
+    <h2 id="log-title" class="app-card-title">Log</h2>
+
+    @if (files.value(); as list) {
+      @if (files.error(); as message) {
+        <app-inline-note icon="sync_problem" class="note"
+          >Showing older data. {{ message }}</app-inline-note
+        >
+      }
+
+      @if (job.value()?.hasLog === false || list.files.length === 0) {
+        <app-view-state
+          kind="empty"
+          icon="description"
+          title="No log for this job"
+          message="Log files appear once the job has started. Quiet and queued jobs have none."
+        />
+      } @else {
+        <div class="log">
+          <mat-action-list class="files" aria-label="Log files">
+            @for (entry of list.files; track entry.name) {
+              <button
+                mat-list-item
+                type="button"
+                [activated]="entry.name === selectedName()"
+                [attr.aria-current]="entry.name === selectedName() ? 'true' : null"
+                (click)="select(entry.name)"
+              >
+                <span matListItemTitle class="app-mono">{{ entry.name }}</span>
+                <span matListItemLine class="app-muted">{{ sizeOf(entry.sizeBytes) }}</span>
+              </button>
+            }
+          </mat-action-list>
+
+          <div class="viewer">
+            @if (shownFile(); as shown) {
+              @if (file.error(); as message) {
+                <app-inline-note icon="sync_problem" class="note"
+                  >Showing older data. {{ message }}</app-inline-note
+                >
+              }
+
+              @if (shown.isTruncated) {
+                <app-inline-note class="note truncated">{{ shown.truncatedNote }}</app-inline-note>
+              }
+
+              @if (isMarkdown()) {
+                <app-markdown [text]="fileText()" />
+              } @else {
+                <pre class="app-mono log-text">{{ fileText() }}</pre>
+              }
+            } @else if (file.error()) {
+              <app-view-state
+                kind="error"
+                title="Could not load this file"
+                [message]="file.error()"
+                [canRetry]="true"
+                (retry)="file.reload()"
+              />
+            } @else {
+              <app-view-state kind="loading" />
+            }
+          </div>
+        </div>
+      }
+    } @else if (files.error()) {
+      <app-view-state
+        kind="error"
+        title="Could not load the log files"
+        [message]="files.error()"
+        [canRetry]="true"
+        (retry)="files.reload()"
+      />
+    } @else {
+      <app-view-state kind="loading" />
+    }
+  </section>
+</div>

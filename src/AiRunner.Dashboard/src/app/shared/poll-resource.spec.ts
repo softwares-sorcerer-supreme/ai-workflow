@@ -1,6 +1,10 @@
 import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { EnvironmentInjector, createEnvironmentInjector, runInInjectionContext } from '@angular/core';
+import {
+  EnvironmentInjector,
+  createEnvironmentInjector,
+  runInInjectionContext,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { describeError, pollResource } from './poll-resource';
@@ -11,7 +15,10 @@ describe('pollResource', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     hidden = false;
-    Object.defineProperty(TestBed.inject(DOCUMENT), 'hidden', { configurable: true, get: () => hidden });
+    Object.defineProperty(TestBed.inject(DOCUMENT), 'hidden', {
+      configurable: true,
+      get: () => hidden,
+    });
   });
 
   afterEach(() => {
@@ -78,6 +85,29 @@ describe('pollResource', () => {
     expect(resource.value()).toBe(2);
   });
 
+  it('loads once more right after the running call when reload is asked during it', async () => {
+    const answers: Array<(value: number) => void> = [];
+    let calls = 0;
+    const { resource } = start(
+      () =>
+        new Promise<number>((resolve) => {
+          calls++;
+          answers.push(resolve);
+        }),
+    );
+
+    resource.reload();
+    expect(calls).toBe(1);
+
+    answers[0](1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(2);
+
+    answers[1](2);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resource.value()).toBe(2);
+  });
+
   it('stops when its owner is destroyed', async () => {
     let calls = 0;
     const { injector } = start(async () => ++calls);
@@ -95,5 +125,15 @@ describe('describeError', () => {
     const error = new HttpErrorResponse({ status: 500, statusText: 'Internal Server Error' });
 
     expect(describeError(error)).toBe('The runner answered 500 Internal Server Error');
+  });
+
+  it('uses the sentence of an API error', () => {
+    const error = new HttpErrorResponse({
+      status: 400,
+      statusText: 'Bad Request',
+      error: { message: "Unknown status 'x'." },
+    });
+
+    expect(describeError(error)).toBe("Unknown status 'x'.");
   });
 });

@@ -28,8 +28,12 @@ export const routes: Routes = [
   {
     path: 'jobs',
     title: titled('Jobs'),
-    loadComponent: placeholder,
-    data: { heading: 'Jobs', subtitle: 'Job history with outcome, duration and logs.' },
+    loadComponent: () => import('./pages/jobs/jobs').then((page) => page.Jobs),
+  },
+  {
+    path: 'jobs/:id',
+    title: titled('Job'),
+    loadComponent: () => import('./pages/job-log/job-log').then((page) => page.JobLog),
   },
   {
     path: 'cost',

@@ -57,7 +57,8 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
-`WORKER_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `workerIcon(code)`), which falls
+`JOB_STATUS_TONES`, `WORKER_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`,
+`jobStatusTone(code)`, `workerIcon(code)`), which falls
 back to `neutral` for an unknown code. Those maps are the only place a code is interpreted: a template never compares
 a code (`state === 'busy'`) and never builds label text (plurals, counts). If text is missing, the API should send it
 ready (like `errorsLabel` on `/api/health`).
@@ -139,6 +140,8 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-status-chip` | a state from the API: flags, badges, outcomes | buttons or links |
 | `app-stage-chip` | the workflow stage of an issue | anything else |
 | `app-view-state` | loading / empty / error of a panel that is not a table | inline hints |
+| `app-inline-note` | one tone colored line inside a panel: stale data, a cut file | a whole-panel state |
+| `app-markdown` | Markdown text from the API (log files), rendered safely | text that is not Markdown (use `<pre class="app-mono">`) |
 | `app-time` | every point in time | durations |
 | `duration` pipe | every duration in seconds | points in time |
 | `pollResource` | every API read | one-off actions |
@@ -223,6 +226,26 @@ The label is shown as sent ("Broken down (2/5)").
 Optional `icon` (Material Symbols name). Use it inside a card for a panel that is not a table, or for a whole
 screen before its first answer.
 
+### `app-inline-note`
+
+```html
+<app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+<app-inline-note>{{ file.truncatedNote }}</app-inline-note>          <!-- tone warning, icon warning by default -->
+```
+Optional `tone` (default `warning`) and `icon`. Use it above a panel's data when a later call failed but the data
+stays ("Showing older data. ..."), or when the API sends a note about the data (a cut log file). The data table has
+its own banner for the same case.
+
+### `app-markdown`
+
+```html
+<app-markdown [text]="file.text" />
+```
+Renders Markdown with `markdown-it` and `html: false`: raw HTML in the text is shown as text, never as an element,
+and `javascript:`/`data:` links stay plain text. Angular sanitizes the result again on `innerHTML`. Never pass its
+output through `bypassSecurityTrustHtml`, and never bind log or agent text to `innerHTML` any other way. Plain text
+logs go in `<pre class="app-mono">` with `white-space: pre-wrap`, so they wrap instead of scrolling the page.
+
 ### `app-time` and the `duration` pipe
 
 ```html
@@ -248,7 +271,10 @@ it in a field initializer. With parameters (filters, a route id), create it from
 protected readonly issues = pollResource(() => this.api.invoke(getIssues, { project: this.project() }));
 // call issues.reload() when a filter changes, so the new filter is used at once
 ```
-`value` keeps the last good answer when a call fails; `error` holds the failure text until the next success.
+`reload()` during a running call loads once more right after it, so a changed filter is never left with the old
+answer. `value` keeps the last good answer when a call fails; `error` holds the failure text until the next success
+(for a 400 the API's own `ApiError.message`). Filter options the API cannot list yet live in one constant per filter
+next to the screen (`pages/jobs/job-filters.ts`).
 
 ### Health
 
@@ -294,8 +320,12 @@ keep data on screen while reloading, never show the loading state again after th
 Vitest through `ng test` (`npm test` runs once, `npm run test:watch` watches). Test what the user sees: text,
 tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePollResource(value)` (set `value`,
 `error`, `isLoading` by hand), `fixedClock` (now = 2026-01-01 12:00 UTC), `sampleHealth(overrides)`. Provide a
-fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a test through the
-generated client use `provideHttpClient()` + `provideHttpClientTesting()` and `HttpTestingController`.
+fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
+its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
+`callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`, and wait for the
+answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
+`MatPaginatorHarness`). For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
+and `HttpTestingController`.
 
 ## 10. Commands (in `src/AiRunner.Dashboard/`)
 
