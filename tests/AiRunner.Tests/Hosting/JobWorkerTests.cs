@@ -195,6 +195,7 @@ public sealed class JobWorkerTests : IDisposable
         var job = Assert.Single(_kit.State.QueryHistory(new JobQuery()).Items);
         Assert.NotNull(job.LogDir);
         Assert.EndsWith("-7-AnalyzeIssue", job.LogDir);
+        Assert.Equal("ok", job.Result);
     }
 
     [Fact]

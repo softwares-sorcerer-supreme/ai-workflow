@@ -69,14 +69,7 @@ public sealed class JobRun(string directory, ILogger logger)
 
 public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
 {
-    private string Root
-    {
-        get
-        {
-            var logsFolder = config.ResolvePath(config.Paths.Logs);
-            return Path.Combine(logsFolder, "jobs");
-        }
-    }
+    private string Root => config.JobLogsFolder;
 
     public JobRun Begin(JobRequest request)
     {

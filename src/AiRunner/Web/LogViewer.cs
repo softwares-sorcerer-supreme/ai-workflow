@@ -28,16 +28,7 @@ public sealed record LogReadResult(LogReadStatus Status, LogFileContent? Content
 /// </summary>
 public sealed class LogViewer(RunnerConfig config)
 {
-    private string JobsRoot
-    {
-        get
-        {
-            var logsFolder = config.ResolvePath(config.Paths.Logs);
-            var jobsFolder = Path.Combine(logsFolder, "jobs");
-
-            return Path.GetFullPath(jobsFolder);
-        }
-    }
+    private string JobsRoot => Path.GetFullPath(config.JobLogsFolder);
 
     /// <summary>The files of the job's log folder, by name; empty when there is no folder (yet, or any more).</summary>
     public IReadOnlyList<LogFileInfo> List(JobRecord job)

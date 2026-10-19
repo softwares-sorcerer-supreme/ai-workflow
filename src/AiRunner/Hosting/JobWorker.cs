@@ -7,7 +7,7 @@ using AiRunner.Jobs;
 namespace AiRunner.Hosting;
 
 /// <summary>A job that ended, for the cost row: what ran, for how long, and how it ended.</summary>
-public sealed record FinishedJob(JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
+public sealed record FinishedJob(long JobId, JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
 
 /// <summary>A job that failed and must be reported on its issue or PR.</summary>
 /// <param name="LogFolder">Name of the job's log folder, or null when it has none.</param>
@@ -136,7 +136,7 @@ public sealed class JobWorker(
 
             stateStore.SetJobStatus(stored.Id, JobStatus.Done);
             run.Info($"{request}: {outcome.Result} {outcome.Detail} in {stopwatch.Elapsed.TotalSeconds:F0}s");
-            var finished = new FinishedJob(request, job.Info, stopwatch.Elapsed, outcome);
+            var finished = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, outcome);
             Record(finished);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -172,7 +172,7 @@ public sealed class JobWorker(
             }
 
             var failedOutcome = new JobOutcome("failed", message);
-            var failedJob = new FinishedJob(request, job.Info, stopwatch.Elapsed, failedOutcome);
+            var failedJob = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, failedOutcome);
             Record(failedJob);
 
             var failure = new JobFailure(job, request, message, logFolder);
@@ -258,7 +258,7 @@ public sealed class JobWorker(
 
     private void Record(FinishedJob finished)
     {
-        var (request, info, elapsed, outcome) = finished;
+        var (jobId, request, info, elapsed, outcome) = finished;
         var entry = new CostEntry(
             DateTimeOffset.UtcNow,
             request.Repo,
@@ -269,5 +269,6 @@ public sealed class JobWorker(
             outcome.Detail);
 
         costLog.Record(entry);
+        stateStore.SetJobResult(jobId, outcome.Result, outcome.Detail);
     }
 }

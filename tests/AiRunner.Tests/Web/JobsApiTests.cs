@@ -223,10 +223,10 @@ public sealed class JobsApiTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task One_job_carries_its_cost_row_and_an_unknown_job_is_404()
+    public async Task One_job_carries_its_result_and_an_unknown_job_is_404()
     {
         var id = AddJob(JobType.ImplementIssue, "o/shop", 4, JobStatus.Failed);
-        _store.AddCost(new CostEntry(DateTimeOffset.UtcNow, "o/shop", 4, "implement", 5, "failed", "checks red"));
+        _store.SetJobResult(id, "failed", "checks red");
         var client = await StartAsync();
 
         var root = await GetJsonAsync(client, $"api/jobs/{id}");

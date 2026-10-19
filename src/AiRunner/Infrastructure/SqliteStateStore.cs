@@ -64,6 +64,9 @@ public interface IStateStore
 
     /// <summary>Remembers the job's log folder (a name under logs/jobs/) so the dashboard can open it.</summary>
     void SetJobLogDir(long id, string folderName);
+
+    /// <summary>How the job ended, for the dashboard (the cost log has no job id to read it from).</summary>
+    void SetJobResult(long id, string result, string detail);
 }
 
 public sealed class SqliteStateStore : IStateStore, IJobReader
@@ -92,6 +95,8 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
             """);
 
         AddColumnIfMissing("jobs", "log_dir", "TEXT");
+        AddColumnIfMissing("jobs", "result", "TEXT");
+        AddColumnIfMissing("jobs", "detail", "TEXT");
     }
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)
@@ -260,6 +265,13 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
     public void SetJobLogDir(long id, string folderName) =>
         Execute("UPDATE jobs SET log_dir = $dir WHERE id = $id", ("$id", id), ("$dir", folderName));
 
+    public void SetJobResult(long id, string result, string detail) =>
+        Execute(
+            "UPDATE jobs SET result = $result, detail = $detail WHERE id = $id",
+            ("$id", id),
+            ("$result", result),
+            ("$detail", detail));
+
     public IReadOnlyList<JobRecord> ListQueue() =>
         QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
 
@@ -304,17 +316,11 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
 
     // ---- helpers ----
 
-    /// <summary>
-    /// The cost row of a job is the first one of the same repo and number written between the job's start and a minute
-    /// after its end (the worker writes it right after the status change).
-    /// </summary>
     private List<JobRecord> QueryRecords(string tail, params (string, object?)[] args)
     {
         var sql = $"""
             SELECT j.id, j.type, j.repo, j.number, j.status, j.attempts, j.created_at, j.started_at, j.finished_at,
-                j.error, j.log_dir,
-                (SELECT c.result FROM cost_log c WHERE {CostMatch} ORDER BY c.at LIMIT 1),
-                (SELECT c.detail FROM cost_log c WHERE {CostMatch} ORDER BY c.at LIMIT 1)
+                j.error, j.log_dir, j.result, j.detail
             FROM jobs j {tail}
             """;
 
@@ -343,11 +349,6 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
 
         return records;
     }
-
-    private const string CostMatch = """
-        c.repo = j.repo AND c.number = j.number AND j.started_at IS NOT NULL AND j.finished_at IS NOT NULL
-        AND julianday(c.at) BETWEEN julianday(j.started_at) AND julianday(j.finished_at) + 60.0 / 86400.0
-        """;
 
     private static DateTimeOffset ParseTime(string text) =>
         DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);

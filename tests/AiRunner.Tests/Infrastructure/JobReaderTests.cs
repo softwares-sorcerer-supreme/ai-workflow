@@ -115,12 +115,11 @@ public sealed class JobReaderTests : IDisposable
     }
 
     [Fact]
-    public void A_job_carries_its_error_and_the_cost_row_written_after_it_finished()
+    public void A_job_carries_its_error_and_the_result_stored_when_it_ended()
     {
         var store = OpenStore();
         var id = AddFinishedJob(store, new JobRequest(JobType.ImplementIssue, "o/r", 4), JobStatus.Failed);
-        store.AddCost(new CostEntry(DateTimeOffset.UtcNow, "o/r", 4, "implement", 61.5, "failed", "no PR"));
-        store.AddCost(new CostEntry(DateTimeOffset.UtcNow, "o/r", 99, "implement", 1, "ok", "other issue"));
+        store.SetJobResult(id, "failed", "no PR");
 
         var job = store.GetRecord(id);
 
@@ -132,7 +131,7 @@ public sealed class JobReaderTests : IDisposable
     }
 
     [Fact]
-    public void A_job_without_a_cost_row_has_no_result()
+    public void A_job_that_has_not_ended_has_no_result()
     {
         var store = OpenStore();
         var id = store.AddJob(new JobRequest(JobType.AnalyzeIssue, "o/r", 1));

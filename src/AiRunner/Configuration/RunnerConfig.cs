@@ -32,6 +32,9 @@ public sealed class RunnerConfig
         return Path.GetFullPath(combinedPath);
     }
 
+    /// <summary>logs/jobs/: one folder per job run. The one place the writer (JobLog) and the dashboard's viewer agree on.</summary>
+    [YamlIgnore] public string JobLogsFolder => Path.Combine(ResolvePath(Paths.Logs), "jobs");
+
     /// <summary>The project a repo belongs to (any of its components' repos), or null.</summary>
     public ProjectConfig? FindProject(string repo) =>
         Projects.FirstOrDefault(project => project.HasRepo(repo));

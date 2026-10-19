@@ -1,8 +1,8 @@
 namespace AiRunner.Infrastructure;
 
 /// <summary>
-/// One row of the jobs table as the dashboard shows it. <c>Result</c> and <c>Detail</c> come from the cost row the
-/// worker wrote when the job ended (the cost log has no job id, so it is matched by repo, number and time).
+/// One row of the jobs table as the dashboard shows it. <c>Result</c> and <c>Detail</c> are how the job ended; they
+/// are empty while it is queued or running, and for jobs from before the dashboard.
 /// </summary>
 public sealed record JobRecord(
     long Id,
