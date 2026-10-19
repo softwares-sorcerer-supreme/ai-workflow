@@ -11,13 +11,11 @@ public sealed record RunnerStatusSnapshot(
     string CopilotVersion,
     DateTimeOffset? LastPollStartedAt,
     DateTimeOffset? LastPollEndedAt,
+    DateTimeOffset? WorkerBusySince,
     IReadOnlyList<ProjectPollError> Errors)
 {
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);
-
-    /// <summary>When the worker started its current job, or null while it is idle.</summary>
-    public DateTimeOffset? WorkerBusySince { get; init; }
 }
 
 /// <summary>
@@ -109,10 +107,8 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
                 _copilotVersion,
                 _lastPollStartedAt,
                 _lastPollEndedAt,
-                errors)
-            {
-                WorkerBusySince = _workerBusySince,
-            };
+                _workerBusySince,
+                errors);
         }
     }
 }

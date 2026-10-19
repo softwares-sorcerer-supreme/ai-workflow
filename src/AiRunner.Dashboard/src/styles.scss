@@ -39,6 +39,7 @@ html {
   --app-radius: 12px;
   --app-radius-small: 8px;
   --app-content-max-width: 1280px;
+  --app-nav-width: 220px;
   --app-font-mono: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
 
   // Tones: the only status colors. A tone has a soft background, a readable foreground on it and a solid dot.
@@ -82,7 +83,6 @@ body {
 
 .app-mono {
   font-family: var(--app-font-mono);
-  font-size: 0.92em;
   overflow-wrap: anywhere;
 }
 

@@ -68,6 +68,7 @@ public sealed class DashboardApiTests : IAsyncDisposable
         Assert.False(root.GetProperty("isPolling").GetBoolean());
         Assert.Equal("2026-01-01T12:00:05+00:00", root.GetProperty("lastPollEndedAt").GetString());
         Assert.Equal("busy", root.GetProperty("worker").GetProperty("state").GetString());
+        Assert.Equal("1 poll error", root.GetProperty("errorsLabel").GetString());
         var error = Assert.Single(root.GetProperty("errors").EnumerateArray());
         Assert.Equal("shop", error.GetProperty("project").GetString());
     }

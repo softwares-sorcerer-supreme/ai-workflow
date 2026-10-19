@@ -26,6 +26,7 @@ public sealed record HealthResponse(
     DateTimeOffset? LastPollEndedAt,
     bool IsPolling,
     WorkerHealth Worker,
+    string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
 {
     public const string WorkerIdle = "idle";
@@ -57,6 +58,15 @@ public sealed record HealthResponse(
             status.LastPollEndedAt,
             status.IsPolling,
             worker,
+            ErrorsLabelOf(errors.Count),
             errors);
     }
+
+    /// <summary>"1 poll error", "2 poll errors", or "No poll errors": the UI shows it as it is.</summary>
+    private static string ErrorsLabelOf(int count) => count switch
+    {
+        0 => "No poll errors",
+        1 => "1 poll error",
+        _ => $"{count} poll errors",
+    };
 }

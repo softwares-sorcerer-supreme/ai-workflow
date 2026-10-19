@@ -18,12 +18,10 @@ function Invoke-Step([string] $name, [scriptblock] $command) {
     }
 }
 
-$nodeVersion = (node --version) -replace '^v', ''
+# The supported range is "engines" in package.json; .npmrc (engine-strict) makes npm ci stop with a clear message
+# when Node is outside it, so the range lives in one place.
 $requiredRange = (Get-Content (Join-Path $dashboard 'package.json') -Raw | ConvertFrom-Json).engines.node
-Write-Host "Node $nodeVersion (the dashboard needs $requiredRange)"
-if ([version]$nodeVersion -lt [version]'22.22.3' -or ([version]$nodeVersion -ge [version]'24.0.0' -and [version]$nodeVersion -lt [version]'24.15.0')) {
-    throw "Node $nodeVersion is too old for the dashboard. Install a version in the range $requiredRange."
-}
+Write-Host "Node $(node --version) (the dashboard needs $requiredRange)"
 
 # An absolute path: dotnet run starts the runner in its project folder.
 Invoke-Step 'Write the OpenAPI document' { dotnet run --project $runner -- --openapi $openApiFile }

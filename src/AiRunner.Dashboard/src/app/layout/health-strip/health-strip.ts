@@ -2,17 +2,9 @@ import { Component, computed, inject } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink } from '@angular/router';
-import { Tone } from '../../shared/tone';
+import { Tone, healthTone, workerIcon } from '../../shared/tone';
 import { AppTime } from '../../shared/time/time';
 import { HealthStore } from '../health-store';
-
-/** Color per health code. The runner decides the state (C# Core/RunnerHealth); this only picks the color. */
-export const HEALTH_TONES: Readonly<Record<string, Tone>> = {
-  ok: 'success',
-  starting: 'info',
-  stale: 'warning',
-  error: 'danger',
-};
 
 /**
  * The line under the toolbar on every screen: is the runner working? State, last poll, worker, poll errors. When
@@ -40,14 +32,14 @@ export class HealthStrip {
   protected readonly isUnreachable = computed(() => this.error() !== undefined);
 
   protected readonly tone = computed<Tone>(() => {
-    const health = this.health();
-
     if (this.isUnreachable()) {
       return 'danger';
     }
 
-    return health ? (HEALTH_TONES[health.state] ?? 'neutral') : 'neutral';
+    return healthTone(this.health()?.state);
   });
+
+  protected readonly workerIcon = workerIcon;
 
   protected readonly errorsText = computed(() =>
     (this.health()?.errors ?? []).map((error) => `${error.project}: ${error.message}`).join('\n'),

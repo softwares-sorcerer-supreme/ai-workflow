@@ -42,6 +42,7 @@
           "lastPollEndedAt",
           "isPolling",
           "worker",
+          "errorsLabel",
           "errors"
         ],
         "type": "object",
@@ -88,6 +89,9 @@
           },
           "worker": {
             "$ref": "#/components/schemas/WorkerHealth"
+          },
+          "errorsLabel": {
+            "type": "string"
           },
           "errors": {
             "type": "array",

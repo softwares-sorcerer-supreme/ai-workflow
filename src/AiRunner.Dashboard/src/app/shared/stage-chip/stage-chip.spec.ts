@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { STAGE_TONES, StageChip } from './stage-chip';
+import { STAGE_TONES } from '../tone';
+import { StageChip } from './stage-chip';
 
 describe('StageChip', () => {
   async function render(code: string, label: string) {

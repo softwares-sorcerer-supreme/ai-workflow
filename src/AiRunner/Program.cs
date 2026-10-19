@@ -14,11 +14,6 @@ using AiRunner.Web;
 //   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
 //   --openapi FILE  write the dashboard API's OpenAPI document (no config, no token, no network)
 var mode = RunMode.Parse(args);
-var runOnce = mode.RunOnce;
-var dryRun = mode.DryRun;
-var copilotTest = mode.CopilotTest;
-var setupLabels = mode.SetupLabels;
-var attachmentTestUrl = mode.AttachmentTestUrl;
 
 if (mode.OpenApiPath is not null)
 {
@@ -42,7 +37,7 @@ builder.Logging.AddSimpleConsole(options =>
 
 var token = builder.Configuration["GitBucket:Token"]
     ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
-    ?? (copilotTest ? "" : throw new InvalidOperationException(
+    ?? (mode.CopilotTest ? "" : throw new InvalidOperationException(
         "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
 var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket:GitPassword"] ?? token };
 
@@ -108,7 +103,7 @@ if (mode.IsPollingLoop)
 {
     builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<Poller>());
 
-    if (!dryRun)
+    if (!mode.DryRun)
     {
         builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<JobWorker>());
     }
@@ -123,13 +118,13 @@ using var host = builder.Build();
 var services = host.Services;
 var cancellationToken = CancellationToken.None;
 
-if (copilotTest)
+if (mode.CopilotTest)
 {
     await services.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
     return;
 }
 
-if (attachmentTestUrl is not null)
+if (mode.AttachmentTestUrl is { } attachmentTestUrl)
 {
     await services.GetRequiredService<AttachmentSelfTest>().RunAsync(attachmentTestUrl, cancellationToken);
     return;
@@ -148,25 +143,25 @@ logger.LogInformation(
     config.AllRepos().Count(),
     fullConfigPath);
 
-if (setupLabels)
+if (mode.SetupLabels)
 {
     await services.GetRequiredService<LabelSetup>().RunAsync(cancellationToken);
     return;
 }
 
-services.GetRequiredService<Poller>().DryRun = dryRun;
+services.GetRequiredService<Poller>().DryRun = mode.DryRun;
 
-if (!dryRun)
+if (!mode.DryRun)
 {
     services.GetRequiredService<AgentInstaller>().Install();
     services.GetRequiredService<JobLog>().Cleanup();
 }
 
-if (runOnce)
+if (mode.RunOnce)
 {
     await services.GetRequiredService<Poller>().PollOnceAsync(cancellationToken);
 
-    if (!dryRun)
+    if (!mode.DryRun)
     {
         await services.GetRequiredService<JobWorker>().DrainAsync(cancellationToken);
     }

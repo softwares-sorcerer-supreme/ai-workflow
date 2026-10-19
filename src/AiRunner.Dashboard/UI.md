@@ -56,18 +56,32 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | `warning` | a person must act, or data is late | Questions open, stale health, stale data banner |
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
-Map an API code to a tone with a `Record<string, Tone>` next to the component that shows it, and fall back to
-`neutral` for an unknown code (see `STAGE_TONES`, `HEALTH_TONES`). That map is the only place a code is interpreted.
+Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
+`WORKER_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `workerIcon(code)`), which falls
+back to `neutral` for an unknown code. Those maps are the only place a code is interpreted: a template never compares
+a code (`state === 'busy'`) and never builds label text (plurals, counts). If text is missing, the API should send it
+ready (like `errorsLabel` on `/api/health`).
+
+In a component's SCSS, give the host the tone variables with the shared mixin and style from your own variables:
+```scss
+@use '../../shared/tones';
+:host { background: var(--chip-bg); color: var(--chip-fg); }
+@include tones.host-variants(chip);   // sets --chip-bg / --chip-fg / --chip-dot from the class tone-<tone> on the host
+```
 
 ### Spacing, shape, type
 
 - Spacing: `--app-space-1..6` = 4, 8, 12, 16, 24, 32 px. Use them for every gap, padding and margin.
   Inside a card: 16 (`--app-space-4`). Between cards: 16. Page padding: 24 (16 on phones). Below the page header: 24.
+- Sizes are not spacing: the menu width is `--app-nav-width`, table column widths are fixed CSS widths in the
+  `DataColumn` (`width: '180px'`), dots and icons use the sizes in section 3. Everything that is a gap, padding or
+  margin uses the spacing tokens; do not set `min-height` to fake spacing, pad instead.
 - Radius: `--app-radius` (12 px, cards), `--app-radius-small` (8 px, banners, small boxes). Chips are pills.
 - Content width: `--app-content-max-width` (1280 px), centered.
 - Font: the system UI font (no web font download). Monospace: `--app-font-mono` or the `.app-mono` class
   (paths, SHAs, branch names, log text).
-- Typography: use the Material type roles only, as `font: var(--mat-sys-<role>)`:
+- Typography: use the Material type roles only, as `font: var(--mat-sys-<role>)` (a role sets size, weight and line
+  height together: no `font-weight`, `font-size` or `line-height` of your own):
 
 | Role | Use |
 |---|---|
@@ -194,7 +208,7 @@ neutral with `cloud`. Badges: `Queued` progress with `schedule`, `Running` progr
 ```html
 <app-stage-chip [code]="row.stage" [label]="row.stageLabel" />
 ```
-Colors come from `STAGE_TONES` in `stage-chip.ts`, keyed by the stage codes of `docs/specs/dashboard.md`:
+Colors come from `STAGE_TONES` in `shared/tone.ts`, keyed by the stage codes of `docs/specs/dashboard.md`:
 `new`, `questions-open`, `ready-simple`, `ready-complex`, `implementing`, `broken-down`, `pr-open`, `merged`,
 `done`, `closed-no-merge`. If the API uses a different code, change the map and its test together with the API.
 The label is shown as sent ("Broken down (2/5)").
@@ -240,7 +254,7 @@ protected readonly issues = pollResource(() => this.api.invoke(getIssues, { proj
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
 data injects `HealthStore` and reads `health.value()`; it never polls `/api/health` itself. Health codes map to
-tones in `HEALTH_TONES` (`layout/health-strip/health-strip.ts`).
+tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`).
 
 ### Global CSS classes (`src/styles.scss`)
 

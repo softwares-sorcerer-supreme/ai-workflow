@@ -21,7 +21,7 @@
   </span>
 
   <span class="item" data-testid="health-worker">
-    <mat-icon aria-hidden="true">{{ health.worker.state === 'busy' ? 'play_circle' : 'pause_circle' }}</mat-icon>
+    <mat-icon aria-hidden="true">{{ workerIcon(health.worker.state) }}</mat-icon>
     {{ health.worker.stateLabel }}
     @if (health.worker.since) {
       <span class="app-muted">(since <app-time [value]="health.worker.since" mode="relative" />)</span>
@@ -37,7 +37,7 @@
       matTooltipClass="app-pre-line"
     >
       <mat-icon aria-hidden="true">error</mat-icon>
-      {{ health.errors.length }} poll {{ health.errors.length === 1 ? 'error' : 'errors' }}
+      {{ health.errorsLabel }}
     </a>
   }
 

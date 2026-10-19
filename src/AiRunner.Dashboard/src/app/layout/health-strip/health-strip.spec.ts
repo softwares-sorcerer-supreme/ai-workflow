@@ -44,6 +44,7 @@ describe('HealthStrip', () => {
       sampleHealth({
         state: 'error',
         stateLabel: 'Poll failed in 2 projects',
+        errorsLabel: '2 poll errors',
         errors: [
           { project: 'shop', message: 'issue poll failed: timeout', at: '2026-01-01T11:59:30Z' },
           { project: 'crm', message: 'issue poll failed: 401', at: '2026-01-01T11:59:30Z' },

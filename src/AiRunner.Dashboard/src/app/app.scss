@@ -42,7 +42,7 @@
 }
 
 .nav {
-  width: 220px;
+  width: var(--app-nav-width);
   padding-top: var(--app-space-2);
   background: var(--mat-sys-surface-container-low);
   border-right: 1px solid var(--mat-sys-outline-variant);

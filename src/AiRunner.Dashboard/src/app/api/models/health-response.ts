@@ -7,6 +7,7 @@ export interface HealthResponse {
   configPath: string;
   copilotVersion: string;
   errors: Array<PollErrorResponse>;
+  errorsLabel: string;
   isPolling: boolean;
   lastPollEndedAt: (string | null);
   lastPollStartedAt: (string | null);
