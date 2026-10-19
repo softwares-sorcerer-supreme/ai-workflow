@@ -59,23 +59,13 @@ public static class CostReport
             .Where(record => IsInRange(LocalDay(record, input.Zone), query.Range))
             .ToList();
 
-        List<CostRow> groups;
-        switch (query.By)
+        Func<CostRecord, (string Key, string Label)> grouper = query.By switch
         {
-            case CostGrouping.Day:
-                groups = GroupBy(inRange, record => DayOf(record, input.Zone));
-
-                break;
-            case CostGrouping.Project:
-                groups = GroupBy(inRange, record => ProjectOf(record, input.Config));
-
-                break;
-            default:
-                var grouper = new IssueGrouper(input);
-                groups = GroupBy(inRange, grouper.GroupOf);
-
-                break;
-        }
+            CostGrouping.Day => record => DayOf(record, input.Zone),
+            CostGrouping.Project => record => ProjectOf(record, input.Config),
+            _ => new IssueGrouper(input).GroupOf,
+        };
+        var groups = GroupBy(inRange, grouper);
 
         var rows = query.By == CostGrouping.Day
             ? groups.OrderBy(row => row.Key, StringComparer.Ordinal).ToList()
@@ -92,25 +82,13 @@ public static class CostReport
         IReadOnlyList<CostRecord> records,
         Func<CostRecord, (string Key, string Label)> groupOf)
     {
-        var comparer = StringComparer.OrdinalIgnoreCase;
-        var labels = new Dictionary<string, string>(comparer);
-        var byKey = new Dictionary<string, List<CostRecord>>(comparer);
-
-        foreach (var record in records)
-        {
-            var (key, label) = groupOf(record);
-            labels.TryAdd(key, label);
-            if (!byKey.TryGetValue(key, out var group))
-            {
-                group = [];
-                byKey[key] = group;
-            }
-
-            group.Add(record);
-        }
-
-        return byKey
-            .Select(entry => RowOf(entry.Key, labels[entry.Key], entry.Value))
+        return records
+            .Select(record => (Group: groupOf(record), Record: record))
+            .GroupBy(entry => entry.Group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => RowOf(
+                group.Key,
+                group.First().Group.Label,
+                group.Select(entry => entry.Record).ToList()))
             .ToList();
     }
 
@@ -154,12 +132,12 @@ public static class CostReport
     private sealed class IssueGrouper(CostInput input)
     {
         private readonly Dictionary<string, IssueSnapshot> _issues = input.Issues
-            .GroupBy(issue => KeyOf(issue.Repo, issue.Number), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            .DistinctBy(issue => KeyOf(issue.Repo, issue.Number), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(issue => KeyOf(issue.Repo, issue.Number), StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<string, PullSnapshot> _pulls = input.Pulls
-            .GroupBy(pull => KeyOf(pull.Repo, pull.Number), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            .DistinctBy(pull => KeyOf(pull.Repo, pull.Number), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(pull => KeyOf(pull.Repo, pull.Number), StringComparer.OrdinalIgnoreCase);
 
         public (string Key, string Label) GroupOf(CostRecord record)
         {

@@ -46,12 +46,11 @@ public sealed class CostReader(RunnerConfig config, ICostReader cost, ISnapshotR
 
     public CostResponse Read(CostQuery query)
     {
-        var input = new CostInput(
-            cost.ListCost(),
-            snapshot.ListIssues(),
-            snapshot.ListPulls(),
-            config,
-            time.LocalTimeZone);
+        // Only the issue grouping needs the snapshot; the dashboard polls this route, so day and project skip it.
+        var needsSnapshot = query.By == CostGrouping.Issue;
+        IReadOnlyList<IssueSnapshot> issues = needsSnapshot ? snapshot.ListIssues() : [];
+        IReadOnlyList<PullSnapshot> pulls = needsSnapshot ? snapshot.ListPulls() : [];
+        var input = new CostInput(cost.ListCost(), issues, pulls, config, time.LocalTimeZone);
         var result = CostReport.Build(input, query);
         var rows = result.Rows
             .Select(CostRowResponse.From)
@@ -67,12 +66,7 @@ public sealed class CostReader(RunnerConfig config, ICostReader cost, ISnapshotR
             NoteOf(result.Total));
     }
 
-    public static string CodeOf(CostGrouping by) => by switch
-    {
-        CostGrouping.Project => "project",
-        CostGrouping.Issue => "issue",
-        _ => "day",
-    };
+    public static string CodeOf(CostGrouping by) => by.ToString().ToLowerInvariant();
 
     private static string LabelOf(CostGrouping by) => by switch
     {
