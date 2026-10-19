@@ -44,6 +44,8 @@ public sealed class NoJobs : IJobReader
     public JobPage QueryHistory(JobQuery query) => new([], 0);
 
     public JobRecord? GetRecord(long id) => null;
+
+    public IReadOnlyList<JobRecord> ListForItem(string repo, int number) => [];
 }
 
 /// <summary>
@@ -97,7 +99,9 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Snapshot);
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<OverviewReader>();
+        builder.Services.AddSingleton<IssueBoardReader>();
         builder.Services.AddSingleton<IssueReader>();
+        builder.Services.AddSingleton<IssueDetailReader>();
 
         return builder;
     }

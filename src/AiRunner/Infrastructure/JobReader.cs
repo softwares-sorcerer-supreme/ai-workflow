@@ -42,4 +42,7 @@ public interface IJobReader
     JobPage QueryHistory(JobQuery query);
 
     JobRecord? GetRecord(long id);
+
+    /// <summary>Every job on one issue or PR, newest first: the timeline of the issue page.</summary>
+    IReadOnlyList<JobRecord> ListForItem(string repo, int number);
 }

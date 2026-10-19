@@ -49,56 +49,24 @@ public sealed record IssueQuery(string? Project, string? Component, string? Stag
 /// Builds the issue list from the snapshot, the job table and the running job. The stage, flags and badge come from
 /// <see cref="IssueStage"/>; this class only reads, filters and nests.
 /// </summary>
-public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, IJobReader jobs, RunnerStatus status)
+public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReader)
 {
-    /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
-    private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
-
     public IssueListResponse Read(IssueQuery query)
     {
-        // Rows of another project are never shown, and sub-issues live in their parent's project.
-        var issues = snapshot.ListIssues()
-            .Where(issue => query.Project is null || issue.Project == query.Project)
-            .ToList();
-        var pullsByRepo = PullsByRepo();
-        var jobsOf = jobs.ListActive().ToLookup(job => KeyOf(job.Repo, job.Number), KeyComparer);
-        var claimedKey = ClaimedKey();
-        var runnerName = config.EffectiveRunnerName();
-
-        // In build order, so each parent's sub-issues come out in it.
-        var subIssuesOf = issues
-            .Where(issue => issue.Parent is not null)
-            .OrderBy(issue => issue.SubOrder ?? 0)
-            .ThenBy(issue => issue.Number)
-            .ToLookup(issue => KeyOf(issue.Repo, issue.Parent!.Value), KeyComparer);
-
-        var rows = new Dictionary<string, IssueRowResponse>(KeyComparer);
-        foreach (var issue in issues)
-        {
-            var project = config.ProjectNamed(issue.Project);
-
-            // A project no longer in repos.yml is not polled any more: its old rows stay in the database, unshown.
-            if (project is null)
-            {
-                continue;
-            }
-
-            var subIssues = subIssuesOf[issue.Key].ToList();
-            var claimHolder = KeyComparer.Equals(issue.Key, claimedKey) ? runnerName : null;
-            var input = new StageInput(project, issue, subIssues, pullsByRepo)
-            {
-                Jobs = ActivityOf(jobsOf[issue.Key], claimHolder),
-            };
-            var stage = IssueStage.Compute(input);
-            var component = SnapshotRules.ComponentOf(issue, project);
-
-            rows[issue.Key] = Row(issue, stage, component);
-        }
+        var board = boardReader.Read(query.Project);
+        var comparer = IssueBoard.KeyComparer;
+        var rows = board.Entries.ToDictionary(
+            entry => entry.Key,
+            entry => RowOf(entry.Value),
+            comparer);
+        var subIssuesOf = board.Entries.Values
+            .SelectMany(entry => entry.SubIssues)
+            .ToLookup(subIssue => IssueBoard.KeyOf(subIssue.Repo, subIssue.Parent!.Value), comparer);
 
         var matching = rows
             .Where(entry => Matches(entry.Value, query))
             .Select(entry => entry.Key)
-            .ToHashSet(KeyComparer);
+            .ToHashSet(comparer);
         var items = query.IsFlat
             ? Newest(matching.Select(key => rows[key]))
             : Nest(rows, matching, subIssuesOf);
@@ -112,34 +80,12 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         return new IssueListResponse(items, projectOptions, stageOptions);
     }
 
-    /// <summary>The issue or PR this runner's running job holds the claim on, or null.</summary>
-    private string? ClaimedKey()
+    /// <summary>The list row of one entry, without sub-issues.</summary>
+    public static IssueRowResponse RowOf(IssueEntry entry)
     {
-        var running = status.Snapshot().Running;
+        var component = SnapshotRules.ComponentOf(entry.Issue, entry.Project);
 
-        return running is { HoldsClaim: true } ? KeyOf(running.Repo, running.Number) : null;
-    }
-
-    private Dictionary<string, IReadOnlyList<GbPull>> PullsByRepo() =>
-        snapshot.ListPulls()
-            .GroupBy(pull => pull.Repo, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<GbPull>)group.Select(pull => pull.AsPull()).ToList(),
-                StringComparer.OrdinalIgnoreCase);
-
-    private static JobActivity ActivityOf(IEnumerable<JobRecord> jobsOfIssue, string? claimHolder)
-    {
-        var statuses = jobsOfIssue
-            .Select(job => job.Status)
-            .ToList();
-        var isRunning = statuses.Contains(JobStatus.Running);
-        var isQueued = statuses.Contains(JobStatus.Pending);
-
-        return new JobActivity(isQueued, isRunning)
-        {
-            ClaimHolder = claimHolder,
-        };
+        return Row(entry.Issue, entry.Stage, component);
     }
 
     private static IssueRowResponse Row(IssueSnapshot issue, StageResult stage, string? component)
@@ -194,7 +140,7 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         foreach (var (key, row) in rows)
         {
             // A sub-issue of a parent that is shown goes under that parent instead.
-            if (row.Parent is { } parent && rows.ContainsKey(KeyOf(row.Repo, parent)))
+            if (row.Parent is { } parent && rows.ContainsKey(IssueBoard.KeyOf(row.Repo, parent)))
             {
                 continue;
             }
@@ -218,5 +164,4 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         return Newest(items);
     }
 
-    private static string KeyOf(string repo, int number) => new IssueRef(repo, number).ToString();
 }

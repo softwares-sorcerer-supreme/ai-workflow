@@ -56,7 +56,33 @@ public static class DashboardApi
             .WithName("getIssues")
             .WithSummary("Every issue the runner polls, with its stage; sub-issues nested unless flat.");
 
+        api.MapGet("/issues/{owner}/{repo}/{number:int}", GetIssue)
+            .WithTags("Issues")
+            .WithName("getIssue")
+            .WithSummary("One issue: stage, what it waits on, analysis summary, sub-issues, PRs and job timeline.");
+
         return endpoints;
+    }
+
+    /// <summary>The route values of <c>GET /api/issues/{owner}/{repo}/{number}</c>.</summary>
+    public sealed record IssueRoute(
+        [FromRoute(Name = "owner")] string Owner,
+        [FromRoute(Name = "repo")] string Repo,
+        [FromRoute(Name = "number")] int Number);
+
+    private static Results<Ok<IssueDetailResponse>, NotFound> GetIssue(
+        [AsParameters] IssueRoute route,
+        IssueDetailReader detail)
+    {
+        var (owner, repo, number) = route;
+        var found = detail.Read($"{owner}/{repo}", number);
+
+        if (found is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return TypedResults.Ok(found);
     }
 
     /// <summary>The query string of <c>GET /api/issues</c>.</summary>

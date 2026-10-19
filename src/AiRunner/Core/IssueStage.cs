@@ -45,7 +45,11 @@ public sealed record StageInput(
 /// <param name="Stage">The workflow stage (codes in <see cref="IssueStage.Stages"/>).</param>
 /// <param name="Flags">Failed, Claimed by X, On GitHub: shown next to the stage.</param>
 /// <param name="Badge">Queued or Running, when this runner has a job for the issue.</param>
-public sealed record StageResult(CodeLabel Stage, IReadOnlyList<CodeLabel> Flags, CodeLabel? Badge);
+public sealed record StageResult(CodeLabel Stage, IReadOnlyList<CodeLabel> Flags, CodeLabel? Badge)
+{
+    /// <summary>"Its PRs" the stage was read from (final PRs of a parent), for the PR links and the waiting-on action.</summary>
+    public IReadOnlyList<GbPull> Pulls { get; init; } = [];
+}
 
 /// <summary>
 /// Where an issue is in the workflow (docs/specs/dashboard.md, Stage): the single source of truth for the dashboard.
@@ -82,17 +86,26 @@ public static class IssueStage
 
     public static StageResult Compute(StageInput input)
     {
-        var stage = StageOf(input);
+        var itsPulls = PullsOf(input);
+        var stage = StageOf(input, itsPulls.Outcome);
         var flags = FlagsOf(input);
         var badge = BadgeOf(input.Jobs);
 
-        return new StageResult(stage, flags, badge);
+        return new StageResult(stage, flags, badge)
+        {
+            Pulls = itsPulls.Pulls,
+        };
     }
 
-    private static CodeLabel StageOf(StageInput input)
+    /// <summary>The PRs that count as "its PR" and where they stand.</summary>
+    private sealed record ItsPulls(PullOutcome Outcome, IReadOnlyList<GbPull> Pulls)
+    {
+        public static ItsPulls Of(IReadOnlyList<GbPull> pulls) => new(IssuePulls.OutcomeOf(pulls), pulls);
+    }
+
+    private static CodeLabel StageOf(StageInput input, PullOutcome outcome)
     {
         var issue = input.Issue;
-        var outcome = PullOutcomeOf(input);
 
         if (!issue.IsOpen)
         {
@@ -136,13 +149,13 @@ public static class IssueStage
     /// <summary>
     /// "Its PR": the final PRs for a parent, the slot PR for a sub-issue, the ai/issue-{n} PR for any other issue.
     /// </summary>
-    private static PullOutcome PullOutcomeOf(StageInput input)
+    private static ItsPulls PullsOf(StageInput input)
     {
         var issue = input.Issue;
 
         if (issue.HasLabel(Labels.Parent) || input.SubIssues.Count > 0)
         {
-            return FinalOutcome(input);
+            return FinalPulls(input);
         }
 
         if (issue is { Parent: { } parent, SubOrder: { } order })
@@ -152,13 +165,13 @@ public static class IssueStage
 
             if (repo is null)
             {
-                return PullOutcome.None;
+                return ItsPulls.Of([]);
             }
 
             var slot = new SubIssueSlot(parent, order);
             var slotPulls = SubIssueSequencer.SlotPulls(slot, input.PullsOf(repo));
 
-            return IssuePulls.OutcomeOf(slotPulls);
+            return ItsPulls.Of(slotPulls);
         }
 
         // A simple issue's component is in its analysis comment, which the snapshot does not hold. The branch name
@@ -166,14 +179,14 @@ public static class IssueStage
         var projectPulls = input.Project.CodeRepos.SelectMany(input.PullsOf);
         var issuePulls = IssuePulls.OfIssue(issue.Number, projectPulls);
 
-        return IssuePulls.OutcomeOf(issuePulls);
+        return ItsPulls.Of(issuePulls);
     }
 
     /// <summary>
     /// The final PRs of a parent, one per repo that has sub-issues: merged when every one is merged, open when any
     /// is open, else none (not opened yet).
     /// </summary>
-    private static PullOutcome FinalOutcome(StageInput input)
+    private static ItsPulls FinalPulls(StageInput input)
     {
         var repos = input.SubIssues
             .Select(subIssue => input.Project.CodeComponentOf(subIssue.Component)?.Repo)
@@ -182,14 +195,18 @@ public static class IssueStage
             .ToList();
         var finalPulls = SubIssueSequencer.FinalPulls(input.Issue.Number, repos, input.PullsOf);
 
+        var found = finalPulls.Values
+            .OfType<GbPull>()
+            .ToList();
+
         if (SubIssueSequencer.AllMerged(finalPulls))
         {
-            return PullOutcome.Merged;
+            return new ItsPulls(PullOutcome.Merged, found);
         }
 
-        var isAnyOpen = finalPulls.Values.Any(pull => pull is not null && pull.IsOpen());
+        var isAnyOpen = found.Any(pull => pull.IsOpen());
 
-        return isAnyOpen ? PullOutcome.Open : PullOutcome.None;
+        return new ItsPulls(isAnyOpen ? PullOutcome.Open : PullOutcome.None, found);
     }
 
     private static List<CodeLabel> FlagsOf(StageInput input)

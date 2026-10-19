@@ -282,6 +282,12 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
     public JobRecord? GetRecord(long id) =>
         QueryRecords("WHERE j.id = $id", ("$id", id)).FirstOrDefault();
 
+    public IReadOnlyList<JobRecord> ListForItem(string repo, int number) =>
+        QueryRecords(
+            "WHERE j.repo = $repo COLLATE NOCASE AND j.number = $number ORDER BY j.id DESC",
+            ("$repo", repo),
+            ("$number", number));
+
     public JobPage QueryHistory(JobQuery query)
     {
         var conditions = new List<string>();

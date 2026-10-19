@@ -299,10 +299,83 @@
           }
         }
       }
+    },
+    "/api/issues/{owner}/{repo}/{number}": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "One issue: stage, what it waits on, analysis summary, sub-issues, PRs and job timeline.",
+        "operationId": "getIssue",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnalysisSummaryResponse": {
+        "required": [
+          "status",
+          "complexity",
+          "component"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/CodeLabelResponse"
+          },
+          "complexity": {
+            "$ref": "#/components/schemas/CodeLabelResponse"
+          },
+          "component": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ApiError": {
         "required": [
           "message"
@@ -397,6 +470,53 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PollErrorResponse"
+            }
+          }
+        }
+      },
+      "IssueDetailResponse": {
+        "required": [
+          "issue",
+          "waiting",
+          "analysis",
+          "subIssues",
+          "pulls",
+          "timeline"
+        ],
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/IssueRowResponse"
+          },
+          "waiting": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/AnalysisSummaryResponse"
+          },
+          "subIssues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubIssueDetailResponse"
+            }
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PullResponse"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobResponse"
             }
           }
         }
@@ -739,7 +859,9 @@
         "required": [
           "runningJob",
           "queueLabel",
-          "queue"
+          "queue",
+          "waitingLabel",
+          "waitingOn"
         ],
         "type": "object",
         "properties": {
@@ -760,6 +882,15 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/JobResponse"
+            }
+          },
+          "waitingLabel": {
+            "type": "string"
+          },
+          "waitingOn": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitingItemResponse"
             }
           }
         }
@@ -799,6 +930,54 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "PullResponse": {
+        "required": [
+          "repo",
+          "number",
+          "title",
+          "state",
+          "stateLabel",
+          "headRef",
+          "baseRef",
+          "htmlUrl",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "headRef": {
+            "type": "string"
+          },
+          "baseRef": {
+            "type": "string"
+          },
+          "htmlUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -860,6 +1039,75 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SubIssueDetailResponse": {
+        "required": [
+          "issue",
+          "pulls"
+        ],
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/IssueRowResponse"
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PullResponse"
+            }
+          }
+        }
+      },
+      "WaitingItemResponse": {
+        "required": [
+          "project",
+          "repo",
+          "number",
+          "title",
+          "stage",
+          "flags",
+          "action",
+          "htmlUrl",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/CodeLabelResponse"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "action": {
+            "$ref": "#/components/schemas/CodeLabelResponse"
+          },
+          "htmlUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

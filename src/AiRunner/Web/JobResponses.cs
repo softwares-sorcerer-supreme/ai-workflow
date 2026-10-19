@@ -1,4 +1,5 @@
 using AiRunner.Configuration;
+using AiRunner.Core;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 
@@ -88,8 +89,30 @@ public sealed record RunningJobResponse(
     }
 }
 
-/// <summary><c>GET /api/overview</c>: the running job (null when idle) and the queue in the order jobs will run.</summary>
-public sealed record OverviewResponse(RunningJobResponse? RunningJob, string QueueLabel, IReadOnlyList<JobResponse> Queue);
+/// <summary>
+/// One open issue that waits on a human. <c>Action</c> says what to do (code plus text); the UI shows it as sent.
+/// </summary>
+public sealed record WaitingItemResponse(
+    string Project,
+    string Repo,
+    int Number,
+    string Title,
+    CodeLabelResponse Stage,
+    IReadOnlyList<CodeLabelResponse> Flags,
+    CodeLabelResponse Action,
+    string? HtmlUrl,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// <c>GET /api/overview</c>: the running job (null when idle), the queue in the order jobs will run, and the issues
+/// that wait on a human, longest-waiting first.
+/// </summary>
+public sealed record OverviewResponse(
+    RunningJobResponse? RunningJob,
+    string QueueLabel,
+    IReadOnlyList<JobResponse> Queue,
+    string WaitingLabel,
+    IReadOnlyList<WaitingItemResponse> WaitingOn);
 
 /// <summary><c>GET /api/jobs</c>: one page of the history, newest first.</summary>
 public sealed record JobsPageResponse(
@@ -137,6 +160,13 @@ public static class JobLabels
         _ => status,
     };
 
+    public static string WaitingLabel(int count) => count switch
+    {
+        0 => "Nothing waits on you",
+        1 => "1 issue waits on you",
+        _ => $"{count} issues wait on you",
+    };
+
     public static string QueueLabel(int count) => count switch
     {
         0 => "Queue is empty",
@@ -145,8 +175,13 @@ public static class JobLabels
     };
 }
 
-/// <summary>Builds the overview from the runner's status and the job table.</summary>
-public sealed class OverviewReader(RunnerStatus status, RunnerConfig config, IJobReader jobs, TimeProvider time)
+/// <summary>Builds the overview from the runner's status, the job table and the stage of every issue.</summary>
+public sealed class OverviewReader(
+    RunnerStatus status,
+    RunnerConfig config,
+    IJobReader jobs,
+    IssueBoardReader boardReader,
+    TimeProvider time)
 {
     public OverviewResponse Read()
     {
@@ -155,7 +190,43 @@ public sealed class OverviewReader(RunnerStatus status, RunnerConfig config, IJo
         var queue = jobs.ListQueue()
             .Select(job => JobResponse.From(job, config))
             .ToList();
+        var waiting = WaitingItems();
 
-        return new OverviewResponse(runningResponse, JobLabels.QueueLabel(queue.Count), queue);
+        return new OverviewResponse(
+            runningResponse,
+            JobLabels.QueueLabel(queue.Count),
+            queue,
+            JobLabels.WaitingLabel(waiting.Count),
+            waiting);
+    }
+
+    private List<WaitingItemResponse> WaitingItems()
+    {
+        var board = boardReader.Read();
+
+        return board.Entries.Values
+            .Where(entry => entry.Waiting is not null)
+            .OrderBy(entry => entry.Issue.UpdatedAt)
+            .ThenBy(entry => entry.Issue.Number)
+            .Select(entry => WaitingItemOf(entry, entry.Waiting!))
+            .ToList();
+    }
+
+    private static WaitingItemResponse WaitingItemOf(IssueEntry entry, CodeLabel action)
+    {
+        var flags = entry.Stage.Flags
+            .Select(CodeLabelResponse.From)
+            .ToList();
+
+        return new WaitingItemResponse(
+            entry.Project.Name,
+            entry.Issue.Repo,
+            entry.Issue.Number,
+            entry.Issue.Title,
+            CodeLabelResponse.From(entry.Stage.Stage),
+            flags,
+            CodeLabelResponse.From(action),
+            entry.Issue.HtmlUrl,
+            entry.Issue.UpdatedAt);
     }
 }

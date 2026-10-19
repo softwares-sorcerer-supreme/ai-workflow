@@ -3,8 +3,11 @@
 
 import { JobResponse } from '../models/job-response';
 import { RunningJobResponse } from '../models/running-job-response';
+import { WaitingItemResponse } from '../models/waiting-item-response';
 export interface OverviewResponse {
   queue: Array<JobResponse>;
   queueLabel: string;
   runningJob: (null | RunningJobResponse);
+  waitingLabel: string;
+  waitingOn: Array<WaitingItemResponse>;
 }
