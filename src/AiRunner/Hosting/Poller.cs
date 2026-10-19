@@ -89,11 +89,13 @@ public sealed class Poller(
                 }
             }
 
-            // Removing rows needs complete lists: after a failed list the refresh waits for the next poll.
-            if (!DryRun && failure is null && _refreshDue.Contains(project.Name))
+            // Both need complete lists (a missing item is read as gone): after a failed list they wait for the next poll.
+            if (!DryRun && failure is null)
             {
                 var poll = new ProjectPoll(project, openIssues, openPulls);
-                if (await snapshot.RefreshClosedAsync(poll, cancellationToken))
+                await snapshot.RefreshVanishedAsync(poll, cancellationToken);
+
+                if (_refreshDue.Contains(project.Name) && await snapshot.RefreshClosedAsync(poll, cancellationToken))
                 {
                     _refreshDue.Remove(project.Name);
                 }

@@ -35,7 +35,13 @@ public sealed record HealthResponse(
     public static HealthResponse From(RunnerStatusSnapshot status, RunnerConfig config, DateTimeOffset now)
     {
         var pollInterval = TimeSpan.FromSeconds(config.PollIntervalSeconds);
-        var input = new HealthInput(now, status.StartedAt, status.LastPollEndedAt, pollInterval, status.Errors.Count);
+        var input = new HealthInput(
+            now,
+            status.StartedAt,
+            status.LastPollEndedAt,
+            pollInterval,
+            status.Errors.Count,
+            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null);
         var health = RunnerHealth.Assess(input);
 
         var worker = status.WorkerBusySince is { } busySince

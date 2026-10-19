@@ -115,6 +115,30 @@ public sealed class JobReaderTests : IDisposable
     }
 
     [Fact]
+    public void The_repo_filter_ignores_case_like_the_other_job_queries()
+    {
+        var store = OpenStore();
+        AddFinishedJob(store, new JobRequest(JobType.AnalyzeIssue, "o/b", 1), JobStatus.Done);
+
+        var page = store.QueryHistory(new JobQuery(Repos: ["O/B"], Page: 1, PageSize: 10));
+
+        Assert.Equal(1, page.Total);
+    }
+
+    [Fact]
+    public void A_huge_page_number_gives_an_empty_page_instead_of_wrapping_around()
+    {
+        var store = OpenStore();
+        AddFinishedJob(store, new JobRequest(JobType.AnalyzeIssue, "o/b", 1), JobStatus.Done);
+
+        // (171798692 - 1) * 25 is 4294967275: in int that wraps to -21, which SQLite reads as offset 0 (page 1).
+        var page = store.QueryHistory(new JobQuery(Page: 171_798_692, PageSize: 25));
+
+        Assert.Empty(page.Items);
+        Assert.Equal(1, page.Total);
+    }
+
+    [Fact]
     public void A_job_carries_its_error_and_the_result_stored_when_it_ended()
     {
         var store = OpenStore();

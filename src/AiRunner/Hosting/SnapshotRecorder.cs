@@ -64,6 +64,110 @@ public sealed class SnapshotRecorder(
     }
 
     /// <summary>
+    /// Every poll: a snapshot row that is still open but was not in this poll's open lists was merged, closed or
+    /// removed from the poller's scope since the last poll. Each such issue or PR is read once, so a merge or a close
+    /// shows on the dashboard within one poll, not at the next slow refresh. In the steady state nothing vanished and
+    /// no call is made. Call it only after complete lists: after a failed list every row would look vanished.
+    /// </summary>
+    public async Task RefreshVanishedAsync(ProjectPoll poll, CancellationToken cancellationToken)
+    {
+        var project = poll.Project;
+
+        try
+        {
+            await RefreshVanishedIssuesAsync(poll, cancellationToken);
+
+            foreach (var repo in project.CodeRepos)
+            {
+                await RefreshVanishedPullsAsync(poll, repo, cancellationToken);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("{Project}: snapshot of vanished items not saved: {Message}", project, exception.Message);
+        }
+    }
+
+    private async Task RefreshVanishedIssuesAsync(ProjectPoll poll, CancellationToken cancellationToken)
+    {
+        var project = poll.Project;
+        var repo = project.IssuesRepo;
+        var openNumbers = poll.OpenIssues
+            .Select(issue => issue.Number)
+            .ToHashSet();
+
+        var vanishedNumbers = store.ListIssues()
+            .Where(row => row.IsOpen && row.Project == project.Name)
+            .Where(row => string.Equals(row.Repo, repo, StringComparison.OrdinalIgnoreCase))
+            .Where(row => !openNumbers.Contains(row.Number))
+            .Select(row => row.Number)
+            .ToList();
+
+        foreach (var number in vanishedNumbers)
+        {
+            GbIssue issue;
+            try
+            {
+                issue = await gitBucketClient.GetIssueAsync(repo, number, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Deleted or unreachable: the slow refresh decides what happens to the row.
+                logger.LogDebug("{Repo}#{Number}: not re-read for the snapshot: {Error}", repo, number, exception.Message);
+                continue;
+            }
+
+            // Still open means only that the poller no longer lists it (for example its trigger label was removed).
+            if (issue.IsOpen())
+            {
+                continue;
+            }
+
+            var row = SnapshotRules.IssueRow(project, issue, time.GetUtcNow());
+            store.SaveIssues([row]);
+        }
+    }
+
+    private async Task RefreshVanishedPullsAsync(ProjectPoll poll, string repo, CancellationToken cancellationToken)
+    {
+        var project = poll.Project;
+        var openNumbers = poll.OpenPulls.TryGetValue(repo, out var openPulls)
+            ? openPulls.Select(pull => pull.Number).ToHashSet()
+            : [];
+
+        var vanishedNumbers = store.ListPulls()
+            .Where(row => row.State == SnapshotRules.Open && row.Project == project.Name)
+            .Where(row => string.Equals(row.Repo, repo, StringComparison.OrdinalIgnoreCase))
+            .Where(row => !openNumbers.Contains(row.Number))
+            .Select(row => row.Number)
+            .ToList();
+
+        foreach (var number in vanishedNumbers)
+        {
+            GbPull pull;
+            try
+            {
+                pull = await gitBucketClient.GetPullAsync(repo, number, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Deleted or unreachable: the slow refresh decides what happens to the row.
+                logger.LogDebug("{Repo}#{Number}: PR not re-read for the snapshot: {Error}", repo, number, exception.Message);
+                continue;
+            }
+
+            if (pull.IsOpen())
+            {
+                continue;
+            }
+
+            var source = new PullSource(project, repo, time.GetUtcNow());
+            var row = SnapshotRules.PullRow(source, pull);
+            store.SavePulls([row]);
+        }
+    }
+
+    /// <summary>
     /// The slow refresh: keeps the closed trigger-label issues and the closed runner PRs the dashboard still needs,
     /// and removes every row that is neither open on this poll nor kept. False when it failed (try again next poll).
     /// </summary>
@@ -108,11 +212,11 @@ public sealed class SnapshotRecorder(
             .Select(issue => issue.Number)
             .ToHashSet();
         var window = new RetentionWindow(now, config.LogRetentionDays, openNumbers);
-        var keptClosed = closedIssues
+        var closedRows = closedIssues
             .Where(issue => !openNumbers.Contains(issue.Number))
             .Select(issue => SnapshotRules.IssueRow(project, issue, now))
-            .Where(row => SnapshotRules.KeepClosedIssue(row, window))
             .ToList();
+        var keptClosed = SnapshotRules.KeepClosedIssues(closedRows, window);
 
         store.SaveIssues(keptClosed);
 

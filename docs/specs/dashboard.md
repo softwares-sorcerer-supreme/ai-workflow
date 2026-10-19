@@ -88,10 +88,15 @@ dashboard:
   runner user, `Poller.PollIssuesAsync`). `parent` and `component` come from the issue body (`SubIssueBody`).
 - Open PRs: every poll lists the open PRs of each code repo, also when `review` and `fix` are both off (today the poller
   then skips PRs). `linked_issue` comes from `IssueLinks.Find`.
+- Vanished rows, every poll whose lists all succeeded: a row that is still `open` in the snapshot but not in this
+  poll's open lists is read once (`GetIssueAsync` / `GetPullAsync`) and saved with its real state, so a merge or a close
+  shows within one poll. An issue that is still open (only out of scope) or cannot be read is left to the slow refresh.
+  Nothing vanished = no call.
 - Slow refresh, every 10th poll and on the first poll after start: closed issues with the trigger label
   (`ListClosedIssuesAsync`) and closed PRs of each code repo. Keep a closed issue when it was updated within
-  `log_retention_days` or its parent is still open (so n/m stays right); keep a closed PR when its head is a runner
-  branch (`ai/issue-*`, `feat/issue-*`, `ai/pr-*`) and its linked issue is in the snapshot.
+  `log_retention_days` or its parent is kept (open, or closed and kept; so n/m and the parent's final PRs stay right);
+  keep a closed PR when its head is a runner branch (`ai/issue-*`, `feat/issue-*`, `ai/pr-*`) and its linked issue is
+  in the snapshot.
 - An open issue that is no longer listed and not found as closed is deleted from the snapshot at the slow refresh.
 - Writing the snapshot never changes a planner decision, a fingerprint or the queue. A snapshot write error is logged
   and the poll goes on.

@@ -136,6 +136,28 @@ public static class SnapshotRules
         return issue.Parent is { } parent && window.OpenNumbers.Contains(parent);
     }
 
+    /// <summary>
+    /// The closed issues to keep: those <see cref="KeepClosedIssue"/> keeps, and every closed sub-issue whose parent is
+    /// kept (open, or closed and kept). Without the second part, a parent that closed after its last final PR was
+    /// merged would lose its older sub-issues, and its stage would be worked out from the few that are left.
+    /// </summary>
+    public static IReadOnlyList<IssueSnapshot> KeepClosedIssues(
+        IReadOnlyList<IssueSnapshot> closedIssues,
+        RetentionWindow window)
+    {
+        var keptByRule = closedIssues
+            .Where(issue => KeepClosedIssue(issue, window))
+            .Select(issue => issue.Number)
+            .ToHashSet();
+        var keptParents = keptByRule
+            .Concat(window.OpenNumbers)
+            .ToHashSet();
+
+        return closedIssues
+            .Where(issue => keptByRule.Contains(issue.Number) || IsSubIssueOfAny(issue, keptParents))
+            .ToList();
+    }
+
     /// <summary>A closed PR stays when the runner made it (its branch) and its linked issue is kept.</summary>
     /// <param name="issueKeys">"owner/repo#n" of every issue the snapshot keeps, case-insensitive.</param>
     public static bool KeepClosedPull(PullSnapshot pull, IReadOnlySet<string> issueKeys) =>
@@ -149,6 +171,9 @@ public static class SnapshotRules
     /// </summary>
     public static string? ComponentOf(IssueSnapshot issue, ProjectConfig project) =>
         issue.Component ?? project.SoleCodeComponent?.Name;
+
+    private static bool IsSubIssueOfAny(IssueSnapshot issue, IReadOnlySet<int> parents) =>
+        issue.Parent is { } parent && parents.Contains(parent);
 
     private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
     {

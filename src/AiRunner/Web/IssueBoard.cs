@@ -28,7 +28,11 @@ public sealed record IssueBoard(
 }
 
 /// <summary>Reads the snapshot, the job table and the running job, and asks Core for every issue's stage and action.</summary>
-public sealed class IssueBoardReader(RunnerConfig config, ISnapshotReader snapshot, IJobReader jobs, RunnerStatus status)
+public sealed class IssueBoardReader(
+    RunnerConfig config,
+    ISnapshotReader snapshot,
+    IJobReader jobs,
+    RunnerStatus status)
 {
     public IssueBoard Read(string? project = null)
     {

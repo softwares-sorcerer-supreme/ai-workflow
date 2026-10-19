@@ -340,7 +340,7 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         {
             var names = query.Repos.Select((repo, index) => ($"$repo{index}", repo)).ToList();
             var placeholders = names.Count == 0 ? "NULL" : string.Join(", ", names.Select(name => name.Item1));
-            conditions.Add($"j.repo IN ({placeholders})");
+            conditions.Add($"j.repo COLLATE NOCASE IN ({placeholders})");
             args.AddRange(names.Select(name => (name.Item1, (object?)name.repo)));
         }
 
@@ -349,7 +349,9 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         var total = Convert.ToInt32(Scalar(countSql, args.ToArray()) ?? 0, CultureInfo.InvariantCulture);
 
         var pageSize = Math.Max(1, query.PageSize);
-        var offset = (Math.Max(1, query.Page) - 1) * pageSize;
+
+        // long: a huge page number must give an empty page, not wrap around to a wrong one.
+        var offset = (long)(Math.Max(1, query.Page) - 1) * pageSize;
         var items = QueryRecords($"{where} ORDER BY j.id DESC LIMIT {pageSize} OFFSET {offset}", args.ToArray());
 
         return new JobPage(items, total);

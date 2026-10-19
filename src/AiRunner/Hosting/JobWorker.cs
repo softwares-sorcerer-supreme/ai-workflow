@@ -282,7 +282,18 @@ public sealed class JobWorker(
             outcome.CopilotCalls);
 
         costLog.Record(entry);
+
         var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);
-        stateStore.SetJobResult(jobId, jobResult);
+
+        try
+        {
+            stateStore.SetJobResult(jobId, jobResult);
+        }
+        catch (Exception exception)
+        {
+            // The job already ended: a database error here must not turn a finished job into a failed one, or stop
+            // the failure report of a job that failed. Like the cost row, the result is best effort.
+            logger.LogWarning("Could not store the result of job {JobId}: {Message}", jobId, exception.Message);
+        }
     }
 }

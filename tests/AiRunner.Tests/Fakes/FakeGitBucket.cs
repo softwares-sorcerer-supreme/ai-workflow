@@ -314,6 +314,7 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("pull-read", repo));
         var pull = Pulls.Single(existingPull => existingPull.Number == number);
 
         return Task.FromResult(pull);

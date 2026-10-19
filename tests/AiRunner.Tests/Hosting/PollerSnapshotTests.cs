@@ -142,6 +142,99 @@ public sealed class PollerSnapshotTests : IDisposable
         Assert.Empty(kit.State.ListPulls());
     }
 
+    private static int Reads(JobTestKit kit, string operation) =>
+        kit.GitBucket.RepoCalls.Count(call => call.Operation == operation);
+
+    [Fact]
+    public async Task A_merged_pr_shows_as_merged_on_the_next_poll_not_at_the_slow_refresh()
+    {
+        var kit = NewKit();
+        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.GitBucket.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
+        var poller = NewPoller(kit);
+        await poller.PollOnceAsync(default);   // poll 1
+        Assert.Equal((false, "open"), (kit.State.ListPulls().Single().IsMerged, kit.State.ListPulls().Single().State));
+
+        var index = kit.GitBucket.Pulls.FindIndex(pull => pull.Number == 30);
+        kit.GitBucket.Pulls[index] = kit.GitBucket.Pulls[index] with { State = "closed", Merged = true };
+        await poller.PollOnceAsync(default);   // poll 2
+
+        var merged = Assert.Single(kit.State.ListPulls());
+        Assert.Equal((true, "closed"), (merged.IsMerged, merged.State));
+    }
+
+    [Fact]
+    public async Task A_closed_issue_shows_as_closed_on_the_next_poll_not_at_the_slow_refresh()
+    {
+        var kit = NewKit();
+        kit.GitBucket.AddIssue(7, "Export", null, "ai", Labels.Implementing);
+        var poller = NewPoller(kit);
+        await poller.PollOnceAsync(default);   // poll 1
+
+        Closed(kit, kit.GitBucket.Issues[7], daysAgo: 0);
+        await poller.PollOnceAsync(default);   // poll 2
+
+        Assert.Equal("closed", Assert.Single(kit.State.ListIssues()).State);
+    }
+
+    [Fact]
+    public async Task Nothing_is_re_read_while_nothing_has_vanished()
+    {
+        var kit = NewKit();
+        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.GitBucket.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
+
+        await PollAsync(NewPoller(kit), 3);
+
+        Assert.Equal(0, Reads(kit, "issue-read"));
+        Assert.Equal(0, Reads(kit, "pull-read"));
+    }
+
+    [Fact]
+    public async Task An_open_issue_that_is_only_out_of_scope_is_read_but_not_saved_again()
+    {
+        var kit = NewKit();
+        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        var poller = NewPoller(kit);
+        await poller.PollOnceAsync(default);
+
+        // The trigger label is removed: the issue is still open but no longer listed.
+        kit.GitBucket.Issues[7] = kit.GitBucket.Issues[7] with { Labels = [] };
+        await poller.PollOnceAsync(default);
+
+        Assert.Equal(1, Reads(kit, "issue-read"));
+        Assert.Equal("open", Assert.Single(kit.State.ListIssues()).State);
+    }
+
+    [Fact]
+    public async Task A_failed_list_does_not_make_every_row_look_vanished()
+    {
+        var kit = NewKit();
+        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        var poller = NewPoller(kit);
+        await poller.PollOnceAsync(default);
+
+        kit.GitBucket.IssueListError = "VPN down";
+        await poller.PollOnceAsync(default);
+
+        Assert.Equal(0, Reads(kit, "issue-read"));
+        Assert.Equal("open", Assert.Single(kit.State.ListIssues()).State);
+    }
+
+    [Fact]
+    public async Task Old_closed_sub_issues_stay_when_their_parent_closed_recently()
+    {
+        var kit = NewKit();
+        var subIssueBody = DeliveryLayouts.SubIssueBodyFor(12, 1, "demo");
+        Closed(kit, kit.GitBucket.AddIssue(12, "Parent", null, "ai", Labels.Parent), daysAgo: 1);
+        Closed(kit, kit.GitBucket.AddIssue(20, "Old sub", subIssueBody, "ai", Labels.SubIssue), daysAgo: 90);
+
+        await NewPoller(kit).PollOnceAsync(default);
+
+        var issues = kit.State.ListIssues().Select(issue => issue.Number);
+        Assert.Equal([12, 20], issues.Order());
+    }
+
     [Fact]
     public async Task A_failed_issue_list_leaves_the_refresh_due_for_the_next_poll()
     {

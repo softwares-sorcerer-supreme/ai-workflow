@@ -175,8 +175,10 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
 `Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
 
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
-  `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off) and, on the first and every
-  10th poll, keeps the closed issues and runner PRs the dashboard still needs (`Core/SnapshotRules`). It never throws and never touches
+  `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
+  is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on
+  the first and every 10th poll, keeps the closed issues and runner PRs the dashboard still needs (`Core/SnapshotRules`; a closed sub-issue
+  stays while its parent is kept). It never throws and never touches
   fingerprints, decisions or the queue; `--dry-run` writes none. `Core/IssueStage` finds "its PR" through `IssuePulls` /
   `SubIssueSequencer.SlotPulls` / `FinalPull`, the same helpers `FinishIssueJob` and the sequencer use.
 

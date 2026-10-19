@@ -59,6 +59,40 @@ public class RunnerHealthTests
         Assert.Equal("No poll for 10 min", health.Label);
     }
 
+    private static HealthState AssessWhilePolling(TimeSpan sinceStart, TimeSpan? lastPollEnded, TimeSpan pollStarted)
+    {
+        var now = Start + sinceStart;
+        DateTimeOffset? lastPollEndedAt = lastPollEnded is { } offset ? Start + offset : null;
+        var input = new HealthInput(now, Start, lastPollEndedAt, Interval, 0, PollRunningSince: Start + pollStarted);
+
+        return RunnerHealth.Assess(input);
+    }
+
+    [Fact]
+    public void A_long_poll_that_is_still_running_is_not_stale()
+    {
+        // The last poll ended 10 minutes ago, but the next one started 5 minutes ago and is still going.
+        var health = AssessWhilePolling(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15));
+
+        Assert.Equal(RunnerHealth.Ok, health.Code);
+    }
+
+    [Fact]
+    public void A_poll_that_runs_longer_than_the_limit_is_stale()
+    {
+        var health = AssessWhilePolling(TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15));
+
+        Assert.Equal(RunnerHealth.Stale, health.Code);
+    }
+
+    [Fact]
+    public void A_long_first_poll_that_is_still_running_is_still_starting()
+    {
+        var health = AssessWhilePolling(TimeSpan.FromMinutes(6), lastPollEnded: null, pollStarted: TimeSpan.Zero);
+
+        Assert.Equal(RunnerHealth.Starting, health.Code);
+    }
+
     [Fact]
     public void Exactly_three_intervals_is_not_stale_yet()
     {

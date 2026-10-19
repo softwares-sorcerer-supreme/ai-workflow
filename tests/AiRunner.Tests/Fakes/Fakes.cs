@@ -358,7 +358,13 @@ public sealed class JobTestKit : IDisposable
     }
 
     /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
-    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs)
+    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs) =>
+        CreateWorker(State, jobs);
+
+    /// <summary>Same, but the worker writes through <paramref name="workerState"/> (the queue keeps the real store).</summary>
+    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(
+        IStateStore workerState,
+        params IJob[] jobs)
     {
         var logsFolder = Path.Combine(_tempFolder, "logs");
         var logs = Directory.CreateDirectory(logsFolder).FullName;
@@ -375,7 +381,7 @@ public sealed class JobTestKit : IDisposable
             new JobFactory(jobs),
             new JobLog(config, NullLogger<JobLog>.Instance),
             new CostLog(config, State, NullLogger<CostLog>.Instance),
-            State,
+            workerState,
             GitBucket,
             new ClaimService(config, GitBucket, Time),
             Status,

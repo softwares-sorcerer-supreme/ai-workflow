@@ -74,6 +74,24 @@ public sealed class DashboardApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Health_is_not_stale_while_a_long_poll_is_still_running()
+    {
+        _status.PollStarted();
+        _status.PollEnded();
+        _time.Advance(TimeSpan.FromMinutes(5));
+        _status.PollStarted();
+        _time.Advance(TimeSpan.FromMinutes(5));
+        var client = await StartAsync();
+
+        var json = await client.GetStringAsync("api/health");
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        Assert.True(root.GetProperty("isPolling").GetBoolean());
+        Assert.Equal("ok", root.GetProperty("state").GetString());
+    }
+
+    [Fact]
     public async Task A_foreign_host_header_is_refused()
     {
         var client = await StartAsync();

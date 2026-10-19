@@ -3,12 +3,14 @@ namespace AiRunner.Core;
 /// <summary>What the health rule looks at; all times UTC.</summary>
 /// <param name="LastPollEndedAt">End of the last finished poll, or null before the first one.</param>
 /// <param name="FailingProjects">Projects whose latest poll failed.</param>
+/// <param name="PollRunningSince">When the poll that is running now started, or null when none is running.</param>
 public sealed record HealthInput(
     DateTimeOffset Now,
     DateTimeOffset StartedAt,
     DateTimeOffset? LastPollEndedAt,
     TimeSpan PollInterval,
-    int FailingProjects);
+    int FailingProjects,
+    DateTimeOffset? PollRunningSince = null);
 
 /// <summary>A stable code for the UI to style by, and the text to show.</summary>
 public sealed record HealthState(string Code, string Label);
@@ -28,13 +30,21 @@ public static class RunnerHealth
     /// <summary>A poll is late after this many intervals; one slow GitBucket answer is not "stale" yet.</summary>
     public const int StaleAfterIntervals = 3;
 
+    /// <summary>
+    /// A poll can take longer than the intervals above (several projects, the slow snapshot refresh, a slow VPN).
+    /// While one is running, the runner is busy, not stale, for this long; a poll that hangs longer still is.
+    /// </summary>
+    public static readonly TimeSpan MaxPollRun = TimeSpan.FromMinutes(10);
+
     public static HealthState Assess(HealthInput input)
     {
         var staleAfter = input.PollInterval * StaleAfterIntervals;
+        var isPollRunningNormally = input.PollRunningSince is { } runningSince
+            && input.Now - runningSince <= MaxPollRun;
 
         if (input.LastPollEndedAt is not { } lastPollEnded)
         {
-            var isStillStarting = input.Now - input.StartedAt <= staleAfter;
+            var isStillStarting = input.Now - input.StartedAt <= staleAfter || isPollRunningNormally;
 
             return isStillStarting
                 ? new HealthState(Starting, "Waiting for the first poll")
@@ -42,7 +52,7 @@ public static class RunnerHealth
         }
 
         var sinceLastPoll = input.Now - lastPollEnded;
-        if (sinceLastPoll > staleAfter)
+        if (sinceLastPoll > staleAfter && !isPollRunningNormally)
         {
             var minutes = (int)sinceLastPoll.TotalMinutes;
 

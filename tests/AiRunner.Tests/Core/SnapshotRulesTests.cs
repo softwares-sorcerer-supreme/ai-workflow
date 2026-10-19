@@ -88,6 +88,30 @@ public sealed class SnapshotRulesTests
         Assert.False(SnapshotRules.KeepClosedIssue(subIssue, Window(13)));
     }
 
+    [Fact]
+    public void Old_closed_sub_issues_stay_with_a_parent_that_closed_recently()
+    {
+        var body = DeliveryLayouts.SubIssueBodyFor(12, 1, "backend");
+        var parent = Row(UpdatedDaysAgo(Samples.Issue(12), 1));
+        var subIssue = Row(UpdatedDaysAgo(Samples.Issue(20) with { Body = body }, 90));
+
+        var kept = SnapshotRules.KeepClosedIssues([parent, subIssue], Window());
+
+        Assert.Equal([12, 20], kept.Select(issue => issue.Number));
+    }
+
+    [Fact]
+    public void Old_closed_sub_issues_go_with_a_parent_that_is_dropped()
+    {
+        var body = DeliveryLayouts.SubIssueBodyFor(12, 1, "backend");
+        var parent = Row(UpdatedDaysAgo(Samples.Issue(12), 90));
+        var subIssue = Row(UpdatedDaysAgo(Samples.Issue(20) with { Body = body }, 90));
+
+        var kept = SnapshotRules.KeepClosedIssues([parent, subIssue], Window());
+
+        Assert.Empty(kept);
+    }
+
     [Theory]
     [InlineData("ai/issue-7", true)]
     [InlineData("ai/issue-12-2", true)]

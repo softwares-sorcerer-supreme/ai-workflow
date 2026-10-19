@@ -99,8 +99,9 @@ public static class DashboardApi
         }
 
         var query = new CostQuery(grouping, new CostRange(fromDay, toDay));
+        var report = cost.Read(query);
 
-        return TypedResults.Ok(cost.Read(query));
+        return TypedResults.Ok(report);
     }
 
     /// <summary>A missing day is fine (open end); a present one must be a real calendar day.</summary>
@@ -252,7 +253,9 @@ public static class DashboardApi
             return TypedResults.NotFound();
         }
 
-        return TypedResults.Ok(JobResponse.From(job, config));
+        var response = JobResponse.From(job, config);
+
+        return TypedResults.Ok(response);
     }
 
     private static Results<Ok<LogFilesResponse>, NotFound> GetJobFiles(long id, IJobReader jobs, LogViewer logs)
@@ -294,7 +297,6 @@ public static class DashboardApi
         }
 
         var note = content.IsTruncated ? "Showing the first 2 MB of this file." : null;
-        var text = content.IsTruncated ? content.Text + "\n\n[... cut after 2 MB]" : content.Text;
 
         return TypedResults.Ok(new LogFileTextResponse(
             content.Name,

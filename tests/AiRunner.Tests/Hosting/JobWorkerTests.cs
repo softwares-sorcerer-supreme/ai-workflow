@@ -30,6 +30,76 @@ public sealed class JobWorkerTests : IDisposable
         return logs;
     }
 
+    /// <summary>The real store, except that storing a job's result fails (database locked, disk error).</summary>
+    private sealed class ResultFailingStore(IStateStore inner) : IStateStore
+    {
+        public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo) => inner.GetIssueFingerprints(repo);
+
+        public void SetIssueFingerprint(string repo, int issue, string fingerprint) =>
+            inner.SetIssueFingerprint(repo, issue, fingerprint);
+
+        public long GetLastHandledComment(string repo, int issue) => inner.GetLastHandledComment(repo, issue);
+
+        public void SetLastHandledComment(string repo, int issue, long commentId) =>
+            inner.SetLastHandledComment(repo, issue, commentId);
+
+        public ReviewState? GetReview(string repo, int pullNumber) => inner.GetReview(repo, pullNumber);
+
+        public void SetReview(string repo, int pullNumber, ReviewState reviewState) =>
+            inner.SetReview(repo, pullNumber, reviewState);
+
+        public long AddJob(JobRequest request) => inner.AddJob(request);
+
+        public StoredJob? GetJob(long id) => inner.GetJob(id);
+
+        public StoredJob? FindJob(string key, string status) => inner.FindJob(key, status);
+
+        public IReadOnlyList<StoredJob> ListJobs(string status) => inner.ListJobs(status);
+
+        public void UpdateJobPayload(long id, string? payload) => inner.UpdateJobPayload(id, payload);
+
+        public void SetJobStatus(long id, string status, string? error = null) =>
+            inner.SetJobStatus(id, status, error);
+
+        public void PruneJobs(DateTimeOffset finishedBefore) => inner.PruneJobs(finishedBefore);
+
+        public void DeleteJob(long id) => inner.DeleteJob(id);
+
+        public void AddCost(CostEntry entry) => inner.AddCost(entry);
+
+        public void SetJobLogDir(long id, string folderName) => inner.SetJobLogDir(id, folderName);
+
+        public void SetJobResult(long id, JobResult jobResult) => throw new InvalidOperationException("database is locked");
+    }
+
+    [Fact]
+    public async Task A_result_that_cannot_be_stored_does_not_turn_success_into_failure()
+    {
+        var job = new StubJob(() => Task.FromResult(JobOutcome.Ok("fine")));
+        var (worker, queue, _) = _kit.CreateWorker(new ResultFailingStore(_kit.State), job);
+
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        Assert.Empty(_kit.GitBucket.CommentsOf(7));
+        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Single(_kit.State.ListJobs(JobStatus.Done));
+        Assert.Single(_kit.State.ListCost());
+    }
+
+    [Fact]
+    public async Task A_result_that_cannot_be_stored_does_not_stop_the_failure_report()
+    {
+        var job = new StubJob(() => throw new JobFailedException("no ANALYSIS block"));
+        var (worker, queue, _) = _kit.CreateWorker(new ResultFailingStore(_kit.State), job);
+
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
+    }
+
     [Fact]
     public async Task Failure_posts_a_comment_adds_ai_failed_and_writes_a_cost_row()
     {
