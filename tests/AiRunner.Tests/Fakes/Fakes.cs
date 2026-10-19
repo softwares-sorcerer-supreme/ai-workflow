@@ -23,6 +23,11 @@ public sealed class FakeCopilot : ICopilotRunner
     public Task<bool> CanAttachFilesAsync(string workDir, CancellationToken cancellationToken) =>
         Task.FromResult(CanAttachFiles);
 
+    /// <summary>What "copilot --version" prints; null = the CLI could not be started.</summary>
+    public string? Version { get; set; } = "1.0.0";
+
+    public Task<string?> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult(Version);
+
     public Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
@@ -321,7 +326,11 @@ public sealed class JobTestKit : IDisposable
         var runFolder = Path.Combine(_tempFolder, "run");
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
+        Status = new RunnerStatus("test-runner", "repos.yml", Time);
     }
+
+    /// <summary>The in-memory health the poller and the worker write, on the kit's clock.</summary>
+    public RunnerStatus Status { get; }
 
     /// <summary>The one project of the kit: one component in james/demo, which also holds the issues.</summary>
     public ProjectConfig Project { get; }
@@ -366,6 +375,7 @@ public sealed class JobTestKit : IDisposable
             State,
             GitBucket,
             new ClaimService(config, GitBucket, Time),
+            Status,
             NullLogger<JobWorker>.Instance);
 
         return (worker, queue, logs);

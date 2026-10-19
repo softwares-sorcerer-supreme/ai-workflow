@@ -3,22 +3,32 @@ using AiRunner.Configuration;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Web;
 
 // Modes:
-//   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C
+//   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard when enabled)
 //   --once          poll once, run the queued jobs, exit
 //   --dry-run       print what would be queued; run nothing (with --once: a single poll)
 //   --setup-labels  create the runner's labels in every repo of every project in repos.yml
 //   --copilot-test  start copilot as a child process and show its output
 //   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
-var runOnce = args.Contains("--once");
-var dryRun = args.Contains("--dry-run");
-var copilotTest = args.Contains("--copilot-test");
-var setupLabels = args.Contains("--setup-labels");
-var attachmentTestUrl = GetArg(args, "--attachment-test");
-var configPath = GetArg(args, "--config") ?? FindConfig();
+//   --openapi FILE  write the dashboard API's OpenAPI document (no config, no token, no network)
+var mode = RunMode.Parse(args);
+var runOnce = mode.RunOnce;
+var dryRun = mode.DryRun;
+var copilotTest = mode.CopilotTest;
+var setupLabels = mode.SetupLabels;
+var attachmentTestUrl = mode.AttachmentTestUrl;
 
+if (mode.OpenApiPath is not null)
+{
+    await OpenApiExport.WriteAsync(mode.OpenApiPath, CancellationToken.None);
+    return;
+}
+
+var configPath = mode.ConfigPath ?? FindConfig();
 var config = RunnerConfig.Load(configPath);
+var fullConfigPath = Path.GetFullPath(configPath);
 
 // No args passed to the host on purpose: flags like "--once" are not config keys.
 var builder = Host.CreateApplicationBuilder();
@@ -89,9 +99,12 @@ builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddSingleton<LabelSetup>();
 builder.Services.AddSingleton<CopilotSelfTest>();
 builder.Services.AddSingleton<AttachmentSelfTest>();
+builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
+    config.EffectiveRunnerName(),
+    fullConfigPath,
+    serviceProvider.GetRequiredService<TimeProvider>()));
 
-var isPollingLoop = !runOnce && !copilotTest && !setupLabels && attachmentTestUrl is null;
-if (isPollingLoop)
+if (mode.IsPollingLoop)
 {
     builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<Poller>());
 
@@ -99,6 +112,11 @@ if (isPollingLoop)
     {
         builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<JobWorker>());
     }
+}
+
+if (mode.ShouldStartDashboard(config.Dashboard))
+{
+    builder.Services.AddHostedService<DashboardHost>();
 }
 
 using var host = builder.Build();
@@ -122,7 +140,6 @@ var currentUser = await services.GetRequiredService<IGitBucketClient>().GetCurre
 identity.Login = currentUser.Login;
 
 var logger = services.GetRequiredService<ILogger<Program>>();
-var fullConfigPath = Path.GetFullPath(configPath);
 logger.LogInformation(
     "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
     identity.Login,
@@ -158,12 +175,6 @@ if (runOnce)
 }
 
 await host.RunAsync();
-
-static string? GetArg(string[] arguments, string name)
-{
-    var argumentIndex = Array.IndexOf(arguments, name);
-    return argumentIndex >= 0 && argumentIndex + 1 < arguments.Length ? arguments[argumentIndex + 1] : null;
-}
 
 // repos.yml in the current folder, or in the repo root when started with "dotnet run --project src/AiRunner".
 static string FindConfig()

@@ -22,6 +22,7 @@ public sealed class Poller(
     IStateStore stateStore,
     JobQueue queue,
     RunnerIdentity identity,
+    RunnerStatus status,
     ILogger<Poller> logger) : BackgroundService
 {
     /// <summary>Print the decisions only; queue nothing and keep the local state unchanged.</summary>
@@ -41,8 +42,13 @@ public sealed class Poller(
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
+        status.PollStarted();
+
         foreach (var project in config.Projects)
         {
+            // The first error of this poll is what the dashboard shows for the project.
+            string? failure = null;
+
             try
             {
                 await PollIssuesAsync(project, cancellationToken);
@@ -51,6 +57,7 @@ public sealed class Poller(
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 logger.LogError("{Project}: issue poll failed: {Message}", project, exception.Message);
+                failure = $"issue poll failed: {exception.Message}";
             }
 
             foreach (var repo in project.CodeRepos)
@@ -62,9 +69,21 @@ public sealed class Poller(
                 catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
                 {
                     logger.LogError("{Repo}: PR poll failed: {Message}", repo, exception.Message);
+                    failure ??= $"{repo}: PR poll failed: {exception.Message}";
                 }
             }
+
+            if (failure is null)
+            {
+                status.ProjectPolled(project.Name);
+            }
+            else
+            {
+                status.ProjectFailed(project.Name, failure);
+            }
         }
+
+        status.PollEnded();
 
         if (DryRun)
         {

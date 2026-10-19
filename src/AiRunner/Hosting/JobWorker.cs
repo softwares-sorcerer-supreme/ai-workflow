@@ -27,6 +27,7 @@ public sealed class JobWorker(
     IStateStore stateStore,
     IGitBucketClient gitBucketClient,
     ClaimService claims,
+    RunnerStatus status,
     ILogger<JobWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -86,6 +87,7 @@ public sealed class JobWorker(
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
         var target = new ClaimTarget(request.Repo, request.Number) { Until = run.Deadline };
         var isClaimHeld = false;
+        status.WorkerBusy();
 
         try
         {
@@ -175,6 +177,8 @@ public sealed class JobWorker(
             {
                 await ReleaseClaimAsync(target);
             }
+
+            status.WorkerIdle();
         }
     }
 

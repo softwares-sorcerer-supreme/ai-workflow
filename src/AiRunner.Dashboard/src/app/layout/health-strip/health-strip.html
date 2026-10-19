@@ -1,0 +1,48 @@
+<span class="dot" aria-hidden="true"></span>
+
+@if (isUnreachable()) {
+  <strong class="state" data-testid="health-state">Runner not reachable</strong>
+  <span class="item">{{ error() }}</span>
+  @if (health(); as last) {
+    <span class="item app-muted">
+      Last answer <app-time [value]="last.lastPollEndedAt" mode="relative" />
+    </span>
+  }
+} @else if (health(); as health) {
+  <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
+
+  <span class="item">
+    <mat-icon aria-hidden="true">sync</mat-icon>
+    @if (health.isPolling) {
+      Polling now
+    } @else {
+      Last poll <app-time [value]="health.lastPollEndedAt" mode="relative" />
+    }
+  </span>
+
+  <span class="item" data-testid="health-worker">
+    <mat-icon aria-hidden="true">{{ health.worker.state === 'busy' ? 'play_circle' : 'pause_circle' }}</mat-icon>
+    {{ health.worker.stateLabel }}
+    @if (health.worker.since) {
+      <span class="app-muted">(since <app-time [value]="health.worker.since" mode="relative" />)</span>
+    }
+  </span>
+
+  @if (health.errors.length > 0) {
+    <a
+      class="item errors"
+      routerLink="/overview"
+      data-testid="health-errors"
+      [matTooltip]="errorsText()"
+      matTooltipClass="app-pre-line"
+    >
+      <mat-icon aria-hidden="true">error</mat-icon>
+      {{ health.errors.length }} poll {{ health.errors.length === 1 ? 'error' : 'errors' }}
+    </a>
+  }
+
+  <span class="spacer"></span>
+  <span class="item app-muted runner" [matTooltip]="health.configPath">{{ health.runnerName }}</span>
+} @else if (isLoading()) {
+  <span class="state app-muted">Connecting to the runner...</span>
+}

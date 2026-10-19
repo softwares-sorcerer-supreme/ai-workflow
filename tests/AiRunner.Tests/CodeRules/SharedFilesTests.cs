@@ -35,11 +35,36 @@ public class SharedFilesTests
         {
             var isBuildOutput =
                 file.Contains($"{separator}obj{separator}") || file.Contains($"{separator}bin{separator}");
-            if (!isBuildOutput)
+            var isPackage = file.Contains($"{separator}node_modules{separator}");
+            if (!isBuildOutput && !isPackage)
             {
                 yield return file;
             }
         }
+    }
+
+    /// <summary>
+    /// The text the rule checks. CLAUDE.md's "## Dashboard" section is left out: the dashboard is part of the runner
+    /// itself, not a product repo, so it may name its own UI framework there.
+    /// </summary>
+    private static string CheckedText(string root, string file)
+    {
+        var text = File.ReadAllText(file);
+        var isClaudeFile = Path.GetRelativePath(root, file) == "CLAUDE.md";
+        if (!isClaudeFile)
+        {
+            return text;
+        }
+
+        var sectionStart = text.IndexOf("\n## Dashboard", StringComparison.Ordinal);
+        if (sectionStart < 0)
+        {
+            return text;
+        }
+
+        var sectionEnd = text.IndexOf("\n## ", sectionStart + 1, StringComparison.Ordinal);
+
+        return sectionEnd < 0 ? text[..sectionStart] : text[..sectionStart] + text[sectionEnd..];
     }
 
     [Fact]
@@ -50,7 +75,7 @@ public class SharedFilesTests
 
         foreach (var file in SharedFiles(root))
         {
-            var text = File.ReadAllText(file);
+            var text = CheckedText(root, file);
             foreach (var word in ForbiddenWords.Where(word => text.Contains(word, StringComparison.OrdinalIgnoreCase)))
             {
                 offenders.Add($"{Path.GetRelativePath(root, file)}: {word}");

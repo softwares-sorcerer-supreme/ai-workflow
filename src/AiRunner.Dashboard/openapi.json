@@ -1,0 +1,150 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "AiRunner | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Runner health: last poll, poll errors, worker idle or busy.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "required": [
+          "state",
+          "stateLabel",
+          "runnerName",
+          "startedAt",
+          "configPath",
+          "copilotVersion",
+          "pollIntervalSeconds",
+          "lastPollStartedAt",
+          "lastPollEndedAt",
+          "isPolling",
+          "worker",
+          "errors"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "runnerName": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "configPath": {
+            "type": "string"
+          },
+          "copilotVersion": {
+            "type": "string"
+          },
+          "pollIntervalSeconds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastPollStartedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastPollEndedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "isPolling": {
+            "type": "boolean"
+          },
+          "worker": {
+            "$ref": "#/components/schemas/WorkerHealth"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollErrorResponse"
+            }
+          }
+        }
+      },
+      "PollErrorResponse": {
+        "required": [
+          "project",
+          "message",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WorkerHealth": {
+        "required": [
+          "state",
+          "stateLabel",
+          "since"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "since": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health"
+    }
+  ]
+}

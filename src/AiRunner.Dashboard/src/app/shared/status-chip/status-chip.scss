@@ -1,0 +1,43 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  max-width: 100%;
+  padding: 2px var(--app-space-2);
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+  line-height: 20px;
+  white-space: nowrap;
+  vertical-align: middle;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-dot);
+}
+
+mat-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
+}
+
+@each $tone in neutral, info, progress, success, warning, danger {
+  :host(.tone-#{$tone}) {
+    --chip-bg: var(--app-tone-#{$tone}-bg);
+    --chip-fg: var(--app-tone-#{$tone}-fg);
+    --chip-dot: var(--app-tone-#{$tone}-dot);
+  }
+}

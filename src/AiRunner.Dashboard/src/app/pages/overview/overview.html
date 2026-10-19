@@ -1,0 +1,82 @@
+<app-page-header title="Overview" subtitle="What the runner is doing now." />
+
+@if (health(); as health) {
+  <div class="app-stack">
+    <section class="app-card" aria-labelledby="runner-title">
+      <div class="card-head">
+        <h2 id="runner-title" class="app-card-title">Runner</h2>
+        <app-status-chip [label]="health.stateLabel" [tone]="healthTone()" />
+      </div>
+
+      <dl class="app-facts">
+        <dt>Name</dt>
+        <dd>{{ health.runnerName }}</dd>
+
+        <dt>Running since</dt>
+        <dd>
+          <app-time [value]="health.startedAt" />
+          <span class="app-muted">(<app-time [value]="health.startedAt" mode="relative" />)</span>
+        </dd>
+
+        <dt>Last poll</dt>
+        <dd>
+          @if (health.isPolling) {
+            Polling now
+          } @else {
+            <app-time [value]="health.lastPollEndedAt" />
+          }
+          <span class="app-muted">- every {{ health.pollIntervalSeconds | duration }}</span>
+        </dd>
+
+        <dt>Worker</dt>
+        <dd>
+          {{ health.worker.stateLabel }}
+          @if (health.worker.since) {
+            <span class="app-muted">(since <app-time [value]="health.worker.since" />)</span>
+          }
+        </dd>
+
+        <dt>Copilot CLI</dt>
+        <dd>{{ health.copilotVersion }}</dd>
+
+        <dt>Config file</dt>
+        <dd class="app-mono">{{ health.configPath }}</dd>
+      </dl>
+    </section>
+
+    <section id="poll-errors" class="app-card" aria-labelledby="errors-title">
+      <h2 id="errors-title" class="app-card-title">Poll errors</h2>
+      <app-data-table
+        [rows]="health.errors"
+        [columns]="errorColumns"
+        [trackBy]="trackByProject"
+        emptyTitle="No poll errors"
+        emptyMessage="The last poll of every project went through."
+      >
+        <ng-template appCell="project" let-row>
+          <strong>{{ row.project }}</strong>
+        </ng-template>
+        <ng-template appCell="message" let-row>
+          <span class="message">{{ row.message }}</span>
+        </ng-template>
+        <ng-template appCell="at" let-row>
+          <app-time [value]="row.at" mode="relative" />
+        </ng-template>
+      </app-data-table>
+    </section>
+  </div>
+} @else if (error()) {
+  <section class="app-card">
+    <app-view-state
+      kind="error"
+      title="The runner is not reachable"
+      [message]="error()"
+      [canRetry]="true"
+      (retry)="reload()"
+    />
+  </section>
+} @else if (isLoading()) {
+  <section class="app-card">
+    <app-view-state kind="loading" />
+  </section>
+}

@@ -8,9 +8,20 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
+  <!-- The dashboard (Web/) runs inside the runner: ASP.NET Core from the shared framework, no Web SDK.
+       The framework also brings Microsoft.Extensions.Hosting, so that package is not referenced on its own. -->
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- build-dashboard.ps1 copies the built UI here; the folder is not committed. -->
+  <ItemGroup>
+    <Content Include="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <!-- Newer native SQLite than Microsoft.Data.Sqlite brings (NU1903 on 2.1.11). -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />

@@ -112,6 +112,30 @@ public sealed class JobWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_worker_shows_busy_while_a_job_runs_and_idle_after_it()
+    {
+        DateTimeOffset? busySinceDuringJob = null;
+
+        await RunAsync(() =>
+        {
+            busySinceDuringJob = _kit.Status.Snapshot().WorkerBusySince;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        });
+
+        Assert.NotNull(busySinceDuringJob);
+        Assert.Null(_kit.Status.Snapshot().WorkerBusySince);
+    }
+
+    [Fact]
+    public async Task The_worker_is_idle_again_after_a_failed_job()
+    {
+        await RunAsync(() => throw new JobFailedException("no ANALYSIS block"));
+
+        Assert.Null(_kit.Status.Snapshot().WorkerBusySince);
+    }
+
+    [Fact]
     public async Task Job_that_finds_nothing_to_do_leaves_no_row_and_no_log_folder()
     {
         var logs = await RunAsync(() => Task.FromResult(JobOutcome.NotNeeded("waiting")));

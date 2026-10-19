@@ -30,7 +30,7 @@ public sealed class ProjectLayoutTests
         using var kit = new JobTestKit(project: project);
         var queue = new JobQueue(kit.State, NullLogger<JobQueue>.Instance);
         var poller = new Poller(
-            kit.Config, kit.GitBucket, kit.Loader, kit.State, queue, kit.Identity, NullLogger<Poller>.Instance);
+            kit.Config, kit.GitBucket, kit.Loader, kit.State, queue, kit.Identity, kit.Status, NullLogger<Poller>.Instance);
 
         await poller.PollOnceAsync(default);
 
@@ -68,7 +68,7 @@ public sealed class ProjectLayoutTests
         kit.GitBucket.AddPull(3, "ai/issue-7", "main", labels: ["ai"]);
         var queue = new JobQueue(kit.State, NullLogger<JobQueue>.Instance);
         var poller = new Poller(
-            kit.Config, kit.GitBucket, kit.Loader, kit.State, queue, kit.Identity, NullLogger<Poller>.Instance);
+            kit.Config, kit.GitBucket, kit.Loader, kit.State, queue, kit.Identity, kit.Status, NullLogger<Poller>.Instance);
 
         await poller.PollOnceAsync(default);
 
@@ -244,7 +244,7 @@ public sealed class TriggerSettingsTests : IDisposable
         _kit.GitBucket.AddIssue(8, "Not mine", null, "ai");
         var queue = new JobQueue(_kit.State, NullLogger<JobQueue>.Instance);
         var poller = new Poller(
-            _kit.Config, _kit.GitBucket, _kit.Loader, _kit.State, queue, _kit.Identity, NullLogger<Poller>.Instance);
+            _kit.Config, _kit.GitBucket, _kit.Loader, _kit.State, queue, _kit.Identity, _kit.Status, NullLogger<Poller>.Instance);
 
         await poller.PollOnceAsync(default);
 

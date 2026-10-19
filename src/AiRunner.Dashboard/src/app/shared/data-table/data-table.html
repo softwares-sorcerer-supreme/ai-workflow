@@ -1,0 +1,60 @@
+@switch (state()) {
+  @case ('loading') {
+    <app-view-state kind="loading" />
+  }
+  @case ('error') {
+    <app-view-state kind="error" [message]="error()" [canRetry]="true" (retry)="retry.emit()" />
+  }
+  @case ('empty') {
+    <app-view-state kind="empty" [title]="emptyTitle()" [message]="emptyMessage()" />
+  }
+  @case ('rows') {
+    @if (error(); as message) {
+      <div class="stale" role="alert">
+        <mat-icon aria-hidden="true">sync_problem</mat-icon>
+        <span>Showing older data. {{ message }}</span>
+      </div>
+    }
+    <div class="scroll">
+      <table mat-table [dataSource]="rows() ?? []" [trackBy]="trackBy()">
+        @for (column of columns(); track column.key) {
+          <ng-container [matColumnDef]="column.key">
+            <th
+              mat-header-cell
+              *matHeaderCellDef
+              [class.align-end]="column.align === 'end'"
+              [class.hide-sm]="column.hideBelow === 'sm'"
+              [class.hide-md]="column.hideBelow === 'md'"
+              [style.width]="column.width ?? null"
+            >
+              {{ column.header }}
+            </th>
+            <td
+              mat-cell
+              *matCellDef="let row"
+              [class.align-end]="column.align === 'end'"
+              [class.hide-sm]="column.hideBelow === 'sm'"
+              [class.hide-md]="column.hideBelow === 'md'"
+            >
+              @if (templates().get(column.key); as cell) {
+                <ng-container *ngTemplateOutlet="cell; context: { $implicit: row }" />
+              } @else {
+                {{ textOf(row, column.key) }}
+              }
+            </td>
+          </ng-container>
+        }
+
+        <tr mat-header-row *matHeaderRowDef="columnKeys()"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: columnKeys()"
+          [class.clickable]="clickable()"
+          [attr.tabindex]="clickable() ? 0 : null"
+          (click)="onRowClick(row)"
+          (keydown.enter)="onRowClick(row)"
+        ></tr>
+      </table>
+    </div>
+  }
+}

@@ -232,6 +232,61 @@ public class RunnerConfigTests
     }
 
     [Fact]
+    public void The_dashboard_is_off_by_default_on_port_5180()
+    {
+        var dashboard = RunnerConfig.Parse("runner_name: laptop-1").Dashboard;
+
+        Assert.False(dashboard.Enabled);
+        Assert.Equal(5180, dashboard.Port);
+    }
+
+    [Fact]
+    public void The_dashboard_block_is_read_from_the_top_level()
+    {
+        var dashboard = RunnerConfig.Parse("""
+            dashboard:
+              enabled: true
+              port: 6000
+            """).Dashboard;
+
+        Assert.True(dashboard.Enabled);
+        Assert.Equal(6000, dashboard.Port);
+    }
+
+    [Fact]
+    public void An_unknown_key_under_dashboard_fails_with_a_hint()
+    {
+        var exception = Fails("""
+            dashboard:
+              enabeld: true
+            """);
+
+        Assert.Contains("unknown key 'enabeld'", exception.Message);
+        Assert.Contains("did you mean 'enabled'", exception.Message);
+    }
+
+    [Fact]
+    public void The_dashboard_is_global_only_not_a_default_or_project_setting()
+    {
+        var exception = Fails("""
+            defaults:
+              dashboard: { enabled: true }
+            """);
+
+        Assert.Contains("unknown key 'dashboard'", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(70000)]
+    public void A_dashboard_port_outside_the_port_range_fails(int port)
+    {
+        var exception = Fails($"dashboard: {{ port: {port} }}");
+
+        Assert.Contains("dashboard.port", exception.Message);
+    }
+
+    [Fact]
     public void A_misspelled_key_gets_the_closest_known_name()
     {
         var exception = Fails("""

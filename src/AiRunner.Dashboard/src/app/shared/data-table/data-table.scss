@@ -1,0 +1,72 @@
+@use '@angular/material' as mat;
+
+:host {
+  display: block;
+  min-width: 0;
+
+  // Denser rows than the Material default: the dashboard is a list-heavy tool.
+  @include mat.table-overrides(
+    (
+      background-color: transparent,
+      header-container-height: 40px,
+      row-item-container-height: 44px,
+    )
+  );
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+}
+
+th {
+  white-space: nowrap;
+}
+
+td {
+  vertical-align: middle;
+}
+
+.align-end {
+  text-align: end;
+}
+
+.clickable {
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+}
+
+.stale {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-2);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  background: var(--app-tone-warning-bg);
+  color: var(--app-tone-warning-fg);
+  font: var(--mat-sys-body-small);
+}
+
+@media (max-width: 899.98px) {
+  .hide-md {
+    display: none;
+  }
+}
+
+@media (max-width: 599.98px) {
+  .hide-sm {
+    display: none;
+  }
+}

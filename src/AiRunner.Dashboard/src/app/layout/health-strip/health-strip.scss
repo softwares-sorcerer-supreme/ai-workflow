@@ -1,0 +1,67 @@
+:host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-1) var(--app-space-4);
+  min-height: 40px;
+  padding: var(--app-space-1) var(--app-space-4);
+  box-sizing: border-box;
+  background: var(--strip-bg);
+  color: var(--strip-fg);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  font: var(--mat-sys-body-small);
+}
+
+@each $tone in neutral, info, progress, success, warning, danger {
+  :host(.tone-#{$tone}) {
+    --strip-bg: var(--app-tone-#{$tone}-bg);
+    --strip-fg: var(--app-tone-#{$tone}-fg);
+    --strip-dot: var(--app-tone-#{$tone}-dot);
+  }
+}
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--strip-dot);
+}
+
+.state {
+  font: var(--mat-sys-label-large);
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  white-space: nowrap;
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+  }
+}
+
+.errors {
+  color: inherit;
+  font-weight: 600;
+}
+
+.app-muted {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.spacer {
+  flex: 1;
+}
+
+@media (max-width: 599.98px) {
+  .runner,
+  .spacer {
+    display: none;
+  }
+}

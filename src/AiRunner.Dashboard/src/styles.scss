@@ -1,0 +1,140 @@
+// Global theme of the dashboard. UI.md explains every token below and when to use it.
+@use 'sass:string';
+@use '@angular/material' as mat;
+
+$font-family: string.unquote("system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif");
+
+html {
+  height: 100%;
+  // Follows the operating system: light or dark. Every color below adapts through light-dark() or --mat-sys-*.
+  color-scheme: light dark;
+
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$azure-palette,
+        tertiary: mat.$violet-palette,
+      ),
+      typography: (
+        plain-family: $font-family,
+        brand-family: $font-family,
+        bold-weight: 600,
+        medium-weight: 500,
+        regular-weight: 400,
+      ),
+      density: 0,
+    )
+  );
+}
+
+:root {
+  // Spacing scale (4 px grid). Use these, never raw pixel values, for gaps, padding and margins.
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 24px;
+  --app-space-6: 32px;
+
+  --app-radius: 12px;
+  --app-radius-small: 8px;
+  --app-content-max-width: 1280px;
+  --app-font-mono: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+
+  // Tones: the only status colors. A tone has a soft background, a readable foreground on it and a solid dot.
+  --app-tone-neutral-bg: var(--mat-sys-surface-container-highest);
+  --app-tone-neutral-fg: var(--mat-sys-on-surface-variant);
+  --app-tone-neutral-dot: var(--mat-sys-outline);
+
+  --app-tone-info-bg: var(--mat-sys-primary-container);
+  --app-tone-info-fg: var(--mat-sys-on-primary-container);
+  --app-tone-info-dot: var(--mat-sys-primary);
+
+  --app-tone-progress-bg: var(--mat-sys-tertiary-container);
+  --app-tone-progress-fg: var(--mat-sys-on-tertiary-container);
+  --app-tone-progress-dot: var(--mat-sys-tertiary);
+
+  --app-tone-success-bg: light-dark(#dcf2e1, #1d3a26);
+  --app-tone-success-fg: light-dark(#14532d, #a7e3b6);
+  --app-tone-success-dot: light-dark(#2e7d32, #7fd18f);
+
+  --app-tone-warning-bg: light-dark(#fff0d1, #3d2e0c);
+  --app-tone-warning-fg: light-dark(#6b4500, #ffd894);
+  --app-tone-warning-dot: light-dark(#c77700, #ffb94a);
+
+  --app-tone-danger-bg: var(--mat-sys-error-container);
+  --app-tone-danger-fg: var(--mat-sys-on-error-container);
+  --app-tone-danger-dot: var(--mat-sys-error);
+}
+
+body {
+  height: 100%;
+  margin: 0;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+}
+
+// Text helpers shared by every screen.
+.app-muted {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.app-mono {
+  font-family: var(--app-font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+// Tooltip text with line breaks (matTooltipClass="app-pre-line").
+.app-pre-line .mdc-tooltip__surface {
+  white-space: pre-line;
+  text-align: start;
+}
+
+// A panel on a page: a titled block of content (a table, a list of facts).
+.app-card {
+  display: block;
+  padding: var(--app-space-4);
+  border-radius: var(--app-radius);
+  background: var(--mat-sys-surface-container-low);
+  border: 1px solid var(--mat-sys-outline-variant);
+}
+
+.app-card-title {
+  margin: 0 0 var(--app-space-3);
+  font: var(--mat-sys-title-medium);
+}
+
+// Facts as label/value pairs (name, started, version...). Two columns, one column on phones.
+.app-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: var(--app-space-2) var(--app-space-4);
+  margin: 0;
+
+  dt {
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-large);
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+
+  @media (max-width: 599.98px) {
+    grid-template-columns: 1fr;
+    gap: var(--app-space-1);
+
+    dd {
+      margin-bottom: var(--app-space-2);
+    }
+  }
+}
+
+// A page body: cards stacked with one gap.
+.app-stack {
+  display: grid;
+  gap: var(--app-space-4);
+}

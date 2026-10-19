@@ -19,6 +19,9 @@ public interface ICopilotRunner
 
     /// <summary>True when the installed Copilot CLI has the --attachment flag (older versions do not).</summary>
     Task<bool> CanAttachFilesAsync(string workDir, CancellationToken cancellationToken);
+
+    /// <summary>The first line of "copilot --version", or null when the CLI cannot be started.</summary>
+    Task<string?> GetVersionAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -49,6 +52,27 @@ public sealed class CopilotRunner(
         _canAttachFiles = hasFlag;
 
         return hasFlag;
+    }
+
+    /// <summary>"copilot --version" is free (no premium request); the dashboard asks it once at start.</summary>
+    public async Task<string?> GetVersionAsync(CancellationToken cancellationToken)
+    {
+        var versionTimeout = TimeSpan.FromSeconds(30);
+        var workDir = Directory.GetCurrentDirectory();
+        var result = await processRunner.RunAsync(
+            new ProcessSpec(config.Copilot.Command, ["--version"], workDir, versionTimeout),
+            cancellationToken);
+
+        if (!result.Ok)
+        {
+            return null;
+        }
+
+        var firstLine = result.StdOut
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+
+        return firstLine;
     }
 
     public async Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken cancellationToken)

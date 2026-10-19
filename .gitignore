@@ -5,5 +5,10 @@ obj/
 logs/
 work/
 TestResults/
+node_modules/
+.angular/
+src/AiRunner.Dashboard/dist/
+# Built dashboard UI (build-dashboard.ps1); never committed.
+src/AiRunner/wwwroot/
 .vs/
 *.user
