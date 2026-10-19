@@ -118,7 +118,8 @@ public sealed class SnapshotRecorder(
             .Select(row => row.Number)
             .Concat(openNumbers)
             .ToHashSet();
-        store.RemoveIssuesExcept(repo, keptNumbers);
+
+        store.RemoveIssuesExcept(project.Name, repo, keptNumbers);
 
         return keptNumbers
             .Select(number => new IssueRef(repo, number).ToString())
@@ -149,6 +150,7 @@ public sealed class SnapshotRecorder(
             .Select(row => row.Number)
             .Concat(openNumbers)
             .ToHashSet();
-        store.RemovePullsExcept(repo, keptNumbers);
+
+        store.RemovePullsExcept(poll.Project.Name, repo, keptNumbers);
     }
 }

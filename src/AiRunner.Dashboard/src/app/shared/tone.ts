@@ -38,7 +38,7 @@ export const JOB_STATUS_TONES: Readonly<Record<string, Tone>> = {
 };
 
 /**
- * Color per issue flag and badge code (C# Core/IssueStage): the flags `failed`, `claimed`, `on-github` next to the
+ * Color per issue flag and badge code (C# `Core/IssueMarks`): the flags `failed`, `claimed`, `on-github` next to the
  * stage, and the badges `queued`, `running` when this runner has a job for the issue.
  */
 export const ISSUE_MARK_TONES: Readonly<Record<string, Tone>> = {

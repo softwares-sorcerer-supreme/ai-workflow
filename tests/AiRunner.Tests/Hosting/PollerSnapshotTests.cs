@@ -158,12 +158,17 @@ public sealed class PollerSnapshotTests : IDisposable
         Assert.Equal(1, ClosedIssueLists(kit));
     }
 
+    /// <summary>
+    /// Three runners over the same GitBucket data: no snapshot at all (the baseline), a working snapshot, and a
+    /// snapshot whose every write fails. All three must plan, queue and remember exactly the same.
+    /// </summary>
     [Fact]
-    public async Task Snapshot_errors_change_no_decision_no_fingerprint_and_no_poll_status()
+    public async Task Writing_the_snapshot_or_failing_to_changes_no_decision_no_fingerprint_and_no_poll_status()
     {
+        var baseline = NewKit();
         var working = NewKit();
         var broken = NewKit();
-        foreach (var kit in new[] { working, broken })
+        foreach (var kit in new[] { baseline, working, broken })
         {
             kit.GitBucket.AddIssue(7, "Export", null, "ai");
             var waiting = kit.GitBucket.AddIssue(8, "Waiting", null, "ai", Labels.QuestionsOpen);
@@ -177,6 +182,7 @@ public sealed class PollerSnapshotTests : IDisposable
             kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         }
 
+        await PollAsync(NewPoller(baseline, new NoSnapshotStore()), 2);
         await PollAsync(NewPoller(working), 2);
         await PollAsync(NewPoller(broken, new ThrowingSnapshotStore()), 2);
 
@@ -190,13 +196,38 @@ public sealed class PollerSnapshotTests : IDisposable
             (JobType.AnalyzeIssue, JobTestKit.Repo, 7, null),
             (JobType.ReviewPullRequest, JobTestKit.Repo, 30, "sha1"),
         ];
-        Assert.Equal(expected, Planned(working));
-        Assert.Equal(Planned(working), Planned(broken));
-        var brokenFingerprints = broken.State.GetIssueFingerprints(JobTestKit.Repo);
-        Assert.Equal(working.State.GetIssueFingerprints(JobTestKit.Repo), brokenFingerprints);
-        Assert.NotEmpty(brokenFingerprints);
+        Assert.Equal(expected, Planned(baseline));
+        Assert.Equal(Planned(baseline), Planned(working));
+        Assert.Equal(Planned(baseline), Planned(broken));
+
+        var baselineFingerprints = baseline.State.GetIssueFingerprints(JobTestKit.Repo);
+        Assert.NotEmpty(baselineFingerprints);
+        Assert.Equal(baselineFingerprints, working.State.GetIssueFingerprints(JobTestKit.Repo));
+        Assert.Equal(baselineFingerprints, broken.State.GetIssueFingerprints(JobTestKit.Repo));
+
+        Assert.Empty(working.Status.Snapshot().Errors);
         Assert.Empty(broken.Status.Snapshot().Errors);
         Assert.NotEmpty(working.State.ListIssues());
+        Assert.Empty(baseline.State.ListIssues());
+    }
+
+    [Fact]
+    public async Task Slow_refresh_of_one_project_leaves_the_rows_of_another_project_in_the_same_repo()
+    {
+        var kit = NewKit();
+        kit.State.SavePulls(
+        [
+            new PullSnapshot("james/demo", 77, "other", "t", "open", false, "x", "main", "s", default, default),
+        ]);
+        kit.State.SaveIssues(
+        [
+            new IssueSnapshot("james/demo", 77, "other", "t", "open", [], [], default, default),
+        ]);
+
+        await NewPoller(kit).PollOnceAsync(default);   // poll 1: slow refresh of project "demo"
+
+        Assert.Equal("other", Assert.Single(kit.State.ListPulls()).Project);
+        Assert.Equal("other", Assert.Single(kit.State.ListIssues()).Project);
     }
 
     [Fact]
@@ -215,6 +246,34 @@ public sealed class PollerSnapshotTests : IDisposable
         Assert.Equal(0, ClosedIssueLists(kit));
     }
 
+    /// <summary>No snapshot at all: every write is dropped, the way the runner was before the dashboard.</summary>
+    private sealed class NoSnapshotStore : ISnapshotStore
+    {
+        public void SaveIssues(IReadOnlyList<IssueSnapshot> issues)
+        {
+            // Nothing is kept.
+        }
+
+        public void SavePulls(IReadOnlyList<PullSnapshot> pulls)
+        {
+            // Nothing is kept.
+        }
+
+        public void RemoveIssuesExcept(string project, string repo, IReadOnlySet<int> keep)
+        {
+            // Nothing to remove.
+        }
+
+        public void RemovePullsExcept(string project, string repo, IReadOnlySet<int> keep)
+        {
+            // Nothing to remove.
+        }
+
+        public IReadOnlyList<IssueSnapshot> ListIssues() => [];
+
+        public IReadOnlyList<PullSnapshot> ListPulls() => [];
+    }
+
     /// <summary>A snapshot store whose every call fails, like a locked or broken database.</summary>
     private sealed class ThrowingSnapshotStore : ISnapshotStore
     {
@@ -222,9 +281,9 @@ public sealed class PollerSnapshotTests : IDisposable
 
         public void SavePulls(IReadOnlyList<PullSnapshot> pulls) => throw DiskFull();
 
-        public void RemoveIssuesExcept(string repo, IReadOnlySet<int> keep) => throw DiskFull();
+        public void RemoveIssuesExcept(string project, string repo, IReadOnlySet<int> keep) => throw DiskFull();
 
-        public void RemovePullsExcept(string repo, IReadOnlySet<int> keep) => throw DiskFull();
+        public void RemovePullsExcept(string project, string repo, IReadOnlySet<int> keep) => throw DiskFull();
 
         public IReadOnlyList<IssueSnapshot> ListIssues() => throw DiskFull();
 

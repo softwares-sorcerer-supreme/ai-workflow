@@ -9,6 +9,22 @@ public sealed record CodeLabel(string Code, string Label);
 public sealed record JobActivity(bool IsQueued, bool IsRunning)
 {
     public static JobActivity None { get; } = new(false, false);
+
+    /// <summary>The running job holds this runner's claim on the issue (set when the claim went through).</summary>
+    public bool HoldsClaim { get; init; }
+}
+
+/// <summary>
+/// The codes of the flags and badges next to a stage. The UI keys its colors and icons on them
+/// (<c>ISSUE_MARK_TONES</c> in the dashboard's shared/tone.ts), so they never change.
+/// </summary>
+public static class IssueMarks
+{
+    public const string Failed = "failed";
+    public const string Claimed = "claimed";
+    public const string OnGitHub = "on-github";
+    public const string Queued = "queued";
+    public const string Running = "running";
 }
 
 /// <summary>What the stage of one issue is computed from: its row, its sub-issues and the PRs of the project.</summary>
@@ -22,8 +38,8 @@ public sealed record StageInput(
 {
     public JobActivity Jobs { get; init; } = JobActivity.None;
 
-    /// <summary>This runner's name, shown when it holds the claim.</summary>
-    public string RunnerName { get; init; } = "";
+    /// <summary>This runner's name, shown when it holds the claim; null when unknown (another runner then).</summary>
+    public string? RunnerName { get; init; }
 
     public IReadOnlyList<GbPull> PullsOf(string repo) =>
         PullsByRepo.TryGetValue(repo, out var pulls) ? pulls : [];
@@ -136,6 +152,7 @@ public static class IssueStage
         {
             // The PR is in the repo of the sub-issue's component; an unknown component has no PR to find.
             var repo = input.Project.CodeComponentOf(issue.Component)?.Repo;
+
             if (repo is null)
             {
                 return PullOutcome.None;
@@ -192,19 +209,20 @@ public static class IssueStage
 
         if (issue.HasLabel(Labels.Failed))
         {
-            flags.Add(new CodeLabel("failed", "Failed"));
+            flags.Add(new CodeLabel(IssueMarks.Failed, "Failed"));
         }
 
-        // Only a running job of this runner holds a claim; any other claim belongs to another runner.
+        // This runner is named only while its job holds the claim. Any other claim, including one this runner left
+        // from before a restart (it takes that back on its next job), shows as another runner's.
         if (issue.HasLabel(Labels.Claimed))
         {
-            var holder = input.Jobs.IsRunning && input.RunnerName.Length > 0 ? input.RunnerName : "another runner";
-            flags.Add(new CodeLabel("claimed", $"Claimed by {holder}"));
+            var holder = input.Jobs.HoldsClaim && input.RunnerName is { } name ? name : "another runner";
+            flags.Add(new CodeLabel(IssueMarks.Claimed, $"Claimed by {holder}"));
         }
 
         if (issue.HasLabel(Labels.OnGitHub) || issue.HasLabel(Labels.NeedsCloudAgent))
         {
-            flags.Add(new CodeLabel("on-github", "On GitHub"));
+            flags.Add(new CodeLabel(IssueMarks.OnGitHub, "On GitHub"));
         }
 
         return flags;
@@ -214,10 +232,10 @@ public static class IssueStage
     {
         if (jobs.IsRunning)
         {
-            return new CodeLabel("running", "Running");
+            return new CodeLabel(IssueMarks.Running, "Running");
         }
 
-        return jobs.IsQueued ? new CodeLabel("queued", "Queued") : null;
+        return jobs.IsQueued ? new CodeLabel(IssueMarks.Queued, "Queued") : null;
     }
 
     private static CodeLabel Stage(string code) => Stages.First(stage => stage.Code == code);

@@ -12,8 +12,8 @@ public interface ISnapshotReader
 
 /// <summary>
 /// The snapshot: the issues and PRs the poller last saw, kept only for the dashboard (docs/adr/0001: the dashboard
-/// makes no GitBucket calls). It is a cache: deleting the database is safe, the next polls fill it again, and no
-/// planner decision reads it.
+/// makes no GitBucket calls). Deleting the database is safe: the next polls fill it again, and no planner decision
+/// reads it.
 /// </summary>
 public interface ISnapshotStore : ISnapshotReader
 {
@@ -22,10 +22,13 @@ public interface ISnapshotStore : ISnapshotReader
 
     void SavePulls(IReadOnlyList<PullSnapshot> pulls);
 
-    /// <summary>Deletes every issue row of the repo whose number is not in <paramref name="keep"/>.</summary>
-    void RemoveIssuesExcept(string repo, IReadOnlySet<int> keep);
+    /// <summary>
+    /// Deletes every issue row of the project in the repo whose number is not in <paramref name="keep"/>. Rows of
+    /// another project that shares the repo are left to that project's own refresh.
+    /// </summary>
+    void RemoveIssuesExcept(string project, string repo, IReadOnlySet<int> keep);
 
-    void RemovePullsExcept(string repo, IReadOnlySet<int> keep);
+    void RemovePullsExcept(string project, string repo, IReadOnlySet<int> keep);
 }
 
 public sealed partial class SqliteStateStore : ISnapshotStore
@@ -35,14 +38,15 @@ public sealed partial class SqliteStateStore : ISnapshotStore
 
     private void CreateSnapshotTables() =>
         Execute("""
-            CREATE TABLE IF NOT EXISTS issue_snapshot (repo TEXT NOT NULL, number INTEGER NOT NULL, project TEXT NOT NULL,
-                title TEXT NOT NULL, state TEXT NOT NULL, labels TEXT NOT NULL, assignees TEXT NOT NULL, parent INTEGER,
-                sub_order INTEGER, component TEXT, html_url TEXT, created_at TEXT, updated_at TEXT NOT NULL, closed_at TEXT,
-                seen_at TEXT NOT NULL, PRIMARY KEY (repo, number));
-            CREATE TABLE IF NOT EXISTS pull_snapshot (repo TEXT NOT NULL, number INTEGER NOT NULL, project TEXT NOT NULL,
-                title TEXT NOT NULL, state TEXT NOT NULL, merged INTEGER NOT NULL, head_ref TEXT NOT NULL,
-                base_ref TEXT NOT NULL, head_sha TEXT NOT NULL, linked_issue TEXT, html_url TEXT, updated_at TEXT NOT NULL,
-                seen_at TEXT NOT NULL, PRIMARY KEY (repo, number));
+            CREATE TABLE IF NOT EXISTS issue_snapshot (repo TEXT NOT NULL, number INTEGER NOT NULL,
+                project TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, labels TEXT NOT NULL,
+                assignees TEXT NOT NULL, parent INTEGER, sub_order INTEGER, component TEXT, html_url TEXT,
+                created_at TEXT, updated_at TEXT NOT NULL, closed_at TEXT, seen_at TEXT NOT NULL,
+                PRIMARY KEY (repo, number));
+            CREATE TABLE IF NOT EXISTS pull_snapshot (repo TEXT NOT NULL, number INTEGER NOT NULL,
+                project TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, merged INTEGER NOT NULL,
+                head_ref TEXT NOT NULL, base_ref TEXT NOT NULL, head_sha TEXT NOT NULL, linked_issue TEXT,
+                html_url TEXT, updated_at TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY (repo, number));
             """);
 
     public void SaveIssues(IReadOnlyList<IssueSnapshot> issues)
@@ -127,9 +131,11 @@ public sealed partial class SqliteStateStore : ISnapshotStore
         transaction.Commit();
     }
 
-    public void RemoveIssuesExcept(string repo, IReadOnlySet<int> keep) => RemoveExcept("issue_snapshot", repo, keep);
+    public void RemoveIssuesExcept(string project, string repo, IReadOnlySet<int> keep) =>
+        RemoveExcept("issue_snapshot", (project, repo), keep);
 
-    public void RemovePullsExcept(string repo, IReadOnlySet<int> keep) => RemoveExcept("pull_snapshot", repo, keep);
+    public void RemovePullsExcept(string project, string repo, IReadOnlySet<int> keep) =>
+        RemoveExcept("pull_snapshot", (project, repo), keep);
 
     public IReadOnlyList<IssueSnapshot> ListIssues()
     {
@@ -213,14 +219,19 @@ public sealed partial class SqliteStateStore : ISnapshotStore
         return pulls;
     }
 
-    private void RemoveExcept(string table, string repo, IReadOnlySet<int> keep)
+    private void RemoveExcept(string table, (string Project, string Repo) scope, IReadOnlySet<int> keep)
     {
-        var names = keep.Select((number, index) => ($"$n{index}", (object?)number)).ToList();
-        var placeholders = string.Join(", ", names.Select(name => name.Item1));
-        var notIn = names.Count == 0 ? "" : $" AND number NOT IN ({placeholders})";
-        var args = names.Prepend(("$repo", repo)).ToArray();
+        var kept = keep
+            .Select((number, index) => (Name: $"$n{index}", Value: (object?)number))
+            .ToList();
+        var placeholders = string.Join(", ", kept.Select(parameter => parameter.Name));
+        var notIn = kept.Count == 0 ? "" : $" AND number NOT IN ({placeholders})";
+        var parameters = kept
+            .Prepend(("$repo", scope.Repo))
+            .Prepend(("$project", scope.Project))
+            .ToArray();
 
-        Execute($"DELETE FROM {table} WHERE repo = $repo{notIn}", args);
+        Execute($"DELETE FROM {table} WHERE project = $project AND repo = $repo{notIn}", parameters);
     }
 
     private static string? OptionalTime(DateTimeOffset? time) => time is { } value ? Time(value) : null;

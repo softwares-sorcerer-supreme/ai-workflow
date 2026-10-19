@@ -1,5 +1,6 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
+using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 
 namespace AiRunner.Web;
@@ -45,10 +46,10 @@ public sealed record IssueListResponse(
 public sealed record IssueQuery(string? Project, string? Component, string? Stage, string? State, bool IsFlat);
 
 /// <summary>
-/// Builds the issue list from the snapshot and the job table. The stage, flags and badge come from
+/// Builds the issue list from the snapshot, the job table and the running job. The stage, flags and badge come from
 /// <see cref="IssueStage"/>; this class only reads, filters and nests.
 /// </summary>
-public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, IJobReader jobs)
+public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, IJobReader jobs, RunnerStatus status)
 {
     public IReadOnlyList<ProjectOptionResponse> ProjectOptions() =>
         config.Projects
@@ -65,13 +66,20 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         var issues = snapshot.ListIssues();
         var pullsByRepo = PullsByRepo();
         var activeJobs = jobs.ListActive();
+        var running = status.Snapshot().Running;
+        var runnerName = config.EffectiveRunnerName();
+
+        // Build order first, so the sub-issues of a parent come out in it; top-level rows are sorted again later.
+        var inBuildOrder = issues
+            .OrderBy(issue => issue.SubOrder ?? 0)
+            .ThenBy(issue => issue.Number);
 
         var rows = new List<IssueRowResponse>();
-        foreach (var issue in issues)
+        foreach (var issue in inBuildOrder)
         {
             var project = config.Projects.FirstOrDefault(candidate => candidate.Name == issue.Project);
 
-            // A project no longer in repos.yml is not polled any more: its old rows stay in the cache, unshown.
+            // A project no longer in repos.yml is not polled any more: its old rows stay in the database, unshown.
             if (project is null)
             {
                 continue;
@@ -82,8 +90,8 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
                 .ToList();
             var input = new StageInput(project, issue, subIssues, pullsByRepo)
             {
-                Jobs = ActivityOf(issue, activeJobs),
-                RunnerName = config.EffectiveRunnerName(),
+                Jobs = ActivityOf(issue, activeJobs, running),
+                RunnerName = runnerName,
             };
             var stage = IssueStage.Compute(input);
             var component = SnapshotRules.ComponentOf(issue, project);
@@ -107,15 +115,22 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
                 group => (IReadOnlyList<GbPull>)group.Select(pull => pull.AsPull()).ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
-    private static JobActivity ActivityOf(IssueSnapshot issue, IReadOnlyList<JobRecord> activeJobs)
+    private static JobActivity ActivityOf(IssueSnapshot issue, IReadOnlyList<JobRecord> activeJobs, RunningJob? running)
     {
         var jobsOfIssue = activeJobs
             .Where(job => job.Number == issue.Number && SameRepo(job.Repo, issue.Repo))
             .ToList();
         var isRunning = jobsOfIssue.Any(job => job.Status == JobStatus.Running);
         var isQueued = jobsOfIssue.Any(job => job.Status == JobStatus.Pending);
+        var holdsClaim = running is not null &&
+                         running.HoldsClaim &&
+                         running.Number == issue.Number &&
+                         SameRepo(running.Repo, issue.Repo);
 
-        return new JobActivity(isQueued, isRunning);
+        return new JobActivity(isQueued, isRunning)
+        {
+            HoldsClaim = holdsClaim,
+        };
     }
 
     private static IssueRowResponse Row(IssueSnapshot issue, StageResult stage, string? component)
@@ -124,7 +139,7 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
             .Select(CodeLabelResponse.From)
             .ToList();
         var badge = stage.Badge is { } value ? CodeLabelResponse.From(value) : null;
-        var stateLabel = issue.IsOpen ? "Open" : "Closed";
+        var stateLabel = SnapshotRules.StateLabel(issue.State);
 
         return new IssueRowResponse(
             issue.Project,
@@ -172,9 +187,9 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         var items = new List<IssueRowResponse>();
         foreach (var row in top)
         {
+            // The rows are already in build order (see Read).
             var subIssues = matching
                 .Where(subIssue => IsParentOf(row, subIssue))
-                .OrderBy(subIssue => subIssue.Number)
                 .ToList();
 
             if (subIssues.Count == 0 && !matching.Contains(row))

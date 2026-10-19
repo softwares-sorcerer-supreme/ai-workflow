@@ -1,8 +1,4 @@
-/** One choice of a filter: the code the API takes and the text the menu shows. */
-export interface FilterOption {
-  code: string;
-  label: string;
-}
+import { FilterOption } from '../../shared/filter-option';
 
 /**
  * The status filter of the jobs screen. The API has no endpoint that lists these, so they live here, once. Codes

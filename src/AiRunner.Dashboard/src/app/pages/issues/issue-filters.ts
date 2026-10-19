@@ -1,4 +1,4 @@
-import { FilterOption } from '../jobs/job-filters';
+import { FilterOption } from '../../shared/filter-option';
 
 /**
  * The state filter of the issues screen (open or closed on GitBucket, not the stage). Projects, components and stages

@@ -38,7 +38,7 @@ public sealed record IssueSnapshot(
     public string Key => new IssueRef(Repo, Number).ToString();
 }
 
-/// <summary>One PR as the poller last saw it, kept for the dashboard only. <c>LinkedIssue</c> is "owner/repo#n".</summary>
+/// <summary>One PR as the poller last saw it, for the dashboard. <c>LinkedIssue</c> is "owner/repo#n".</summary>
 public sealed record PullSnapshot(
     string Repo,
     int Number,
@@ -78,12 +78,15 @@ public sealed record RetentionWindow(DateTimeOffset Now, int RetentionDays, IRea
 
 /// <summary>
 /// How the poller turns what it lists into snapshot rows, and which closed issues and PRs the slow refresh keeps.
-/// The snapshot is a cache for the dashboard: nothing here takes part in a planner decision.
+/// The snapshot exists only for the dashboard and can be thrown away: nothing here takes part in a planner decision.
 /// </summary>
 public static class SnapshotRules
 {
     public const string Open = "open";
     public const string Closed = "closed";
+
+    /// <summary>The text of a state code, as the dashboard shows it.</summary>
+    public static string StateLabel(string state) => state == Open ? "Open" : "Closed";
 
     public static IssueSnapshot IssueRow(ProjectConfig project, GbIssue issue, DateTimeOffset seenAt)
     {

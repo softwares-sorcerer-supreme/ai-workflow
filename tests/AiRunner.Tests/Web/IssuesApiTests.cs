@@ -20,12 +20,14 @@ public sealed class IssuesApiTests : IAsyncDisposable
 
     private readonly FakeTime _time = new();
     private readonly string _folder = Directory.CreateTempSubdirectory("ai-runner-issues-api-").FullName;
+    private readonly RunnerStatus _status;
     private readonly RunnerConfig _config;
     private readonly SqliteStateStore _store;
     private WebApplication? _app;
 
     public IssuesApiTests()
     {
+        _status = new RunnerStatus("laptop-1", "repos.yml", _time);
         _config = new RunnerConfig
         {
             RunnerName = "laptop-1",
@@ -65,8 +67,7 @@ public sealed class IssuesApiTests : IAsyncDisposable
 
     private async Task<HttpClient> StartAsync()
     {
-        var status = new RunnerStatus("laptop-1", "repos.yml", _time);
-        var options = new DashboardAppOptions(_config, status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(_config, _status, _time, Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
             Snapshot = _store,
@@ -118,6 +119,8 @@ public sealed class IssuesApiTests : IAsyncDisposable
 
         var running = _store.AddJob(new JobRequest(JobType.ImplementIssue, "o/shop", 21));
         _store.SetJobStatus(running, JobStatus.Running);
+        _status.WorkerBusy(new RunningJob(running, "ImplementIssue", "o/shop", 21, Seen));
+        _status.ClaimHeld();
         _store.AddJob(new JobRequest(JobType.AnalyzeIssue, "o/blog", 3));
     }
 
@@ -158,6 +161,36 @@ public sealed class IssuesApiTests : IAsyncDisposable
         var blog = list.Items[2];
         Assert.Equal(("questions-open", "blog", "queued"), (blog.Stage, blog.Component, blog.Badge?.Code));
         Assert.Equal(("failed", "Failed"), (blog.Flags[0].Code, blog.Flags[0].Label));
+    }
+
+    [Fact]
+    public async Task Sub_issues_come_in_build_order_not_number_order()
+    {
+        _store.SaveIssues(
+        [
+            Issue("shop", "o/shop", 12, "ai", Labels.Parent),
+            Sub(31, 1, "api", isOpen: true),
+            Sub(30, 2, "web", isOpen: true),
+        ]);
+        var client = await StartAsync();
+
+        var list = await GetListAsync(client);
+
+        Assert.Equal([31, 30], Numbers(Assert.Single(list.Items).SubIssues));
+    }
+
+    [Fact]
+    public async Task A_claim_of_a_running_job_that_has_not_claimed_yet_is_another_runners()
+    {
+        _store.SaveIssues([Issue("blog", "o/blog", 3, "ai", Labels.Claimed)]);
+        var running = _store.AddJob(new JobRequest(JobType.FinishIssue, "o/blog", 3));
+        _store.SetJobStatus(running, JobStatus.Running);
+        _status.WorkerBusy(new RunningJob(running, "FinishIssue", "o/blog", 3, Seen));
+        var client = await StartAsync();
+
+        var row = Assert.Single((await GetListAsync(client)).Items);
+
+        Assert.Equal(("running", "Claimed by another runner"), (row.Badge?.Code, Assert.Single(row.Flags).Label));
     }
 
     [Fact]

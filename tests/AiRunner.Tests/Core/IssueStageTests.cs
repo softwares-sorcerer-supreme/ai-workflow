@@ -248,25 +248,34 @@ public sealed class IssueStageTests
         Assert.Equal("on-github", Assert.Single(Compute(Open(7, Labels.NeedsCloudAgent)).Flags).Code);
 
     [Fact]
-    public void Claim_names_this_runner_only_while_its_job_runs()
+    public void Claim_names_this_runner_only_while_its_job_holds_the_claim()
     {
         var issue = Open(7, Labels.Claimed);
         var input = new StageInput(_project, issue, [], new Dictionary<string, IReadOnlyList<GbPull>>())
         {
             RunnerName = "laptop-1",
         };
+        var running = new JobActivity(IsQueued: false, IsRunning: true);
 
-        var running = IssueStage.Compute(input with
+        var holding = IssueStage.Compute(input with
         {
-            Jobs = new JobActivity(IsQueued: false, IsRunning: true)
-        });
-        var queued = IssueStage.Compute(input with
-        {
-            Jobs = new JobActivity(IsQueued: true, IsRunning: false)
+            Jobs = running with { HoldsClaim = true }
         });
 
-        Assert.Equal("Claimed by laptop-1", Assert.Single(running.Flags).Label);
-        Assert.Equal("Claimed by another runner", Assert.Single(queued.Flags).Label);
+        // A routine job runs before it claims: the claim on the issue is someone else's until then.
+        var notYetClaimed = IssueStage.Compute(input with
+        {
+            Jobs = running
+        });
+        var nameUnknown = IssueStage.Compute(input with
+        {
+            Jobs = running with { HoldsClaim = true },
+            RunnerName = null
+        });
+
+        Assert.Equal("Claimed by laptop-1", Assert.Single(holding.Flags).Label);
+        Assert.Equal("Claimed by another runner", Assert.Single(notYetClaimed.Flags).Label);
+        Assert.Equal("Claimed by another runner", Assert.Single(nameUnknown.Flags).Label);
     }
 
     [Theory]

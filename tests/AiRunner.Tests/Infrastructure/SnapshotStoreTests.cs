@@ -65,22 +65,30 @@ public sealed class SnapshotStoreTests : IDisposable
     }
 
     [Fact]
-    public void Remove_except_keeps_the_given_numbers_of_that_repo_only()
+    public void Remove_except_keeps_the_given_numbers_of_that_project_and_repo_only()
     {
         var store = OpenStore();
         var otherRepo = Issue(5) with
         {
             Repo = "o/other"
         };
-        store.SaveIssues([Issue(1), Issue(2), Issue(3), otherRepo]);
-        store.SavePulls([Pull(40), Pull(41)]);
+        var otherProject = Issue(6) with
+        {
+            Project = "s"
+        };
+        var otherProjectPull = Pull(42) with
+        {
+            Project = "s"
+        };
+        store.SaveIssues([Issue(1), Issue(2), Issue(3), otherRepo, otherProject]);
+        store.SavePulls([Pull(40), Pull(41), otherProjectPull]);
 
-        store.RemoveIssuesExcept("o/r", new HashSet<int> { 2 });
-        store.RemovePullsExcept("o/r", new HashSet<int>());
+        store.RemoveIssuesExcept("r", "o/r", new HashSet<int> { 2 });
+        store.RemovePullsExcept("r", "o/r", new HashSet<int>());
 
         var left = store.ListIssues().Select(issue => (issue.Repo, issue.Number));
-        Assert.Equal([("o/other", 5), ("o/r", 2)], left);
-        Assert.Empty(store.ListPulls());
+        Assert.Equal([("o/other", 5), ("o/r", 2), ("o/r", 6)], left);
+        Assert.Equal(42, Assert.Single(store.ListPulls()).Number);
     }
 
     [Fact]

@@ -7,6 +7,12 @@ public sealed record ProjectPollError(string Project, string Message, DateTimeOf
 public sealed record RunningJob(long Id, string Type, string Repo, int Number, DateTimeOffset StartedAt)
 {
     public int? Round { get; init; }
+
+    /// <summary>
+    /// This runner's claim on the issue or PR went through (claim_enabled). A routine job claims only before its
+    /// first write, so it can run without holding one.
+    /// </summary>
+    public bool HoldsClaim { get; init; }
 }
 
 /// <summary>A copy of <see cref="RunnerStatus"/> at one moment; safe to read on any thread.</summary>
@@ -110,6 +116,18 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
             if (_running is not null)
             {
                 _running = _running with { Round = round };
+            }
+        }
+    }
+
+    /// <summary>The running job now holds its claim: the dashboard names this runner as the holder.</summary>
+    public void ClaimHeld()
+    {
+        lock (_lock)
+        {
+            if (_running is not null)
+            {
+                _running = _running with { HoldsClaim = true };
             }
         }
     }

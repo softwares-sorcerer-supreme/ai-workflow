@@ -107,6 +107,10 @@ public sealed class JobWorker(
                     run.Claimer = async token =>
                     {
                         isClaimHeld = isClaimHeld || await claims.TryClaimAsync(target, token);
+                        if (isClaimHeld)
+                        {
+                            status.ClaimHeld();
+                        }
 
                         return isClaimHeld;
                     };
@@ -121,6 +125,8 @@ public sealed class JobWorker(
                         FileSystem.DeleteDirectory(run.Dir);
                         return;
                     }
+
+                    status.ClaimHeld();
                 }
             }
 

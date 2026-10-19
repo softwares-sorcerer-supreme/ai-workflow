@@ -281,8 +281,9 @@ protected readonly issues = pollResource(() => this.api.invoke(getIssues, { proj
 ```
 `reload()` during a running call loads once more right after it, so a changed filter is never left with the old
 answer. `value` keeps the last good answer when a call fails; `error` holds the failure text until the next success
-(for a 400 the API's own `ApiError.message`). Filter options the API cannot list yet live in one constant per filter
-next to the screen (`pages/jobs/job-filters.ts`).
+(for a 400 the API's own `ApiError.message`). Prefer filter options the API sends (`/api/issues` sends its projects,
+components and stages). Options the API cannot list live in one constant per filter next to the screen
+(`pages/jobs/job-filters.ts`, `pages/issues/issue-filters.ts`), typed with `FilterOption` from `shared/filter-option.ts`.
 
 ### Health
 
