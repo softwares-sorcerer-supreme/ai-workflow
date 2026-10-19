@@ -86,6 +86,24 @@ public class RunnerHealthTests
     }
 
     [Fact]
+    public void With_a_long_poll_interval_a_running_poll_is_allowed_at_least_the_normal_stale_limit()
+    {
+        // 3 x 5 min = 15 min is the normal limit, longer than the 10 min cap for a running poll.
+        var now = Start + TimeSpan.FromMinutes(60);
+        var input = new HealthInput(
+            now,
+            Start,
+            Start + TimeSpan.FromMinutes(30),
+            TimeSpan.FromMinutes(5),
+            0,
+            PollRunningSince: now - TimeSpan.FromMinutes(12));
+
+        var health = RunnerHealth.Assess(input);
+
+        Assert.Equal(RunnerHealth.Ok, health.Code);
+    }
+
+    [Fact]
     public void A_long_first_poll_that_is_still_running_is_still_starting()
     {
         var health = AssessWhilePolling(TimeSpan.FromMinutes(6), lastPollEnded: null, pollStarted: TimeSpan.Zero);

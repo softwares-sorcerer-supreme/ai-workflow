@@ -39,8 +39,11 @@ public static class RunnerHealth
     public static HealthState Assess(HealthInput input)
     {
         var staleAfter = input.PollInterval * StaleAfterIntervals;
+
+        // Never shorter than the normal stale limit, or a long poll would be stale sooner than an idle runner.
+        var maxPollRun = MaxPollRun > staleAfter ? MaxPollRun : staleAfter;
         var isPollRunningNormally = input.PollRunningSince is { } runningSince
-            && input.Now - runningSince <= MaxPollRun;
+            && input.Now - runningSince <= maxPollRun;
 
         if (input.LastPollEndedAt is not { } lastPollEnded)
         {

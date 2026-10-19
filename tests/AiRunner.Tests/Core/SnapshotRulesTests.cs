@@ -74,8 +74,8 @@ public sealed class SnapshotRulesTests
         var recent = Row(UpdatedDaysAgo(Samples.Issue(7), 29));
         var old = Row(UpdatedDaysAgo(Samples.Issue(8), 31));
 
-        Assert.True(SnapshotRules.KeepClosedIssue(recent, Window()));
-        Assert.False(SnapshotRules.KeepClosedIssue(old, Window()));
+        Assert.True(SnapshotRules.IsWithinRetention(recent, Window()));
+        Assert.False(SnapshotRules.IsWithinRetention(old, Window()));
     }
 
     [Fact]
@@ -84,8 +84,8 @@ public sealed class SnapshotRulesTests
         var body = DeliveryLayouts.SubIssueBodyFor(12, 1, "backend");
         var subIssue = Row(UpdatedDaysAgo(Samples.Issue(20) with { Body = body }, 90));
 
-        Assert.True(SnapshotRules.KeepClosedIssue(subIssue, Window(12)));
-        Assert.False(SnapshotRules.KeepClosedIssue(subIssue, Window(13)));
+        Assert.Single(SnapshotRules.KeepClosedIssues([subIssue], Window(12)));
+        Assert.Empty(SnapshotRules.KeepClosedIssues([subIssue], Window(13)));
     }
 
     [Fact]

@@ -9,7 +9,18 @@ namespace AiRunner.Hosting;
 public sealed record ProjectPoll(
     ProjectConfig Project,
     IReadOnlyList<GbIssue> OpenIssues,
-    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> OpenPulls);
+    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> OpenPulls)
+{
+    public HashSet<int> OpenIssueNumbers() =>
+        OpenIssues
+            .Select(issue => issue.Number)
+            .ToHashSet();
+
+    public HashSet<int> OpenPullNumbers(string repo) =>
+        OpenPulls.TryGetValue(repo, out var pulls)
+            ? pulls.Select(pull => pull.Number).ToHashSet()
+            : [];
+}
 
 /// <summary>
 /// Writes the snapshot the dashboard reads (docs/specs/dashboard.md, Snapshot). The poller hands it what it already
@@ -28,12 +39,12 @@ public sealed class SnapshotRecorder(
     /// <summary>The slow refresh is due on the first poll and on every 10th one (poll numbers start at 1).</summary>
     public static bool IsRefreshDue(int pollNumber) => pollNumber == 1 || pollNumber % SlowRefreshEvery == 0;
 
-    public void RecordIssues(ProjectConfig project, IReadOnlyList<GbIssue> openIssues)
+    public void RecordIssues(ProjectConfig project, IReadOnlyList<GbIssue> issues)
     {
         try
         {
             var now = time.GetUtcNow();
-            var rows = openIssues
+            var rows = issues
                 .Select(issue => SnapshotRules.IssueRow(project, issue, now))
                 .ToList();
 
@@ -45,13 +56,13 @@ public sealed class SnapshotRecorder(
         }
     }
 
-    public void RecordPulls(PullLocation location, IReadOnlyList<GbPull> openPulls)
+    public void RecordPulls(PullLocation location, IReadOnlyList<GbPull> pulls)
     {
         try
         {
             var now = time.GetUtcNow();
             var source = new PullSource(location.Project, location.Repo, now);
-            var rows = openPulls
+            var rows = pulls
                 .Select(pull => SnapshotRules.PullRow(source, pull))
                 .ToList();
 
@@ -75,11 +86,42 @@ public sealed class SnapshotRecorder(
 
         try
         {
-            await RefreshVanishedIssuesAsync(poll, cancellationToken);
+            var openIssueRows = store.ListIssues()
+                .Where(row => row.IsOpen && row.Project == project.Name)
+                .Select(row => (row.Repo, row.Number))
+                .ToList();
+            var openPullRows = store.ListPulls()
+                .Where(row => row.State == SnapshotRules.Open && row.Project == project.Name)
+                .Select(row => (row.Repo, row.Number))
+                .ToList();
+
+            var issuesRepo = project.IssuesRepo;
+            var vanishedIssues = VanishedNumbers(openIssueRows, issuesRepo, poll.OpenIssueNumbers());
+            var closedIssues = await ReadClosedAsync(
+                vanishedIssues,
+                number => gitBucketClient.GetIssueAsync(issuesRepo, number, cancellationToken),
+                issue => issue.IsOpen(),
+                cancellationToken);
+
+            // A quiet poll has nothing to save: no database transaction is opened for an empty list.
+            if (closedIssues.Count > 0)
+            {
+                RecordIssues(project, closedIssues);
+            }
 
             foreach (var repo in project.CodeRepos)
             {
-                await RefreshVanishedPullsAsync(poll, repo, cancellationToken);
+                var vanishedPulls = VanishedNumbers(openPullRows, repo, poll.OpenPullNumbers(repo));
+                var closedPulls = await ReadClosedAsync(
+                    vanishedPulls,
+                    number => gitBucketClient.GetPullAsync(repo, number, cancellationToken),
+                    pull => pull.IsOpen(),
+                    cancellationToken);
+
+                if (closedPulls.Count > 0)
+                {
+                    RecordPulls(new PullLocation(project, repo), closedPulls);
+                }
             }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -88,83 +130,49 @@ public sealed class SnapshotRecorder(
         }
     }
 
-    private async Task RefreshVanishedIssuesAsync(ProjectPoll poll, CancellationToken cancellationToken)
-    {
-        var project = poll.Project;
-        var repo = project.IssuesRepo;
-        var openNumbers = poll.OpenIssues
-            .Select(issue => issue.Number)
-            .ToHashSet();
-
-        var vanishedNumbers = store.ListIssues()
-            .Where(row => row.IsOpen && row.Project == project.Name)
+    /// <summary>The open snapshot rows of one repo that this poll did not list.</summary>
+    private static List<int> VanishedNumbers(
+        IEnumerable<(string Repo, int Number)> openRows,
+        string repo,
+        IReadOnlySet<int> openNumbers) =>
+        openRows
             .Where(row => string.Equals(row.Repo, repo, StringComparison.OrdinalIgnoreCase))
             .Where(row => !openNumbers.Contains(row.Number))
             .Select(row => row.Number)
             .ToList();
 
-        foreach (var number in vanishedNumbers)
-        {
-            GbIssue issue;
-            try
-            {
-                issue = await gitBucketClient.GetIssueAsync(repo, number, cancellationToken);
-            }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Deleted or unreachable: the slow refresh decides what happens to the row.
-                logger.LogDebug("{Repo}#{Number}: not re-read for the snapshot: {Error}", repo, number, exception.Message);
-                continue;
-            }
-
-            // Still open means only that the poller no longer lists it (for example its trigger label was removed).
-            if (issue.IsOpen())
-            {
-                continue;
-            }
-
-            var row = SnapshotRules.IssueRow(project, issue, time.GetUtcNow());
-            store.SaveIssues([row]);
-        }
-    }
-
-    private async Task RefreshVanishedPullsAsync(ProjectPoll poll, string repo, CancellationToken cancellationToken)
+    /// <summary>
+    /// Reads each item and returns those that are no longer open. One that is still open (only out of the poller's
+    /// scope, for example its trigger label was removed) or cannot be read (deleted, VPN down) is left to the slow
+    /// refresh.
+    /// </summary>
+    private async Task<List<T>> ReadClosedAsync<T>(
+        IEnumerable<int> numbers,
+        Func<int, Task<T>> read,
+        Func<T, bool> isOpen,
+        CancellationToken cancellationToken)
     {
-        var project = poll.Project;
-        var openNumbers = poll.OpenPulls.TryGetValue(repo, out var openPulls)
-            ? openPulls.Select(pull => pull.Number).ToHashSet()
-            : [];
+        var closed = new List<T>();
 
-        var vanishedNumbers = store.ListPulls()
-            .Where(row => row.State == SnapshotRules.Open && row.Project == project.Name)
-            .Where(row => string.Equals(row.Repo, repo, StringComparison.OrdinalIgnoreCase))
-            .Where(row => !openNumbers.Contains(row.Number))
-            .Select(row => row.Number)
-            .ToList();
-
-        foreach (var number in vanishedNumbers)
+        foreach (var number in numbers)
         {
-            GbPull pull;
             try
             {
-                pull = await gitBucketClient.GetPullAsync(repo, number, cancellationToken);
+                var item = await read(number);
+                if (!isOpen(item))
+                {
+                    closed.Add(item);
+                }
             }
+            // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                // Deleted or unreachable: the slow refresh decides what happens to the row.
-                logger.LogDebug("{Repo}#{Number}: PR not re-read for the snapshot: {Error}", repo, number, exception.Message);
-                continue;
+                var kind = typeof(T).Name;
+                logger.LogDebug("{Kind} #{Number} not re-read for the snapshot: {Error}", kind, number, exception.Message);
             }
-
-            if (pull.IsOpen())
-            {
-                continue;
-            }
-
-            var source = new PullSource(project, repo, time.GetUtcNow());
-            var row = SnapshotRules.PullRow(source, pull);
-            store.SavePulls([row]);
         }
+
+        return closed;
     }
 
     /// <summary>
@@ -208,9 +216,7 @@ public sealed class SnapshotRecorder(
             project.Settings.TriggerLabel,
             cancellationToken);
 
-        var openNumbers = poll.OpenIssues
-            .Select(issue => issue.Number)
-            .ToHashSet();
+        var openNumbers = poll.OpenIssueNumbers();
         var window = new RetentionWindow(now, config.LogRetentionDays, openNumbers);
         var closedRows = closedIssues
             .Where(issue => !openNumbers.Contains(issue.Number))
@@ -249,9 +255,7 @@ public sealed class SnapshotRecorder(
 
         store.SavePulls(keptClosed);
 
-        var openNumbers = poll.OpenPulls.TryGetValue(repo, out var openPulls)
-            ? openPulls.Select(pull => pull.Number)
-            : [];
+        var openNumbers = poll.OpenPullNumbers(repo);
         var keptNumbers = keptClosed
             .Select(row => row.Number)
             .Concat(openNumbers)

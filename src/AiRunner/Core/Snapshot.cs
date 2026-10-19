@@ -121,42 +121,35 @@ public static class SnapshotRules
         };
     }
 
-    /// <summary>
-    /// A closed issue stays while it was updated within the retention days, or while its parent is still open (so
-    /// the parent's n/m stays right).
-    /// </summary>
-    public static bool KeepClosedIssue(IssueSnapshot issue, RetentionWindow window)
-    {
-        var cutoff = window.Now.AddDays(-window.RetentionDays);
-        if (issue.UpdatedAt >= cutoff)
-        {
-            return true;
-        }
-
-        return issue.Parent is { } parent && window.OpenNumbers.Contains(parent);
-    }
+    /// <summary>A closed issue was updated within the retention days.</summary>
+    public static bool IsWithinRetention(IssueSnapshot issue, RetentionWindow window) =>
+        issue.UpdatedAt >= window.Now.AddDays(-window.RetentionDays);
 
     /// <summary>
-    /// The closed issues to keep: those <see cref="KeepClosedIssue"/> keeps, and every closed sub-issue whose parent is
-    /// kept (open, or closed and kept). Without the second part, a parent that closed after its last final PR was
-    /// merged would lose its older sub-issues, and its stage would be worked out from the few that are left.
+    /// The closed issues to keep: those within the retention days, and every closed sub-issue whose parent is kept
+    /// (open, or closed and kept), so the parent's n/m and its final PRs stay right. Without the second part, a parent
+    /// that closed after its last final PR was merged would lose its older sub-issues, and its stage would be worked
+    /// out from the few that are left.
     /// </summary>
     public static IReadOnlyList<IssueSnapshot> KeepClosedIssues(
         IReadOnlyList<IssueSnapshot> closedIssues,
         RetentionWindow window)
     {
-        var keptByRule = closedIssues
-            .Where(issue => KeepClosedIssue(issue, window))
+        var recentNumbers = closedIssues
+            .Where(issue => IsWithinRetention(issue, window))
             .Select(issue => issue.Number)
             .ToHashSet();
-        var keptParents = keptByRule
+        var keptParents = recentNumbers
             .Concat(window.OpenNumbers)
             .ToHashSet();
 
         return closedIssues
-            .Where(issue => keptByRule.Contains(issue.Number) || IsSubIssueOfAny(issue, keptParents))
+            .Where(issue => recentNumbers.Contains(issue.Number) || HasKeptParent(issue, keptParents))
             .ToList();
     }
+
+    private static bool HasKeptParent(IssueSnapshot issue, IReadOnlySet<int> keptParents) =>
+        issue.Parent is { } parent && keptParents.Contains(parent);
 
     /// <summary>A closed PR stays when the runner made it (its branch) and its linked issue is kept.</summary>
     /// <param name="issueKeys">"owner/repo#n" of every issue the snapshot keeps, case-insensitive.</param>
@@ -171,9 +164,6 @@ public static class SnapshotRules
     /// </summary>
     public static string? ComponentOf(IssueSnapshot issue, ProjectConfig project) =>
         issue.Component ?? project.SoleCodeComponent?.Name;
-
-    private static bool IsSubIssueOfAny(IssueSnapshot issue, IReadOnlySet<int> parents) =>
-        issue.Parent is { } parent && parents.Contains(parent);
 
     private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
     {
