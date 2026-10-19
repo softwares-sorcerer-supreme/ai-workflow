@@ -73,12 +73,14 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
     /// </summary>
     private static void UpgradeHeader(string file)
     {
-        var lines = File.ReadAllLines(file);
-        if (lines.Length == 0 || lines[0] != OldHeader)
+        // Only the first line is read on the usual path; the file is rewritten once, for the old header.
+        var firstLine = File.ReadLines(file).FirstOrDefault();
+        if (firstLine != OldHeader)
         {
             return;
         }
 
+        var lines = File.ReadAllLines(file);
         lines[0] = Header;
         File.WriteAllText(file, string.Join('\n', lines) + "\n");
     }

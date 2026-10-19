@@ -58,7 +58,8 @@ public sealed record JobInfo(
 /// <param name="CopilotCalls">Copilot calls the job made; null when unknown (a failed job, an old row).</param>
 public sealed record JobOutcome(string Result, string Detail = "", bool Quiet = false, int? CopilotCalls = null)
 {
-    public static JobOutcome Ok(string detail = "", int? copilotCalls = null) => new("ok", detail, CopilotCalls: copilotCalls);
+    public static JobOutcome Ok(string detail = "", int? copilotCalls = null) =>
+        new("ok", detail, CopilotCalls: copilotCalls);
     public static JobOutcome NotNeeded(string reason) => new("not-needed", reason, Quiet: true);
 }
 
