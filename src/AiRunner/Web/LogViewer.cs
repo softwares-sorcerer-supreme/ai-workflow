@@ -67,7 +67,8 @@ public sealed class LogViewer(RunnerConfig config)
             return new LogReadResult(LogReadStatus.NotFound);
         }
 
-        var file = FilesIn(folder).FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
+        var file = FilesIn(folder)
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
         if (file is null)
         {
             return new LogReadResult(LogReadStatus.NotFound);

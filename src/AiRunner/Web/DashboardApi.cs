@@ -164,7 +164,7 @@ public static class DashboardApi
             content.Name,
             FormatOf(content.Name),
             content.SizeBytes,
-            text,
+            content.Text,
             content.IsTruncated,
             note));
     }
