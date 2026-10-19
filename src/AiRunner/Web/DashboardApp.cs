@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json.Serialization;
 using AiRunner.Configuration;
 using AiRunner.Hosting;
+using AiRunner.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -11,7 +12,23 @@ namespace AiRunner.Web;
 
 /// <summary>What the dashboard web app is built from: the runner's own instances, never copies.</summary>
 /// <param name="WebRoot">Folder of the built UI; it may be missing (then the "not built" page is served).</param>
-public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Status, TimeProvider Time, string WebRoot);
+public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Status, TimeProvider Time, string WebRoot)
+{
+    /// <summary>Read access to the job table; the default holds no jobs (the OpenAPI export needs none).</summary>
+    public IJobReader Jobs { get; init; } = NoJobs.Instance;
+}
+
+/// <summary>A job reader for a runner that has no database yet.</summary>
+public sealed class NoJobs : IJobReader
+{
+    public static NoJobs Instance { get; } = new();
+
+    public IReadOnlyList<JobRecord> ListQueue() => [];
+
+    public JobPage QueryHistory(JobQuery query) => new([], 0);
+
+    public JobRecord? GetRecord(long id) => null;
+}
 
 /// <summary>
 /// The dashboard's small web app. It is built from an empty builder on purpose: it reads no appsettings, no
@@ -60,6 +77,9 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Config);
         builder.Services.AddSingleton(options.Status);
         builder.Services.AddSingleton(options.Time);
+        builder.Services.AddSingleton(options.Jobs);
+        builder.Services.AddSingleton<LogViewer>();
+        builder.Services.AddSingleton<OverviewReader>();
 
         return builder;
     }

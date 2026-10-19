@@ -3,6 +3,12 @@ namespace AiRunner.Hosting;
 /// <summary>The latest poll error of one project.</summary>
 public sealed record ProjectPollError(string Project, string Message, DateTimeOffset At);
 
+/// <summary>The job the worker runs now. <c>Round</c> is set by agent sessions (implement, review fix), else null.</summary>
+public sealed record RunningJob(long Id, string Type, string Repo, int Number, DateTimeOffset StartedAt)
+{
+    public int? Round { get; init; }
+}
+
 /// <summary>A copy of <see cref="RunnerStatus"/> at one moment; safe to read on any thread.</summary>
 public sealed record RunnerStatusSnapshot(
     DateTimeOffset StartedAt,
@@ -12,7 +18,8 @@ public sealed record RunnerStatusSnapshot(
     DateTimeOffset? LastPollStartedAt,
     DateTimeOffset? LastPollEndedAt,
     DateTimeOffset? WorkerBusySince,
-    IReadOnlyList<ProjectPollError> Errors)
+    IReadOnlyList<ProjectPollError> Errors,
+    RunningJob? Running = null)
 {
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);
@@ -34,6 +41,7 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
     private DateTimeOffset? _lastPollStartedAt;
     private DateTimeOffset? _lastPollEndedAt;
     private DateTimeOffset? _workerBusySince;
+    private RunningJob? _running;
 
     public void SetCopilotVersion(string? version)
     {
@@ -76,11 +84,12 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
         }
     }
 
-    public void WorkerBusy()
+    public void WorkerBusy(RunningJob? job = null)
     {
         lock (_lock)
         {
             _workerBusySince = time.GetUtcNow();
+            _running = job;
         }
     }
 
@@ -89,6 +98,19 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
         lock (_lock)
         {
             _workerBusySince = null;
+            _running = null;
+        }
+    }
+
+    /// <summary>The running agent session starts round <paramref name="round"/>.</summary>
+    public void JobRound(int round)
+    {
+        lock (_lock)
+        {
+            if (_running is not null)
+            {
+                _running = _running with { Round = round };
+            }
         }
     }
 
@@ -108,7 +130,8 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
                 _lastPollStartedAt,
                 _lastPollEndedAt,
                 _workerBusySince,
-                errors);
+                errors,
+                _running);
         }
     }
 }

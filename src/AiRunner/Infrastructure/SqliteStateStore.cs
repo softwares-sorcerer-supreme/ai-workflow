@@ -61,9 +61,12 @@ public interface IStateStore
     void DeleteJob(long id);
 
     void AddCost(CostEntry entry);
+
+    /// <summary>Remembers the job's log folder (a name under logs/jobs/) so the dashboard can open it.</summary>
+    void SetJobLogDir(long id, string folderName);
 }
 
-public sealed class SqliteStateStore : IStateStore
+public sealed class SqliteStateStore : IStateStore, IJobReader
 {
     private readonly string _connectionString;
 
@@ -87,6 +90,8 @@ public sealed class SqliteStateStore : IStateStore
             CREATE TABLE IF NOT EXISTS cost_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, repo TEXT NOT NULL,
                 number INTEGER NOT NULL, workflow TEXT NOT NULL, duration_s REAL NOT NULL, result TEXT NOT NULL, detail TEXT);
             """);
+
+        AddColumnIfMissing("jobs", "log_dir", "TEXT");
     }
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)
@@ -252,7 +257,120 @@ public sealed class SqliteStateStore : IStateStore
             ("$detail", entry.Detail));
     }
 
+    public void SetJobLogDir(long id, string folderName) =>
+        Execute("UPDATE jobs SET log_dir = $dir WHERE id = $id", ("$id", id), ("$dir", folderName));
+
+    public IReadOnlyList<JobRecord> ListQueue() =>
+        QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
+
+    public JobRecord? GetRecord(long id) =>
+        QueryRecords("WHERE j.id = $id", ("$id", id)).FirstOrDefault();
+
+    public JobPage QueryHistory(JobQuery query)
+    {
+        var conditions = new List<string>();
+        var args = new List<(string, object?)>();
+
+        if (query.Status is not null)
+        {
+            conditions.Add("j.status = $status");
+            args.Add(("$status", query.Status));
+        }
+
+        if (query.Type is not null)
+        {
+            conditions.Add("j.type = $type");
+            args.Add(("$type", query.Type));
+        }
+
+        if (query.Repos is not null)
+        {
+            var names = query.Repos.Select((repo, index) => ($"$repo{index}", repo)).ToList();
+            var placeholders = names.Count == 0 ? "NULL" : string.Join(", ", names.Select(name => name.Item1));
+            conditions.Add($"j.repo IN ({placeholders})");
+            args.AddRange(names.Select(name => (name.Item1, (object?)name.repo)));
+        }
+
+        var where = conditions.Count == 0 ? "" : "WHERE " + string.Join(" AND ", conditions);
+        var countSql = $"SELECT COUNT(*) FROM jobs j {where}";
+        var total = Convert.ToInt32(Scalar(countSql, args.ToArray()) ?? 0, CultureInfo.InvariantCulture);
+
+        var pageSize = Math.Max(1, query.PageSize);
+        var offset = (Math.Max(1, query.Page) - 1) * pageSize;
+        var items = QueryRecords($"{where} ORDER BY j.id DESC LIMIT {pageSize} OFFSET {offset}", args.ToArray());
+
+        return new JobPage(items, total);
+    }
+
     // ---- helpers ----
+
+    /// <summary>
+    /// The cost row of a job is the first one of the same repo and number written between the job's start and a minute
+    /// after its end (the worker writes it right after the status change).
+    /// </summary>
+    private List<JobRecord> QueryRecords(string tail, params (string, object?)[] args)
+    {
+        var sql = $"""
+            SELECT j.id, j.type, j.repo, j.number, j.status, j.attempts, j.created_at, j.started_at, j.finished_at,
+                j.error, j.log_dir,
+                (SELECT c.result FROM cost_log c WHERE {CostMatch} ORDER BY c.at LIMIT 1),
+                (SELECT c.detail FROM cost_log c WHERE {CostMatch} ORDER BY c.at LIMIT 1)
+            FROM jobs j {tail}
+            """;
+
+        using var connection = Open();
+        using var command = Command(connection, sql, args);
+        using var reader = command.ExecuteReader();
+
+        var records = new List<JobRecord>();
+        while (reader.Read())
+        {
+            records.Add(new JobRecord(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetString(4),
+                reader.GetInt32(5),
+                ParseTime(reader.GetString(6)),
+                reader.IsDBNull(7) ? null : ParseTime(reader.GetString(7)),
+                reader.IsDBNull(8) ? null : ParseTime(reader.GetString(8)),
+                reader.IsDBNull(9) ? null : reader.GetString(9),
+                reader.IsDBNull(10) ? null : reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12)));
+        }
+
+        return records;
+    }
+
+    private const string CostMatch = """
+        c.repo = j.repo AND c.number = j.number AND j.started_at IS NOT NULL AND j.finished_at IS NOT NULL
+        AND julianday(c.at) BETWEEN julianday(j.started_at) AND julianday(j.finished_at) + 60.0 / 86400.0
+        """;
+
+    private static DateTimeOffset ParseTime(string text) =>
+        DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+    /// <summary>Upgrades a database made by an older runner; a new database already has the column.</summary>
+    private void AddColumnIfMissing(string table, string column, string type)
+    {
+        using var connection = Open();
+        using var command = Command(connection, $"PRAGMA table_info({table})");
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        reader.Close();
+        using var alter = Command(connection, $"ALTER TABLE {table} ADD COLUMN {column} {type}");
+        alter.ExecuteNonQuery();
+    }
 
     private List<StoredJob> QueryJobs(string where, params (string, object?)[] args)
     {

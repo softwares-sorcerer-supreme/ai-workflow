@@ -36,6 +36,7 @@ public sealed class DashboardHostTests : IDisposable
             _status,
             _copilot,
             TimeProvider.System,
+            AiRunner.Web.NoJobs.Instance,
             serviceProvider.GetRequiredService<ILogger<DashboardHost>>())
         {
             WebRoot = _webRoot,

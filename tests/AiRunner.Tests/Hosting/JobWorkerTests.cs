@@ -1,3 +1,4 @@
+using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
 using AiRunner.Tests.Fakes;
@@ -125,6 +126,75 @@ public sealed class JobWorkerTests : IDisposable
 
         Assert.NotNull(busySinceDuringJob);
         Assert.Null(_kit.Status.Snapshot().WorkerBusySince);
+    }
+
+    private sealed class RoundJob(Func<JobRun, Task<JobOutcome>> run) : IJob
+    {
+        public JobType Type => JobType.AnalyzeIssue;
+        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
+        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) =>
+            run(jobRun);
+    }
+
+    [Fact]
+    public async Task The_running_job_and_its_round_are_visible_while_it_runs_and_gone_after_it()
+    {
+        RunningJob? during = null;
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(jobRun =>
+        {
+            during = _kit.Status.Snapshot().Running;
+            jobRun.ReportRound(2);
+            during = _kit.Status.Snapshot().Running;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        var request = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(request);
+
+        await worker.DrainAsync(default);
+
+        Assert.NotNull(during);
+        Assert.Equal("AnalyzeIssue", during.Type);
+        Assert.Equal(request.Repo, during.Repo);
+        Assert.Equal(7, during.Number);
+        Assert.Equal(2, during.Round);
+        Assert.Null(_kit.Status.Snapshot().Running);
+    }
+
+    [Fact]
+    public async Task A_job_that_has_not_reported_a_round_has_none()
+    {
+        RunningJob? during = null;
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(_ =>
+        {
+            during = _kit.Status.Snapshot().Running;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        Assert.NotNull(during);
+        Assert.Null(during.Round);
+    }
+
+    [Fact]
+    public async Task The_log_folder_of_a_kept_job_is_stored_on_its_row()
+    {
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(jobRun =>
+        {
+            jobRun.Save("note.txt", "x");
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        var job = Assert.Single(_kit.State.QueryHistory(new JobQuery()).Items);
+        Assert.NotNull(job.LogDir);
+        Assert.EndsWith("-7-AnalyzeIssue", job.LogDir);
     }
 
     [Fact]

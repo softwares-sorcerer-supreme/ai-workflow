@@ -76,6 +76,9 @@ public sealed class JobWorker(
 
         stateStore.SetJobStatus(stored.Id, JobStatus.Running);
         var run = jobLog.Begin(request);
+        var logFolder = Path.GetFileName(run.Dir);
+        stateStore.SetJobLogDir(stored.Id, logFolder);
+        run.RoundChanged = status.JobRound;
         var stopwatch = Stopwatch.StartNew();
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -87,7 +90,13 @@ public sealed class JobWorker(
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
         var target = new ClaimTarget(request.Repo, request.Number) { Until = run.Deadline };
         var isClaimHeld = false;
-        status.WorkerBusy();
+        var runningJob = new RunningJob(
+            stored.Id,
+            request.Type.ToString(),
+            request.Repo,
+            request.Number,
+            DateTimeOffset.UtcNow);
+        status.WorkerBusy(runningJob);
 
         try
         {
@@ -166,7 +175,6 @@ public sealed class JobWorker(
             var failedJob = new FinishedJob(request, job.Info, stopwatch.Elapsed, failedOutcome);
             Record(failedJob);
 
-            var logFolder = Path.GetFileName(run.Dir);
             var failure = new JobFailure(job, request, message, logFolder);
             await ReportFailureAsync(failure);
         }
