@@ -1,5 +1,6 @@
 import { WritableSignal, signal } from '@angular/core';
 import { HealthResponse } from '../api/models/health-response';
+import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
 import { PollResource } from './poll-resource';
 import { Clock } from './time/clock';
@@ -103,6 +104,29 @@ export function sampleJob(overrides: Partial<JobResponse> = {}): JobResponse {
     detail: '2 rounds',
     error: null,
     hasLog: true,
+    ...overrides,
+  };
+}
+
+/** An open issue in the ready-simple stage, without flags, badge or sub-issues; override fields per test. */
+export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRowResponse {
+  return {
+    project: 'shop',
+    repo: 'team/shop',
+    number: 42,
+    title: 'Export orders as CSV',
+    state: 'open',
+    stateLabel: 'Open',
+    stage: 'ready-simple',
+    stageLabel: 'Ready - simple',
+    flags: [],
+    badge: null,
+    component: 'api',
+    htmlUrl: 'http://gitbucket.local/team/shop/issues/42',
+    updatedAt: '2026-01-01T11:30:00Z',
+    closedAt: null,
+    parent: null,
+    subIssues: [],
     ...overrides,
   };
 }

@@ -16,8 +16,7 @@ export const routes: Routes = [
   {
     path: 'issues',
     title: titled('Issues'),
-    loadComponent: placeholder,
-    data: { heading: 'Issues', subtitle: 'Every issue the runner polls, with its stage.' },
+    loadComponent: () => import('./pages/issues/issues').then((page) => page.Issues),
   },
   {
     path: 'issues/:owner/:repo/:number',

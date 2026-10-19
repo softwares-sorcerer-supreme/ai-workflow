@@ -51,7 +51,59 @@ public static class DashboardApi
             .WithName("getJobFile")
             .WithSummary("One log file as text (cut after 2 MB).");
 
+        api.MapGet("/issues", GetIssues)
+            .WithTags("Issues")
+            .WithName("getIssues")
+            .WithSummary("Every issue the runner polls, with its stage; sub-issues nested unless flat.");
+
         return endpoints;
+    }
+
+    /// <summary>The query string of <c>GET /api/issues</c>.</summary>
+    public sealed record IssuesFilter(
+        [FromQuery(Name = "project")] string? Project,
+        [FromQuery(Name = "component")] string? Component,
+        [FromQuery(Name = "stage")] string? Stage,
+        [FromQuery(Name = "state")] string? State,
+        [FromQuery(Name = "flat")] bool? Flat);
+
+    private static Results<Ok<IssueListResponse>, BadRequest<ApiError>> GetIssues(
+        [AsParameters] IssuesFilter filter,
+        RunnerConfig config,
+        IssueReader issues)
+    {
+        var (project, component, stage, state, flat) = filter;
+
+        ProjectConfig? found = null;
+        if (project is not null)
+        {
+            found = config.Projects.FirstOrDefault(candidate => candidate.Name == project);
+            if (found is null)
+            {
+                return TypedResults.BadRequest(new ApiError($"Unknown project '{project}'."));
+            }
+        }
+
+        var projects = found is null ? config.Projects : [found];
+        if (component is not null && !projects.Any(candidate => candidate.CodeComponentNames.Contains(component)))
+        {
+            return TypedResults.BadRequest(new ApiError($"Unknown component '{component}'."));
+        }
+
+        if (stage is not null && !IssueStage.Stages.Any(known => known.Code == stage))
+        {
+            return TypedResults.BadRequest(new ApiError($"Unknown stage '{stage}'."));
+        }
+
+        if (state is not null && state != SnapshotRules.Open && state != SnapshotRules.Closed)
+        {
+            return TypedResults.BadRequest(new ApiError($"Unknown state '{state}'. Use open or closed."));
+        }
+
+        var query = new IssueQuery(project, component, stage, state, flat ?? false);
+        var list = issues.Read(query);
+
+        return TypedResults.Ok(list);
     }
 
     private const int PageSize = 25;

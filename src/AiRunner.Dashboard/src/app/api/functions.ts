@@ -13,3 +13,5 @@ export type { GetJobFiles$Params as GetJobFiles$Params } from './fn/jobs/get-job
 export { getJobFiles as getJobFiles } from './fn/jobs/get-job-files';
 export type { GetJobFile$Params as GetJobFile$Params } from './fn/jobs/get-job-file';
 export { getJobFile as getJobFile } from './fn/jobs/get-job-file';
+export type { GetIssues$Params as GetIssues$Params } from './fn/issues/get-issues';
+export { getIssues as getIssues } from './fn/issues/get-issues';

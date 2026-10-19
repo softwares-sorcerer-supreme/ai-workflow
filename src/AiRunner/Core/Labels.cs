@@ -71,6 +71,13 @@ public static class Branches
 
     public static bool IsAiIssueBranch(string branch) => branch.StartsWith("ai/issue-", StringComparison.Ordinal);
 
+    /// <summary>
+    /// A branch the runner pushes a PR from: ai/issue-*, feat/issue-* or a saved review fix ai/pr-*. The dashboard
+    /// keeps closed PRs from these branches only.
+    /// </summary>
+    public static bool IsRunnerBranch(string branch) =>
+        IsAiIssueBranch(branch) || IsFeature(branch) || branch.StartsWith("ai/pr-", StringComparison.Ordinal);
+
     /// <summary>True for the feature branch of a parent issue (feat/issue-N).</summary>
     public static bool IsFeature(string branch) => branch.StartsWith(FeaturePrefix, StringComparison.Ordinal);
 

@@ -70,6 +70,8 @@ builder.Services.AddSingleton<IWorkspace, Workspace>();
 builder.Services.AddSingleton<SqliteStateStore>();
 builder.Services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();
@@ -91,6 +93,7 @@ builder.Services.AddSingleton<ClaimService>();
 
 // Hosting.
 builder.Services.AddSingleton<JobQueue>();
+builder.Services.AddSingleton<SnapshotRecorder>();
 builder.Services.AddSingleton<Poller>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddSingleton<LabelSetup>();

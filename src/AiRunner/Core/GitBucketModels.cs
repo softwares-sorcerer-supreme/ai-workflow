@@ -21,7 +21,10 @@ public sealed record GbIssue(
     JsonElement? PullRequest,
     string? State = null,
     List<GbUser>? Assignees = null,
-    GbUser? Assignee = null);
+    GbUser? Assignee = null,
+    DateTimeOffset? CreatedAt = null,
+    DateTimeOffset? ClosedAt = null,
+    string? HtmlUrl = null);
 
 public sealed record GbComment(long Id, string? Body, GbUser User, DateTimeOffset CreatedAt);
 
@@ -39,7 +42,8 @@ public sealed record GbPull(
     bool? Merged = null,
     DateTimeOffset? MergedAt = null,
     bool? Draft = null,
-    List<GbLabel>? Labels = null);
+    List<GbLabel>? Labels = null,
+    string? HtmlUrl = null);
 
 public static class GbExtensions
 {

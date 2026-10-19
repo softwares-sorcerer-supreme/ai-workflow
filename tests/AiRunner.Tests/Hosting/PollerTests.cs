@@ -14,11 +14,13 @@ public sealed class PollerTests : IDisposable
 
     public void Dispose() => _kit.Dispose();
 
-    private Poller NewPoller(bool dryRun = false) =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.State, _queue, _kit.Identity, _kit.Status, NullLogger<Poller>.Instance)
-        {
-            DryRun = dryRun
-        };
+    private Poller NewPoller(bool dryRun = false)
+    {
+        var poller = _kit.NewPoller(_queue);
+        poller.DryRun = dryRun;
+
+        return poller;
+    }
 
     private List<JobRequest> Pending() =>
         _kit.State.ListJobs(JobStatus.Pending).Select(job => job.Request).ToList();

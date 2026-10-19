@@ -171,8 +171,14 @@ Local, read-only status page of one runner (`docs/specs/dashboard.md`, `docs/adr
 `dashboard: { enabled: false, port: 5180 }`; only the polling loop (not `--once`, `--dry-run` or the other modes) starts
 `Hosting/DashboardHost`, which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
 token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; GET only, anything else 405; no CORS, no auth). A taken port
-is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`, later
-the stage and waiting-on rules) and sent as a stable code plus a label.
+is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`,
+`Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
+
+- **Snapshot** (`issue_snapshot`, `pull_snapshot`; a cache like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
+  `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off) and, on the first and every
+  10th poll, keeps the closed issues and runner PRs the dashboard still needs (`Core/SnapshotRules`). It never throws and never touches
+  fingerprints, decisions or the queue; `--dry-run` writes none. `Core/IssueStage` finds "its PR" through `IssuePulls` /
+  `SubIssueSequencer.SlotPulls` / `FinalPull`, the same helpers `FinishIssueJob` and the sequencer use.
 
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a

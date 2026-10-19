@@ -31,17 +31,21 @@ public static class JobSupport
     /// </summary>
     public static ComponentConfig TargetComponent(this ProjectConfig project, string? componentName = null)
     {
-        if (componentName is not null)
+        var component = project.CodeComponentOf(componentName);
+        if (component is not null)
         {
-            return project.CodeComponents.FirstOrDefault(component => component.Name == componentName)
-                   ?? throw new JobFailedException(
-                       $"Component `{componentName}` is not a code component of project `{project.Name}`.");
+            return component;
         }
 
-        return project.SoleCodeComponent
-               ?? throw new JobFailedException(
-                   $"Project `{project.Name}` has more than one code component and nothing says which one this work is for. " +
-                   $"Write {project.Settings.TriggerKeyword} to run the analysis again.");
+        if (componentName is not null)
+        {
+            throw new JobFailedException(
+                $"Component `{componentName}` is not a code component of project `{project.Name}`.");
+        }
+
+        throw new JobFailedException(
+            $"Project `{project.Name}` has more than one code component and nothing says which one this work is for. " +
+            $"Write {project.Settings.TriggerKeyword} to run the analysis again.");
     }
 
     /// <summary>

@@ -231,6 +231,74 @@
           }
         }
       }
+    },
+    "/api/issues": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "Every issue the runner polls, with its stage; sub-issues nested unless flat.",
+        "operationId": "getIssues",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "flat",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -242,6 +310,21 @@
         "type": "object",
         "properties": {
           "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CodeLabelResponse": {
+        "required": [
+          "code",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
             "type": "string"
           }
         }
@@ -314,6 +397,134 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PollErrorResponse"
+            }
+          }
+        }
+      },
+      "IssueListResponse": {
+        "required": [
+          "items",
+          "projects",
+          "stages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueRowResponse"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectOptionResponse"
+            }
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          }
+        }
+      },
+      "IssueRowResponse": {
+        "required": [
+          "project",
+          "repo",
+          "number",
+          "title",
+          "state",
+          "stateLabel",
+          "stage",
+          "stageLabel",
+          "flags",
+          "badge",
+          "component",
+          "htmlUrl",
+          "updatedAt",
+          "closedAt",
+          "parent",
+          "subIssues"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "stageLabel": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "badge": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "component": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "htmlUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "parent": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "subIssues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueRowResponse"
             }
           }
         }
@@ -573,6 +784,24 @@
           }
         }
       },
+      "ProjectOptionResponse": {
+        "required": [
+          "name",
+          "components"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "RunningJobResponse": {
         "required": [
           "id",
@@ -668,6 +897,9 @@
     },
     {
       "name": "Jobs"
+    },
+    {
+      "name": "Issues"
     }
   ]
 }

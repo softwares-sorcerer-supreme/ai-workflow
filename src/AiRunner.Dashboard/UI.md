@@ -57,9 +57,9 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
-`JOB_STATUS_TONES`, `WORKER_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`,
-`jobStatusTone(code)`, `workerIcon(code)`), which falls
-back to `neutral` for an unknown code. Those maps are the only place a code is interpreted: a template never compares
+`JOB_STATUS_TONES`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`) and read it through its helper
+(`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `issueMarkTone(code)`, `issueMarkIcon(code)`,
+`workerIcon(code)`), which falls back to `neutral` (or no icon) for an unknown code. Those maps are the only place a code is interpreted: a template never compares
 a code (`state === 'busy'`) and never builds label text (plurals, counts). If text is missing, the API should send it
 ready (like `errorsLabel` on `/api/health`).
 
@@ -195,6 +195,9 @@ protected readonly trackById = (_index: number, row: JobRow) => row.id;
 - `clickable` + `rowClick` to open a detail screen (keyboard: Enter works). Links inside cells are fine too.
 - Paging (when an endpoint pages): put a `mat-paginator` under the table and pass the page to the endpoint; the table
   itself does not page or sort on the client.
+- Nested rows (sub-issues under a parent): the table is flat. Turn the API's nested answer into lines (each parent
+  followed by its children, with a flag such as `isSubIssue`) in a `computed`, and indent the first cell's template
+  with padding (`pages/issues`). That is layout only: the API decides what is nested and what matches a filter.
 
 ### `app-status-chip`
 
@@ -204,7 +207,12 @@ protected readonly trackById = (_index: number, row: JobRow) => row.id;
 ```
 `label` comes from the API. `tone` from a code-to-tone map (section 2). Optional `icon` (replaces the dot) and
 `title` (hover text). Flags next to a stage: `Failed` danger, `Claimed by X` neutral with `lock`, `On GitHub`
-neutral with `cloud`. Badges: `Queued` progress with `schedule`, `Running` progress with `play_circle`.
+neutral with `cloud`. Badges: `Queued` progress with `schedule`, `Running` progress with `play_circle`. Flags and
+badges of an issue (codes `failed`, `claimed`, `on-github`, `queued`, `running`) take both from `issueMarkTone` and
+`issueMarkIcon`:
+```html
+<app-status-chip [label]="flag.label" [tone]="markTone(flag.code)" [icon]="markIcon(flag.code)" />
+```
 
 ### `app-stage-chip`
 
@@ -322,7 +330,8 @@ tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePo
 `error`, `isLoading` by hand), `fixedClock` (now = 2026-01-01 12:00 UTC), `sampleHealth(overrides)`. Provide a
 fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
 its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
-`callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`, and wait for the
+`callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)` or
+`sampleIssue(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
 `MatPaginatorHarness`). For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
 and `HttpTestingController`.

@@ -15,6 +15,7 @@ public sealed class DashboardHost(
     ICopilotRunner copilot,
     TimeProvider time,
     IJobReader jobs,
+    ISnapshotReader snapshot,
     ILogger<DashboardHost> logger) : BackgroundService
 {
     /// <summary>Where build-dashboard.ps1 puts the built UI (copied next to the runner's binaries).</summary>
@@ -23,7 +24,11 @@ public sealed class DashboardHost(
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         var port = config.Dashboard.Port;
-        var options = new DashboardAppOptions(config, status, time, WebRoot) { Jobs = jobs };
+        var options = new DashboardAppOptions(config, status, time, WebRoot)
+        {
+            Jobs = jobs,
+            Snapshot = snapshot,
+        };
         var builder = DashboardApp.CreateBuilder(options);
         await using var app = DashboardApp.Build(builder, options);
 

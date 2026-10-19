@@ -35,6 +35,9 @@ public interface IJobReader
     /// <summary>Pending jobs in the order the worker takes them.</summary>
     IReadOnlyList<JobRecord> ListQueue();
 
+    /// <summary>Queued and running jobs: the Queued / Running badge of an issue.</summary>
+    IReadOnlyList<JobRecord> ListActive();
+
     /// <summary>All jobs, newest first.</summary>
     JobPage QueryHistory(JobQuery query);
 

@@ -69,7 +69,7 @@ public interface IStateStore
     void SetJobResult(long id, string result, string detail);
 }
 
-public sealed class SqliteStateStore : IStateStore, IJobReader
+public sealed partial class SqliteStateStore : IStateStore, IJobReader
 {
     private readonly string _connectionString;
 
@@ -97,6 +97,7 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
         AddColumnIfMissing("jobs", "log_dir", "TEXT");
         AddColumnIfMissing("jobs", "result", "TEXT");
         AddColumnIfMissing("jobs", "detail", "TEXT");
+        CreateSnapshotTables();
     }
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)
@@ -274,6 +275,9 @@ public sealed class SqliteStateStore : IStateStore, IJobReader
 
     public IReadOnlyList<JobRecord> ListQueue() =>
         QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
+
+    public IReadOnlyList<JobRecord> ListActive() =>
+        QueryRecords("WHERE j.status IN ('pending', 'running') ORDER BY j.id");
 
     public JobRecord? GetRecord(long id) =>
         QueryRecords("WHERE j.id = $id", ("$id", id)).FirstOrDefault();

@@ -1,0 +1,48 @@
+.filter {
+  width: 170px;
+}
+
+.issue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
+// A sub-issue sits one step in, under its parent.
+.issue.sub-issue {
+  padding-left: var(--app-space-4);
+}
+
+.nest {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  align-self: center;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.number {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.title {
+  overflow-wrap: anywhere;
+}
+
+a.title {
+  color: var(--mat-sys-primary);
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+}
+
+@media (max-width: 599.98px) {
+  .filter {
+    width: 100%;
+  }
+}

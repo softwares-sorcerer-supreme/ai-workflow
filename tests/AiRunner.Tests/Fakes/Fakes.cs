@@ -381,7 +381,22 @@ public sealed class JobTestKit : IDisposable
         return (worker, queue, logs);
     }
 
-    /// <summary>The clock of the claims; a test moves it to age a claim.</summary>
+    /// <summary>A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given.</summary>
+    public Poller NewPoller(JobQueue queue, ISnapshotStore? snapshotStore = null)
+    {
+        var recorder = new SnapshotRecorder(
+            GitBucket,
+            snapshotStore ?? State,
+            Config,
+            Time,
+            NullLogger<SnapshotRecorder>.Instance);
+
+        var logger = NullLogger<Poller>.Instance;
+
+        return new Poller(Config, GitBucket, Loader, State, queue, Identity, Status, recorder, logger);
+    }
+
+    /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>
     public FakeTime Time { get; } = new();
 
     public void Dispose()

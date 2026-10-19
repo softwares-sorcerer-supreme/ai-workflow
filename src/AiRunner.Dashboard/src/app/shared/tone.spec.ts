@@ -1,4 +1,32 @@
-import { JOB_STATUS_TONES, jobStatusTone } from './tone';
+import {
+  ISSUE_MARK_TONES,
+  JOB_STATUS_TONES,
+  issueMarkIcon,
+  issueMarkTone,
+  jobStatusTone,
+} from './tone';
+
+describe('issueMarkTone and issueMarkIcon', () => {
+  it.each([
+    ['failed', 'danger', undefined],
+    ['claimed', 'neutral', 'lock'],
+    ['on-github', 'neutral', 'cloud'],
+    ['queued', 'progress', 'schedule'],
+    ['running', 'progress', 'play_circle'],
+  ])('shows %s as %s with icon %s', (code, tone, icon) => {
+    expect(issueMarkTone(code)).toBe(tone);
+    expect(issueMarkIcon(code)).toBe(icon);
+  });
+
+  it('shows an unknown flag as neutral without an icon', () => {
+    expect(issueMarkTone('paused')).toBe('neutral');
+    expect(issueMarkIcon('paused')).toBeUndefined();
+  });
+
+  it('has a color for every flag and badge the API sends', () => {
+    expect(Object.keys(ISSUE_MARK_TONES).sort()).toEqual(['claimed', 'failed', 'on-github', 'queued', 'running']);
+  });
+});
 
 describe('jobStatusTone', () => {
   it.each([

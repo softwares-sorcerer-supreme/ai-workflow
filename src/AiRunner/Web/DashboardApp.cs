@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Serialization;
 using AiRunner.Configuration;
+using AiRunner.Core;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using Microsoft.AspNetCore.Builder;
@@ -16,6 +17,19 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
 {
     /// <summary>Read access to the job table; the default holds no jobs (the OpenAPI export needs none).</summary>
     public IJobReader Jobs { get; init; } = NoJobs.Instance;
+
+    /// <summary>Read access to the snapshot; the default is empty (the OpenAPI export needs none).</summary>
+    public ISnapshotReader Snapshot { get; init; } = NoSnapshot.Instance;
+}
+
+/// <summary>A snapshot reader for a runner that has no database yet.</summary>
+public sealed class NoSnapshot : ISnapshotReader
+{
+    public static NoSnapshot Instance { get; } = new();
+
+    public IReadOnlyList<IssueSnapshot> ListIssues() => [];
+
+    public IReadOnlyList<PullSnapshot> ListPulls() => [];
 }
 
 /// <summary>A job reader for a runner that has no database yet.</summary>
@@ -24,6 +38,8 @@ public sealed class NoJobs : IJobReader
     public static NoJobs Instance { get; } = new();
 
     public IReadOnlyList<JobRecord> ListQueue() => [];
+
+    public IReadOnlyList<JobRecord> ListActive() => [];
 
     public JobPage QueryHistory(JobQuery query) => new([], 0);
 
@@ -78,8 +94,10 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Status);
         builder.Services.AddSingleton(options.Time);
         builder.Services.AddSingleton(options.Jobs);
+        builder.Services.AddSingleton(options.Snapshot);
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<OverviewReader>();
+        builder.Services.AddSingleton<IssueReader>();
 
         return builder;
     }

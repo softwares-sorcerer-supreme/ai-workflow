@@ -44,17 +44,17 @@ public sealed class FinishIssueJob(
             return JobOutcome.NotNeeded(exception.Message);
         }
 
-        var branch = Branches.Issue(issue.Number);
         var allPulls = await gitBucketClient.ListAllPullsAsync(target.Repo, cancellationToken);
-        var pulls = allPulls.Where(pull => pull.Head.Ref == branch).ToList();
-
-        var merged = pulls.FirstOrDefault(pull => pull.IsMerged());
+        var pulls = IssuePulls.OfIssue(issue.Number, allPulls);
+        var outcome = IssuePulls.OutcomeOf(pulls);
 
         // A PR is still open, or none was made yet: nothing to do. The implement job owns that state.
-        if (merged is null && (pulls.Count == 0 || pulls.Any(pull => pull.IsOpen())))
+        if (outcome is PullOutcome.None or PullOutcome.Open)
         {
             return JobOutcome.NotNeeded("no merged PR yet");
         }
+
+        var merged = pulls.FirstOrDefault(pull => pull.IsMerged());
 
         // Both ways below write to the issue, so this is the moment to claim it.
         if (!await run.ClaimAsync(cancellationToken))

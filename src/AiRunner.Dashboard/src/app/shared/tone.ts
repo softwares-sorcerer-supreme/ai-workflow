@@ -37,6 +37,26 @@ export const JOB_STATUS_TONES: Readonly<Record<string, Tone>> = {
   failed: 'danger',
 };
 
+/**
+ * Color per issue flag and badge code (C# Core/IssueStage): the flags `failed`, `claimed`, `on-github` next to the
+ * stage, and the badges `queued`, `running` when this runner has a job for the issue.
+ */
+export const ISSUE_MARK_TONES: Readonly<Record<string, Tone>> = {
+  failed: 'danger',
+  claimed: 'neutral',
+  'on-github': 'neutral',
+  queued: 'progress',
+  running: 'progress',
+};
+
+/** Icon per issue flag and badge code; a code without one shows the tone dot. */
+export const ISSUE_MARK_ICONS: Readonly<Record<string, string>> = {
+  claimed: 'lock',
+  'on-github': 'cloud',
+  queued: 'schedule',
+  running: 'play_circle',
+};
+
 /** Icon per worker state code (`idle` or `busy`). */
 const WORKER_ICONS: Readonly<Record<string, string>> = {
   idle: 'pause_circle',
@@ -56,6 +76,16 @@ export function healthTone(code: string | undefined): Tone {
 /** The icon of a worker state code, a neutral dot-like icon for an unknown one. */
 export function workerIcon(code: string): string {
   return WORKER_ICONS[code] ?? 'pause_circle';
+}
+
+/** The color of an issue flag or badge code, neutral for an unknown one. */
+export function issueMarkTone(code: string): Tone {
+  return ISSUE_MARK_TONES[code] ?? 'neutral';
+}
+
+/** The icon of an issue flag or badge code, or undefined (the chip then shows its dot). */
+export function issueMarkIcon(code: string): string | undefined {
+  return ISSUE_MARK_ICONS[code];
 }
 
 /** The color of a job status code, neutral for an unknown one. */

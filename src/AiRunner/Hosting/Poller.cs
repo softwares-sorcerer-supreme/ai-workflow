@@ -14,6 +14,8 @@ namespace AiRunner.Hosting;
 /// labels) of the last time there was nothing to do, and reads comments only when it changed.
 /// While an issue still needs a job, nothing is remembered: if the job fails without being able
 /// to report it (e.g. VPN down), the next poll plans it again instead of losing the request.
+/// What it lists also goes to the dashboard's snapshot (<see cref="SnapshotRecorder"/>), which never
+/// changes a decision; open PRs are listed for it even when review and fix are off.
 /// </summary>
 public sealed class Poller(
     RunnerConfig config,
@@ -23,8 +25,14 @@ public sealed class Poller(
     JobQueue queue,
     RunnerIdentity identity,
     RunnerStatus status,
+    SnapshotRecorder snapshot,
     ILogger<Poller> logger) : BackgroundService
 {
+    private int _pollCount;
+
+    /// <summary>Projects whose slow snapshot refresh is due; one stays due until its refresh went through.</summary>
+    private readonly HashSet<string> _refreshDue = [];
+
     /// <summary>Print the decisions only; queue nothing and keep the local state unchanged.</summary>
     public bool DryRun { get; set; }
 
@@ -44,14 +52,22 @@ public sealed class Poller(
     {
         status.PollStarted();
 
+        _pollCount++;
+        if (_pollCount == 1 || _pollCount % SnapshotRecorder.SlowRefreshEvery == 0)
+        {
+            _refreshDue.UnionWith(config.Projects.Select(project => project.Name));
+        }
+
         foreach (var project in config.Projects)
         {
             // The first error of this poll is what the dashboard shows for the project.
             string? failure = null;
+            IReadOnlyList<GbIssue> openIssues = [];
+            var openPulls = new Dictionary<string, IReadOnlyList<GbPull>>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                await PollIssuesAsync(project, cancellationToken);
+                openIssues = await PollIssuesAsync(project, cancellationToken);
             }
             // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -64,12 +80,22 @@ public sealed class Poller(
             {
                 try
                 {
-                    await PollPullsAsync(new PullLocation(project, repo), cancellationToken);
+                    openPulls[repo] = await PollPullsAsync(new PullLocation(project, repo), cancellationToken);
                 }
                 catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
                 {
                     logger.LogError("{Repo}: PR poll failed: {Message}", repo, exception.Message);
                     failure ??= $"{repo}: PR poll failed: {exception.Message}";
+                }
+            }
+
+            // Removing rows needs complete lists: after a failed list the refresh waits for the next poll.
+            if (!DryRun && failure is null && _refreshDue.Contains(project.Name))
+            {
+                var poll = new ProjectPoll(project, openIssues, openPulls);
+                if (await snapshot.RefreshClosedAsync(poll, cancellationToken))
+                {
+                    _refreshDue.Remove(project.Name);
                 }
             }
 
@@ -91,7 +117,10 @@ public sealed class Poller(
         }
     }
 
-    private async Task PollIssuesAsync(ProjectConfig project, CancellationToken cancellationToken)
+    /// <summary>Plans every open issue in scope; returns them for the snapshot.</summary>
+    private async Task<IReadOnlyList<GbIssue>> PollIssuesAsync(
+        ProjectConfig project,
+        CancellationToken cancellationToken)
     {
         // All issues of a project live in its issues repo; issues anywhere else are ignored.
         var repo = project.IssuesRepo;
@@ -123,6 +152,11 @@ public sealed class Poller(
 
         logger.LogInformation("{Repo}: {Total} open issues in scope, {Changed} to check", repo, issues.Count, changedCount);
 
+        if (!DryRun)
+        {
+            snapshot.RecordIssues(project, issues);
+        }
+
         foreach (var issue in issues)
         {
             var isChanged = seenFingerprints.GetValueOrDefault(issue.Number) != fingerprints[issue.Number];
@@ -149,19 +183,36 @@ public sealed class Poller(
                 stateStore.SetIssueFingerprint(repo, issue.Number, fingerprints[issue.Number]);
             }
         }
+
+        return issues;
     }
 
-    private async Task PollPullsAsync(PullLocation location, CancellationToken cancellationToken)
+    /// <summary>Plans the open PRs of one repo when review or fix is on; returns them for the snapshot.</summary>
+    private async Task<IReadOnlyList<GbPull>> PollPullsAsync(PullLocation location, CancellationToken cancellationToken)
     {
         var (project, repo) = location;
         var settings = project.Settings;
+        var isPlanned = settings.IsEnabled(Workflows.Review) || settings.IsEnabled(Workflows.Fix);
 
-        if (!settings.IsEnabled(Workflows.Review) && !settings.IsEnabled(Workflows.Fix))
+        // The list is needed for planning, or for the snapshot; a dry run writes no snapshot.
+        if (!isPlanned && DryRun)
         {
-            return;
+            return [];
         }
 
-        foreach (var pull in await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken))
+        var pulls = await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken);
+
+        if (!DryRun)
+        {
+            snapshot.RecordPulls(location, pulls);
+        }
+
+        if (!isPlanned)
+        {
+            return pulls;
+        }
+
+        foreach (var pull in pulls)
         {
             // Only PRs a review fix can touch need their comments; PRs have no fingerprint, so this is one call per poll each.
             var plannedPull = await jobLoader.PlanPullAsync(location, pull, cancellationToken);
@@ -170,6 +221,8 @@ public sealed class Poller(
 
             Handle(decision, $"PR #{pull.Number} \"{pull.Title}\" {pull.Head.Ref} -> {pull.Base.Ref} @ {shortSha}");
         }
+
+        return pulls;
     }
 
     private void Handle(PlanDecision decision, string what)

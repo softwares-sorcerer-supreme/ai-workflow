@@ -107,12 +107,9 @@ public static class SubIssueSequencer
             }
 
             var slot = new SubIssueSlot(input.Parent, order);
-            var slotPulls = input.PullsOf(subIssue.Repo)
-                .Where(pull => pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
-                               pull.Base.Ref == Branches.Feature(slot.Parent))
-                .ToList();
+            var slotPulls = SlotPulls(slot, input.PullsOf(subIssue.Repo));
 
-            if (slotPulls.Count > 0 && !slotPulls.Any(pull => pull.IsMerged() || pull.IsOpen()))
+            if (IssuePulls.OutcomeOf(slotPulls) == PullOutcome.ClosedWithoutMerge)
             {
                 abandoned.Add(new AbandonedSubIssue(subIssue, slotPulls[0]));
             }
@@ -190,12 +187,19 @@ public static class SubIssueSequencer
         return new(SequenceStep.Wait, "waiting for the final PRs to be merged");
     }
 
+    /// <summary>
+    /// The PRs of a sub-issue slot: its branch ai/issue-{parent}-{order} into the feature branch. A PR from that
+    /// branch into another base does not count. The dashboard's stage uses the same rule.
+    /// </summary>
+    public static IReadOnlyList<GbPull> SlotPulls(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
+        pulls
+            .Where(pull => pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
+                           pull.Base.Ref == Branches.Feature(slot.Parent))
+            .ToList();
+
     /// <summary>The merged PR of a sub-issue slot (its branch into the feature branch), or null.</summary>
     public static GbPull? MergedPull(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
-        pulls.FirstOrDefault(pull =>
-            pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
-            pull.Base.Ref == Branches.Feature(slot.Parent) &&
-            pull.IsMerged());
+        SlotPulls(slot, pulls).FirstOrDefault(pull => pull.IsMerged());
 
     /// <summary>
     /// The final PR of a repo: head is the feature branch, merged or still open (a merged one wins). A PR that was
