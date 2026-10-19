@@ -21,8 +21,7 @@ export const routes: Routes = [
   {
     path: 'issues/:owner/:repo/:number',
     title: titled('Issue'),
-    loadComponent: placeholder,
-    data: { heading: 'Issue', subtitle: 'One issue end to end: jobs, sub-issues and pull requests.' },
+    loadComponent: () => import('./pages/issue-detail/issue-detail').then((page) => page.IssueDetail),
   },
   {
     path: 'jobs',

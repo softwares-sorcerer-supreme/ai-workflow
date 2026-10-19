@@ -16,7 +16,13 @@ import {
 } from '../../shared/testing';
 import { Overview } from './overview';
 
-const IDLE: OverviewResponse = { runningJob: null, queueLabel: 'Queue is empty', queue: [] };
+const IDLE: OverviewResponse = {
+  runningJob: null,
+  queueLabel: 'Queue is empty',
+  queue: [],
+  waitingLabel: 'Nothing is waiting on you',
+  waitingOn: [],
+};
 
 describe('Overview', () => {
   async function render(
@@ -48,6 +54,7 @@ describe('Overview', () => {
 
   it('shows the running job with its round and the queue', async () => {
     const element = await render(fakePollResource(sampleHealth()), {
+      ...IDLE,
       runningJob: {
         id: 9,
         type: 'ImplementIssue',
@@ -83,6 +90,56 @@ describe('Overview', () => {
     expect(queue.textContent).toContain('1 job queued');
     expect(queue.querySelector('tr.mat-mdc-row')?.textContent).toContain('team/shop#43');
     expect(queue.querySelector('app-status-chip')?.classList).toContain('tone-progress');
+  });
+
+  it('shows the empty text of the waiting panel from the API', async () => {
+    const element = await render(fakePollResource(sampleHealth()));
+
+    const waiting = element.querySelector('#waiting') as HTMLElement;
+    expect(waiting.querySelector('h2')?.textContent).toContain('Nothing is waiting on you');
+    expect(waiting.querySelector('tr.mat-mdc-row')).toBeNull();
+  });
+
+  it('lists what waits on you with the action text and a link to the issue detail', async () => {
+    const element = await render(fakePollResource(sampleHealth()), {
+      ...IDLE,
+      waitingLabel: '2 waiting on you',
+      waitingOn: [
+        {
+          project: 'shop',
+          repo: 'team/shop',
+          number: 42,
+          title: 'Export orders as CSV',
+          stage: { code: 'questions-open', label: 'Questions open' },
+          flags: [],
+          action: { code: 'answer-questions', label: 'Answer the questions' },
+          htmlUrl: 'http://gitbucket.local/team/shop/issues/42',
+          updatedAt: '2026-01-01T10:00:00Z',
+        },
+        {
+          project: 'shop',
+          repo: 'team/shop',
+          number: 43,
+          title: 'Add filters',
+          stage: { code: 'pr-open', label: 'PR open' },
+          flags: [],
+          action: { code: 'review-and-merge', label: 'Review and merge the PR' },
+          htmlUrl: null,
+          updatedAt: '2026-01-01T11:00:00Z',
+        },
+      ],
+    });
+
+    const waiting = element.querySelector('#waiting') as HTMLElement;
+    expect(waiting.querySelector('h2')?.textContent).toContain('2 waiting on you');
+
+    const rows = Array.from(waiting.querySelectorAll('tr.mat-mdc-row'));
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('Answer the questions');
+    expect(rows[0].textContent).toContain('#42 team/shop');
+    expect(rows[0].querySelector('app-stage-chip app-status-chip')?.classList).toContain('tone-warning');
+    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('/issues/team/shop/42');
+    expect(rows[1].textContent).toContain('Review and merge the PR');
   });
 
   it('shows the runner facts and "no poll errors"', async () => {

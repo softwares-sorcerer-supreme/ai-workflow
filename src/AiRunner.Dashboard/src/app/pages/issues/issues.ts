@@ -3,10 +3,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { RouterLink } from '@angular/router';
 import { Api } from '../../api/api';
 import { getIssues } from '../../api/fn/issues/get-issues';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
+import { issueLink } from '../../shared/issue-link';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
 import { StageChip } from '../../shared/stage-chip/stage-chip';
@@ -35,6 +37,7 @@ export interface IssueTableRow extends IssueRowResponse {
     MatSelectModule,
     MatSlideToggleModule,
     PageHeader,
+    RouterLink,
     StageChip,
     StatusChip,
   ],
@@ -92,6 +95,7 @@ export class Issues {
     { key: 'updatedAt', header: 'Updated', width: '170px', hideBelow: 'md' },
   ];
 
+  protected readonly link = (row: IssueRowResponse) => issueLink(row.repo, row.number);
   protected readonly markTone = issueMarkTone;
   protected readonly markIcon = issueMarkIcon;
   protected readonly trackByIssue = (_index: number, row: IssueTableRow) => `${row.repo}#${row.number}`;

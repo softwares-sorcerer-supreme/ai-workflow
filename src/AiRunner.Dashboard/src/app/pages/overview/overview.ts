@@ -5,12 +5,15 @@ import { Router, RouterLink } from '@angular/router';
 import { Api } from '../../api/api';
 import { getOverview } from '../../api/fn/overview/get-overview';
 import { JobResponse } from '../../api/models/job-response';
+import { WaitingItemResponse } from '../../api/models/waiting-item-response';
 import { PollErrorResponse } from '../../api/models/poll-error-response';
 import { HealthStore } from '../../layout/health-store';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
+import { issueLink } from '../../shared/issue-link';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
+import { StageChip } from '../../shared/stage-chip/stage-chip';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { DurationPipe } from '../../shared/time/duration.pipe';
 import { AppTime } from '../../shared/time/time';
@@ -19,7 +22,7 @@ import { ViewState } from '../../shared/view-state/view-state';
 
 /**
  * What the runner is doing now: the running job, the queue, the runner's facts and the poll errors per project.
- * The "waiting on you" list joins this screen in a later version.
+ * Below them the "waiting on you" list: issues and PRs that need a person, longest waiting first.
  */
 @Component({
   selector: 'app-overview',
@@ -33,6 +36,7 @@ import { ViewState } from '../../shared/view-state/view-state';
     MatIconModule,
     PageHeader,
     RouterLink,
+    StageChip,
     StatusChip,
     ViewState,
   ],
@@ -65,8 +69,17 @@ export class Overview {
     { key: 'createdAt', header: 'Queued', align: 'end', width: '170px', hideBelow: 'sm' },
   ];
 
+  protected readonly waitingColumns: readonly DataColumn[] = [
+    { key: 'stage', header: 'Stage', width: '190px' },
+    { key: 'action', header: 'Action', width: '280px' },
+    { key: 'issue', header: 'Issue' },
+  ];
+
   protected readonly statusTone = jobStatusTone;
   protected readonly trackById = (_index: number, row: JobResponse) => row.id;
+
+  protected readonly trackByWaiting = (_index: number, row: WaitingItemResponse) => `${row.repo}#${row.number}`;
+  protected readonly link = (row: WaitingItemResponse) => issueLink(row.repo, row.number);
 
   protected readonly trackByProject = (_index: number, row: PollErrorResponse) => row.project;
 

@@ -97,6 +97,32 @@
     </app-data-table>
   </section>
 
+  <section id="waiting" class="app-card" aria-labelledby="waiting-title">
+    <h2 id="waiting-title" class="app-card-title">
+      {{ overview.value()?.waitingLabel ?? 'Waiting on you' }}
+    </h2>
+
+    <app-data-table
+      [rows]="overview.value()?.waitingOn"
+      [columns]="waitingColumns"
+      [loading]="overview.isLoading()"
+      [error]="overview.error()"
+      [trackBy]="trackByWaiting"
+      (retry)="overview.reload()"
+      emptyTitle="Nothing is waiting on you"
+      emptyMessage="Issues that need a human action are listed here."
+    >
+      <ng-template appCell="stage" let-row>
+        <app-stage-chip [code]="row.stage.code" [label]="row.stage.label" />
+      </ng-template>
+      <ng-template appCell="action" let-row>{{ row.action.label }}</ng-template>
+      <ng-template appCell="issue" let-row>
+        <a class="waiting-link" [routerLink]="link(row)">{{ row.title }}</a>
+        <span class="app-mono app-muted"> #{{ row.number }} {{ row.repo }}</span>
+      </ng-template>
+    </app-data-table>
+  </section>
+
   @if (health(); as health) {
     <section class="app-card" aria-labelledby="runner-title">
       <div class="card-head">

@@ -1,0 +1,165 @@
+@if (detail.value(); as current) {
+  <app-page-header [title]="current.issue.title" [subtitle]="current.issue.repo + ' #' + current.issue.number">
+    @if (current.issue.htmlUrl; as url) {
+      <a actions mat-stroked-button [href]="url" target="_blank" rel="noopener noreferrer">
+        <mat-icon aria-hidden="true">open_in_new</mat-icon>
+        Open in GitBucket
+      </a>
+    }
+  </app-page-header>
+
+  <div class="app-stack">
+    @if (detail.error(); as message) {
+      <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+    }
+
+    <section class="app-card" aria-labelledby="summary-title">
+      <h2 id="summary-title" class="app-card-title">Status</h2>
+
+      <div class="marks">
+        <app-stage-chip [code]="current.issue.stage" [label]="current.issue.stageLabel" />
+        @if (current.issue.badge; as badge) {
+          <app-status-chip [label]="badge.label" [tone]="markTone(badge.code)" [icon]="markIcon(badge.code)" />
+        }
+        @for (flag of current.issue.flags; track flag.code) {
+          <app-status-chip [label]="flag.label" [tone]="markTone(flag.code)" [icon]="markIcon(flag.code)" />
+        }
+      </div>
+
+      <dl class="app-facts facts">
+        <dt>State</dt>
+        <dd>{{ current.issue.stateLabel }}</dd>
+
+        @if (current.waiting; as waiting) {
+          <dt>Waiting on you</dt>
+          <dd class="waiting">{{ waiting.label }}</dd>
+        }
+
+        <dt>Analysis</dt>
+        <dd>{{ current.analysis.status.label }}</dd>
+
+        <dt>Complexity</dt>
+        <dd>{{ current.analysis.complexity.label }}</dd>
+
+        <dt>Component</dt>
+        <dd>{{ current.analysis.component ?? '-' }}</dd>
+
+        <dt>Project</dt>
+        <dd>{{ current.issue.project }}</dd>
+
+        <dt>Updated</dt>
+        <dd><app-time [value]="current.issue.updatedAt" /></dd>
+      </dl>
+    </section>
+
+    @if (current.subIssues.length > 0) {
+      <section class="app-card" aria-labelledby="sub-issues-title">
+        <h2 id="sub-issues-title" class="app-card-title">Sub-issues</h2>
+
+        <app-data-table [rows]="current.subIssues" [columns]="subIssueColumns" [trackBy]="trackBySubIssue">
+          <ng-template appCell="issue" let-row>
+            <span class="app-mono app-muted">#{{ row.issue.number }} </span>
+            <a class="row-link" [routerLink]="link(row.issue.repo, row.issue.number)">{{ row.issue.title }}</a>
+          </ng-template>
+          <ng-template appCell="stage" let-row>
+            <app-stage-chip [code]="row.issue.stage" [label]="row.issue.stageLabel" />
+          </ng-template>
+          <ng-template appCell="pulls" let-row>
+            @for (pull of row.pulls; track pull.number) {
+              <div>
+                @if (pull.htmlUrl; as url) {
+                  <a class="row-link" [href]="url" target="_blank" rel="noopener noreferrer">#{{ pull.number }}</a>
+                } @else {
+                  #{{ pull.number }}
+                }
+                <span class="app-muted">{{ pull.stateLabel }}</span>
+              </div>
+            } @empty {
+              <span class="app-muted">-</span>
+            }
+          </ng-template>
+        </app-data-table>
+      </section>
+    }
+
+    <section class="app-card" aria-labelledby="pulls-title">
+      <h2 id="pulls-title" class="app-card-title">Pull requests</h2>
+
+      <app-data-table
+        [rows]="current.pulls"
+        [columns]="pullColumns"
+        [trackBy]="trackByPull"
+        emptyTitle="No pull requests"
+        emptyMessage="A pull request appears here once the runner has opened one for this issue."
+      >
+        <ng-template appCell="pull" let-row>
+          <span class="app-mono app-muted">#{{ row.number }} </span>
+          @if (row.htmlUrl; as url) {
+            <a class="row-link" [href]="url" target="_blank" rel="noopener noreferrer">{{ row.title }}</a>
+          } @else {
+            {{ row.title }}
+          }
+        </ng-template>
+        <ng-template appCell="branches" let-row>
+          <span class="app-mono">{{ row.headRef }} -> {{ row.baseRef }}</span>
+        </ng-template>
+        <ng-template appCell="state" let-row>{{ row.stateLabel }}</ng-template>
+      </app-data-table>
+    </section>
+
+    <section class="app-card" aria-labelledby="timeline-title">
+      <h2 id="timeline-title" class="app-card-title">Job timeline</h2>
+
+      <app-data-table
+        [rows]="current.timeline"
+        [columns]="jobColumns"
+        [trackBy]="trackByJob"
+        emptyTitle="No jobs yet"
+        emptyMessage="Jobs for this issue appear here once the runner has run one."
+      >
+        <ng-template appCell="type" let-row>{{ row.typeLabel }}</ng-template>
+        <ng-template appCell="status" let-row>
+          <app-status-chip [label]="row.statusLabel" [tone]="statusTone(row.status)" />
+        </ng-template>
+        <ng-template appCell="result" let-row>
+          {{ row.result ?? '-' }}
+          @if (row.detail) {
+            <span class="app-muted"> - {{ row.detail }}</span>
+          }
+        </ng-template>
+        <ng-template appCell="duration" let-row>{{ row.durationSeconds | duration }}</ng-template>
+        <ng-template appCell="startedAt" let-row><app-time [value]="row.startedAt" /></ng-template>
+        <ng-template appCell="log" let-row>
+          @if (row.hasLog) {
+            <a class="row-link" [routerLink]="['/jobs', row.id]">Open log</a>
+          } @else {
+            <span class="app-muted">-</span>
+          }
+        </ng-template>
+      </app-data-table>
+    </section>
+  </div>
+} @else {
+  <app-page-header title="Issue" [subtitle]="owner() + '/' + name() + ' #' + number()" />
+
+  <section class="app-card">
+    @if (isNotFound()) {
+      <app-view-state
+        kind="empty"
+        icon="search_off"
+        title="Issue not found"
+        message="The runner has no record of this issue. It may be outside every project, or not polled yet."
+      />
+    } @else if (detail.error()) {
+      <app-view-state
+        kind="error"
+        title="Could not load this issue"
+        [message]="detail.error()"
+        [canRetry]="true"
+        (retry)="detail.reload()"
+      />
+    } @else {
+      <app-view-state kind="loading" />
+    }
+  </section>
+}

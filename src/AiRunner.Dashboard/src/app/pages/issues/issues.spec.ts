@@ -2,6 +2,7 @@ import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { TestBed } from '@angular/core/testing';
 import { MatSelectHarness } from '@angular/material/select/testing';
 import { MatSlideToggleHarness } from '@angular/material/slide-toggle/testing';
+import { provideRouter } from '@angular/router';
 import { Api } from '../../api/api';
 import { getIssues } from '../../api/fn/issues/get-issues';
 import { IssueListResponse } from '../../api/models/issue-list-response';
@@ -48,7 +49,7 @@ describe('Issues', () => {
 
     TestBed.configureTestingModule({
       imports: [Issues],
-      providers: [fixedClock, { provide: Api, useValue: api }],
+      providers: [provideRouter([]), fixedClock, { provide: Api, useValue: api }],
     });
 
     const fixture = TestBed.createComponent(Issues);
@@ -103,10 +104,17 @@ describe('Issues', () => {
   it('links the title to GitBucket in a new tab when the API sends a link', async () => {
     const { element } = await render();
 
-    const link = rowsOf(element)[0].querySelector('a.title') as HTMLAnchorElement;
+    const link = rowsOf(element)[0].querySelector('a.external') as HTMLAnchorElement;
     expect(link.href).toBe('http://gitbucket.local/team/shop/issues/42');
     expect(link.target).toBe('_blank');
-    expect(rowsOf(element)[3].querySelector('a.title')).toBeNull();
+    expect(rowsOf(element)[3].querySelector('a.external')).toBeNull();
+  });
+
+  it('links the title to the issue detail page', async () => {
+    const { element } = await render();
+
+    const link = rowsOf(element)[0].querySelector('a.title') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/issues/team/shop/12');
   });
 
   it('asks the API again with the chosen stage', async () => {

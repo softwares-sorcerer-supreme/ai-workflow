@@ -61,10 +61,16 @@
           <mat-icon class="nest" aria-hidden="true">subdirectory_arrow_right</mat-icon>
         }
         <span class="number app-mono">#{{ row.number }}</span>
+        <a class="title" [routerLink]="link(row)">{{ row.title }}</a>
         @if (row.htmlUrl) {
-          <a class="title" [href]="row.htmlUrl" target="_blank" rel="noopener noreferrer">{{ row.title }}</a>
-        } @else {
-          <span class="title">{{ row.title }}</span>
+          <a
+            class="external"
+            [href]="row.htmlUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open in GitBucket"
+            ><mat-icon aria-hidden="true">open_in_new</mat-icon></a
+          >
         }
       </div>
     </ng-template>
