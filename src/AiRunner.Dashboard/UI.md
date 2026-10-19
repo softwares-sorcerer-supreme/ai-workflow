@@ -291,6 +291,14 @@ The health is polled once for the whole app by `HealthStore` (`layout/health-sto
 data injects `HealthStore` and reads `health.value()`; it never polls `/api/health` itself. Health codes map to
 tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`).
 
+### Charts
+
+No chart library. The one chart so far, `pages/cost/cost-chart` (bars of Copilot calls: columns over days, horizontal
+bars per project or issue), is inline SVG measured to its card's width, so text never scales. It only turns the API's
+numbers into pixels (no sums, no reordering), uses `--mat-sys-primary` for marks and `--mat-sys-outline-variant`
+hairlines, has `role="img"` with `<title>`/`<desc>`, a tooltip per bar, and the data table under it is its text
+alternative. Follow the same rules for a new chart and move it to `shared/` once a second screen needs it.
+
 ### Global CSS classes (`src/styles.scss`)
 
 - `.app-card` + `.app-card-title`: a panel with a title.

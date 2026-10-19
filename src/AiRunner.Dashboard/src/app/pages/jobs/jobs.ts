@@ -59,6 +59,8 @@ export class Jobs {
     { key: 'issue', header: 'Issue' },
     { key: 'startedAt', header: 'Started', width: '170px', hideBelow: 'sm' },
     { key: 'duration', header: 'Duration', align: 'end', width: '110px', hideBelow: 'sm' },
+    // No cell template: the table shows the number, or "-" for an old row or a failed job (null).
+    { key: 'copilotCalls', header: 'Calls', align: 'end', width: '70px', hideBelow: 'sm' },
     { key: 'result', header: 'Result', hideBelow: 'md' },
   ];
 

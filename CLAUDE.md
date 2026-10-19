@@ -180,6 +180,11 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   fingerprints, decisions or the queue; `--dry-run` writes none. `Core/IssueStage` finds "its PR" through `IssuePulls` /
   `SubIssueSequencer.SlotPulls` / `FinalPull`, the same helpers `FinishIssueJob` and the sequencer use.
 
+- **Cost.** `JobOutcome.CopilotCalls` (analyze/review 1, implement/fix `Rounds.Count`, breakdown and routine jobs 0, a failed job
+  null) is written by `JobWorker` to `cost_log.copilot_calls`, `jobs.copilot_calls` and the last column of `cost.csv`; old rows are
+  null and show as "-". `Core/CostReport` groups by local day, project or issue (a sub-issue rolls up into its parent, a review/fix job
+  into the issue its PR links); `GET /api/cost` only serves it.
+
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a
   waiting-on action, a health state or a total.

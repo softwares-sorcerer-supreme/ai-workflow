@@ -1,0 +1,32 @@
+.date {
+  width: 170px;
+}
+
+.caption {
+  margin: 0 0 var(--app-space-3);
+  font: var(--mat-sys-body-small);
+}
+
+app-inline-note {
+  margin-bottom: var(--app-space-3);
+}
+
+.group {
+  overflow-wrap: anywhere;
+}
+
+// The API's total line: the last row of the table, set apart by weight, not by a color.
+.total {
+  font: var(--mat-sys-label-large);
+}
+
+@media (max-width: 599.98px) {
+  mat-button-toggle-group,
+  .date {
+    width: 100%;
+  }
+
+  mat-button-toggle {
+    flex: 1;
+  }
+}

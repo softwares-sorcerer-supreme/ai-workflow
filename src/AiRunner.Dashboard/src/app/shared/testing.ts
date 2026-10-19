@@ -104,6 +104,7 @@ export function sampleJob(overrides: Partial<JobResponse> = {}): JobResponse {
     detail: '2 rounds',
     error: null,
     hasLog: true,
+    copilotCalls: 2,
     ...overrides,
   };
 }

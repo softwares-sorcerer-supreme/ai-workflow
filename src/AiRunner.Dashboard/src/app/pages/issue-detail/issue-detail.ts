@@ -77,6 +77,8 @@ export class IssueDetail {
     { key: 'status', header: 'Status', width: '120px' },
     { key: 'result', header: 'Result' },
     { key: 'duration', header: 'Duration', align: 'end', width: '110px', hideBelow: 'sm' },
+    // No cell template: the table shows the number, or "-" for an old row or a failed job (null).
+    { key: 'copilotCalls', header: 'Calls', align: 'end', width: '70px', hideBelow: 'sm' },
     { key: 'startedAt', header: 'Started', align: 'end', width: '170px', hideBelow: 'md' },
     { key: 'log', header: 'Log', width: '90px' },
   ];

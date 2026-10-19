@@ -30,7 +30,7 @@ const SIMPLE: IssueDetailResponse = {
       updatedAt: '2026-01-01T11:00:00Z',
     },
   ],
-  timeline: [sampleJob({ id: 7 }), sampleJob({ id: 6, hasLog: false, result: null, detail: null })],
+  timeline: [sampleJob({ id: 7 }), sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null })],
 };
 
 const PARENT: IssueDetailResponse = {
@@ -115,6 +115,8 @@ describe('IssueDetail', () => {
     expect(timeline[0].textContent).toContain('3 min 05 s');
     expect(timeline[0].querySelector('a')?.getAttribute('href')).toBe('/jobs/7');
     expect(timeline[1].querySelector('a')).toBeNull();
+    expect(timeline[0].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('2');
+    expect(timeline[1].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('-');
   });
 
   it('shows sub-issues with a link to their detail page, stage and PR', async () => {

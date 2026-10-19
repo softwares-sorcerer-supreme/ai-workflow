@@ -36,8 +36,7 @@ export const routes: Routes = [
   {
     path: 'cost',
     title: titled('Cost'),
-    loadComponent: placeholder,
-    data: { heading: 'Cost', subtitle: 'Copilot calls and job time per day, project and issue.' },
+    loadComponent: () => import('./pages/cost/cost').then((page) => page.Cost),
   },
   {
     path: '**',
