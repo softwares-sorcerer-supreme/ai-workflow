@@ -98,6 +98,18 @@ public sealed class JobWorker(
             DateTimeOffset.UtcNow);
         status.WorkerBusy(runningJob);
 
+        // Both kinds of job claim through here, so the dashboard learns of every claim that went through.
+        async Task<bool> TryClaimAsync(CancellationToken token)
+        {
+            var isClaimed = await claims.TryClaimAsync(target, token);
+            if (isClaimed)
+            {
+                status.ClaimHeld();
+            }
+
+            return isClaimed;
+        }
+
         try
         {
             if (claims.IsEnabled(request.Repo))
@@ -106,18 +118,14 @@ public sealed class JobWorker(
                 {
                     run.Claimer = async token =>
                     {
-                        isClaimHeld = isClaimHeld || await claims.TryClaimAsync(target, token);
-                        if (isClaimHeld)
-                        {
-                            status.ClaimHeld();
-                        }
+                        isClaimHeld = isClaimHeld || await TryClaimAsync(token);
 
                         return isClaimHeld;
                     };
                 }
                 else
                 {
-                    isClaimHeld = await claims.TryClaimAsync(target, timeoutSource.Token);
+                    isClaimHeld = await TryClaimAsync(timeoutSource.Token);
                     if (!isClaimHeld)
                     {
                         logger.LogDebug("{Request}: claimed by another runner", request);
@@ -125,8 +133,6 @@ public sealed class JobWorker(
                         FileSystem.DeleteDirectory(run.Dir);
                         return;
                     }
-
-                    status.ClaimHeld();
                 }
             }
 

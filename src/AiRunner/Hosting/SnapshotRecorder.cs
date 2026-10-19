@@ -23,8 +23,10 @@ public sealed class SnapshotRecorder(
     TimeProvider time,
     ILogger<SnapshotRecorder> logger)
 {
-    /// <summary>The slow refresh runs on the first poll and on every poll whose number is a multiple of this.</summary>
-    public const int SlowRefreshEvery = 10;
+    private const int SlowRefreshEvery = 10;
+
+    /// <summary>The slow refresh is due on the first poll and on every 10th one (poll numbers start at 1).</summary>
+    public static bool IsRefreshDue(int pollNumber) => pollNumber == 1 || pollNumber % SlowRefreshEvery == 0;
 
     public void RecordIssues(ProjectConfig project, IReadOnlyList<GbIssue> openIssues)
     {

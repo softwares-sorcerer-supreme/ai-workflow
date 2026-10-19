@@ -10,8 +10,8 @@ public sealed record JobActivity(bool IsQueued, bool IsRunning)
 {
     public static JobActivity None { get; } = new(false, false);
 
-    /// <summary>The running job holds this runner's claim on the issue (set when the claim went through).</summary>
-    public bool HoldsClaim { get; init; }
+    /// <summary>This runner's name while its running job holds the claim on the issue, else null.</summary>
+    public string? ClaimHolder { get; init; }
 }
 
 /// <summary>
@@ -37,9 +37,6 @@ public sealed record StageInput(
     IReadOnlyDictionary<string, IReadOnlyList<GbPull>> PullsByRepo)
 {
     public JobActivity Jobs { get; init; } = JobActivity.None;
-
-    /// <summary>This runner's name, shown when it holds the claim; null when unknown (another runner then).</summary>
-    public string? RunnerName { get; init; }
 
     public IReadOnlyList<GbPull> PullsOf(string repo) =>
         PullsByRepo.TryGetValue(repo, out var pulls) ? pulls : [];
@@ -178,28 +175,21 @@ public static class IssueStage
     /// </summary>
     private static PullOutcome FinalOutcome(StageInput input)
     {
-        var feature = Branches.Feature(input.Issue.Number);
         var repos = input.SubIssues
             .Select(subIssue => input.Project.CodeComponentOf(subIssue.Component)?.Repo)
             .OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var finalPulls = SubIssueSequencer.FinalPulls(input.Issue.Number, repos, input.PullsOf);
 
-        if (repos.Count == 0)
-        {
-            return PullOutcome.None;
-        }
-
-        var finalPulls = repos
-            .Select(repo => SubIssueSequencer.FinalPull(input.PullsOf(repo), feature))
-            .ToList();
-
-        if (finalPulls.All(pull => pull is not null && pull.IsMerged()))
+        if (SubIssueSequencer.AllMerged(finalPulls))
         {
             return PullOutcome.Merged;
         }
 
-        return finalPulls.Any(pull => pull is not null && pull.IsOpen()) ? PullOutcome.Open : PullOutcome.None;
+        var isAnyOpen = finalPulls.Values.Any(pull => pull is not null && pull.IsOpen());
+
+        return isAnyOpen ? PullOutcome.Open : PullOutcome.None;
     }
 
     private static List<CodeLabel> FlagsOf(StageInput input)
@@ -216,7 +206,7 @@ public static class IssueStage
         // from before a restart (it takes that back on its next job), shows as another runner's.
         if (issue.HasLabel(Labels.Claimed))
         {
-            var holder = input.Jobs.HoldsClaim && input.RunnerName is { } name ? name : "another runner";
+            var holder = input.Jobs.ClaimHolder ?? "another runner";
             flags.Add(new CodeLabel(IssueMarks.Claimed, $"Claimed by {holder}"));
         }
 

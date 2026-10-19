@@ -51,33 +51,31 @@ public sealed record IssueQuery(string? Project, string? Component, string? Stag
 /// </summary>
 public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, IJobReader jobs, RunnerStatus status)
 {
-    public IReadOnlyList<ProjectOptionResponse> ProjectOptions() =>
-        config.Projects
-            .Select(project => new ProjectOptionResponse(project.Name, project.CodeComponentNames))
-            .ToList();
-
-    public static IReadOnlyList<CodeLabelResponse> StageOptions() =>
-        IssueStage.Stages
-            .Select(CodeLabelResponse.From)
-            .ToList();
+    /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
+    private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
 
     public IssueListResponse Read(IssueQuery query)
     {
-        var issues = snapshot.ListIssues();
+        // Rows of another project are never shown, and sub-issues live in their parent's project.
+        var issues = snapshot.ListIssues()
+            .Where(issue => query.Project is null || issue.Project == query.Project)
+            .ToList();
         var pullsByRepo = PullsByRepo();
-        var activeJobs = jobs.ListActive();
-        var running = status.Snapshot().Running;
+        var jobsOf = jobs.ListActive().ToLookup(job => KeyOf(job.Repo, job.Number), KeyComparer);
+        var claimedKey = ClaimedKey();
         var runnerName = config.EffectiveRunnerName();
 
-        // Build order first, so the sub-issues of a parent come out in it; top-level rows are sorted again later.
-        var inBuildOrder = issues
+        // In build order, so each parent's sub-issues come out in it.
+        var subIssuesOf = issues
+            .Where(issue => issue.Parent is not null)
             .OrderBy(issue => issue.SubOrder ?? 0)
-            .ThenBy(issue => issue.Number);
+            .ThenBy(issue => issue.Number)
+            .ToLookup(issue => KeyOf(issue.Repo, issue.Parent!.Value), KeyComparer);
 
-        var rows = new List<IssueRowResponse>();
-        foreach (var issue in inBuildOrder)
+        var rows = new Dictionary<string, IssueRowResponse>(KeyComparer);
+        foreach (var issue in issues)
         {
-            var project = config.Projects.FirstOrDefault(candidate => candidate.Name == issue.Project);
+            var project = config.ProjectNamed(issue.Project);
 
             // A project no longer in repos.yml is not polled any more: its old rows stay in the database, unshown.
             if (project is null)
@@ -85,26 +83,41 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
                 continue;
             }
 
-            var subIssues = issues
-                .Where(other => other.Parent == issue.Number && SameRepo(other.Repo, issue.Repo))
-                .ToList();
+            var subIssues = subIssuesOf[issue.Key].ToList();
+            var claimHolder = KeyComparer.Equals(issue.Key, claimedKey) ? runnerName : null;
             var input = new StageInput(project, issue, subIssues, pullsByRepo)
             {
-                Jobs = ActivityOf(issue, activeJobs, running),
-                RunnerName = runnerName,
+                Jobs = ActivityOf(jobsOf[issue.Key], claimHolder),
             };
             var stage = IssueStage.Compute(input);
             var component = SnapshotRules.ComponentOf(issue, project);
 
-            rows.Add(Row(issue, stage, component));
+            rows[issue.Key] = Row(issue, stage, component);
         }
 
         var matching = rows
-            .Where(row => Matches(row, query))
+            .Where(entry => Matches(entry.Value, query))
+            .Select(entry => entry.Key)
+            .ToHashSet(KeyComparer);
+        var items = query.IsFlat
+            ? Newest(matching.Select(key => rows[key]))
+            : Nest(rows, matching, subIssuesOf);
+        var projectOptions = config.Projects
+            .Select(project => new ProjectOptionResponse(project.Name, project.CodeComponentNames))
             .ToList();
-        var items = query.IsFlat ? Newest(matching) : Nest(rows, matching);
+        var stageOptions = IssueStage.Stages
+            .Select(CodeLabelResponse.From)
+            .ToList();
 
-        return new IssueListResponse(items, ProjectOptions(), StageOptions());
+        return new IssueListResponse(items, projectOptions, stageOptions);
+    }
+
+    /// <summary>The issue or PR this runner's running job holds the claim on, or null.</summary>
+    private string? ClaimedKey()
+    {
+        var running = status.Snapshot().Running;
+
+        return running is { HoldsClaim: true } ? KeyOf(running.Repo, running.Number) : null;
     }
 
     private Dictionary<string, IReadOnlyList<GbPull>> PullsByRepo() =>
@@ -115,21 +128,17 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
                 group => (IReadOnlyList<GbPull>)group.Select(pull => pull.AsPull()).ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
-    private static JobActivity ActivityOf(IssueSnapshot issue, IReadOnlyList<JobRecord> activeJobs, RunningJob? running)
+    private static JobActivity ActivityOf(IEnumerable<JobRecord> jobsOfIssue, string? claimHolder)
     {
-        var jobsOfIssue = activeJobs
-            .Where(job => job.Number == issue.Number && SameRepo(job.Repo, issue.Repo))
+        var statuses = jobsOfIssue
+            .Select(job => job.Status)
             .ToList();
-        var isRunning = jobsOfIssue.Any(job => job.Status == JobStatus.Running);
-        var isQueued = jobsOfIssue.Any(job => job.Status == JobStatus.Pending);
-        var holdsClaim = running is not null &&
-                         running.HoldsClaim &&
-                         running.Number == issue.Number &&
-                         SameRepo(running.Repo, issue.Repo);
+        var isRunning = statuses.Contains(JobStatus.Running);
+        var isQueued = statuses.Contains(JobStatus.Pending);
 
         return new JobActivity(isQueued, isRunning)
         {
-            HoldsClaim = holdsClaim,
+            ClaimHolder = claimHolder,
         };
     }
 
@@ -177,22 +186,25 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
     /// filters, with the matching sub-issues only. A sub-issue whose parent is not in the snapshot stands on its own.
     /// </summary>
     private static List<IssueRowResponse> Nest(
-        IReadOnlyList<IssueRowResponse> rows,
-        IReadOnlyList<IssueRowResponse> matching)
+        IReadOnlyDictionary<string, IssueRowResponse> rows,
+        IReadOnlySet<string> matching,
+        ILookup<string, IssueSnapshot> subIssuesOf)
     {
-        var top = rows
-            .Where(row => row.Parent is null || !rows.Any(other => IsParentOf(other, row)))
-            .ToList();
-
         var items = new List<IssueRowResponse>();
-        foreach (var row in top)
+        foreach (var (key, row) in rows)
         {
-            // The rows are already in build order (see Read).
-            var subIssues = matching
-                .Where(subIssue => IsParentOf(row, subIssue))
+            // A sub-issue of a parent that is shown goes under that parent instead.
+            if (row.Parent is { } parent && rows.ContainsKey(KeyOf(row.Repo, parent)))
+            {
+                continue;
+            }
+
+            var subIssues = subIssuesOf[key]
+                .Where(subIssue => matching.Contains(subIssue.Key))
+                .Select(subIssue => rows[subIssue.Key])
                 .ToList();
 
-            if (subIssues.Count == 0 && !matching.Contains(row))
+            if (subIssues.Count == 0 && !matching.Contains(key))
             {
                 continue;
             }
@@ -206,9 +218,5 @@ public sealed class IssueReader(RunnerConfig config, ISnapshotReader snapshot, I
         return Newest(items);
     }
 
-    private static bool IsParentOf(IssueRowResponse parent, IssueRowResponse subIssue) =>
-        subIssue.Parent == parent.Number && SameRepo(parent.Repo, subIssue.Repo);
-
-    private static bool SameRepo(string repo, string other) =>
-        string.Equals(repo, other, StringComparison.OrdinalIgnoreCase);
+    private static string KeyOf(string repo, int number) => new IssueRef(repo, number).ToString();
 }

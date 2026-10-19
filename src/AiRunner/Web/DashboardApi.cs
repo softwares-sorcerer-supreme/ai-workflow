@@ -77,10 +77,10 @@ public static class DashboardApi
         ProjectConfig? found = null;
         if (project is not null)
         {
-            found = config.Projects.FirstOrDefault(candidate => candidate.Name == project);
+            found = config.ProjectNamed(project);
             if (found is null)
             {
-                return TypedResults.BadRequest(new ApiError($"Unknown project '{project}'."));
+                return TypedResults.BadRequest(UnknownProject(project));
             }
         }
 
@@ -140,10 +140,10 @@ public static class DashboardApi
         IReadOnlyList<string>? repos = null;
         if (project is not null)
         {
-            var found = config.Projects.FirstOrDefault(candidate => candidate.Name == project);
+            var found = config.ProjectNamed(project);
             if (found is null)
             {
-                return TypedResults.BadRequest(new ApiError($"Unknown project '{project}'."));
+                return TypedResults.BadRequest(UnknownProject(project));
             }
 
             repos = found.Repos.ToList();
@@ -220,6 +220,8 @@ public static class DashboardApi
             content.IsTruncated,
             note));
     }
+
+    private static ApiError UnknownProject(string project) => new($"Unknown project '{project}'.");
 
     private static string FormatOf(string fileName) =>
         fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? "markdown" : "text";

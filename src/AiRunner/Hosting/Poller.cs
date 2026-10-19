@@ -53,7 +53,7 @@ public sealed class Poller(
         status.PollStarted();
 
         _pollCount++;
-        if (_pollCount == 1 || _pollCount % SnapshotRecorder.SlowRefreshEvery == 0)
+        if (SnapshotRecorder.IsRefreshDue(_pollCount))
         {
             _refreshDue.UnionWith(config.Projects.Select(project => project.Name));
         }

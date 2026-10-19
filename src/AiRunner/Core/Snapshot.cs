@@ -91,12 +91,7 @@ public static class SnapshotRules
     public static IssueSnapshot IssueRow(ProjectConfig project, GbIssue issue, DateTimeOffset seenAt)
     {
         var labels = issue.LabelNames().Order(StringComparer.OrdinalIgnoreCase).ToList();
-        var assignees = (issue.Assignees ?? [])
-            .Append(issue.Assignee)
-            .OfType<GbUser>()
-            .Select(user => user.Login)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var assignees = issue.AssigneeLogins();
         var subIssueInfo = SubIssueInfoOf(issue);
         var state = issue.IsOpen() ? Open : Closed;
 
@@ -153,7 +148,7 @@ public static class SnapshotRules
     /// component (a simple issue's own component is in its analysis comment, which the snapshot does not hold).
     /// </summary>
     public static string? ComponentOf(IssueSnapshot issue, ProjectConfig project) =>
-        project.CodeComponentOf(issue.Component)?.Name ?? issue.Component;
+        issue.Component ?? project.SoleCodeComponent?.Name;
 
     private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
     {

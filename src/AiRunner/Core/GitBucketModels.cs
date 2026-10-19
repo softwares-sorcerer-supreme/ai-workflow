@@ -71,7 +71,17 @@ public static class GbExtensions
         issue.PullRequest is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined };
 
     /// <summary>Checks "assignees" and the older single "assignee" field.</summary>
-    public static bool IsAssignedTo(this GbIssue issue, string login) => AnyIs(issue.Assignees, issue.Assignee, login);
+    public static bool IsAssignedTo(this GbIssue issue, string login) =>
+        issue.AssigneeLogins().Contains(login, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The logins in "assignees" and the older single "assignee" field, each once.</summary>
+    public static IReadOnlyList<string> AssigneeLogins(this GbIssue issue) =>
+        (issue.Assignees ?? [])
+            .Append(issue.Assignee)
+            .OfType<GbUser>()
+            .Select(user => user.Login)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>Open and not merged. A missing state counts as open (lists of open PRs may leave it out).</summary>
     public static bool IsOpen(this GbPull pull) => !pull.IsMerged() && IsOpenState(pull.State);
@@ -88,9 +98,4 @@ public static class GbExtensions
 
     private static HashSet<string> Names(List<GbLabel>? labels) =>
         (labels ?? []).Select(label => label.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    private static bool AnyIs(List<GbUser>? users, GbUser? single, string login) =>
-        (users ?? [])
-            .Append(single)
-            .Any(user => string.Equals(user?.Login, login, StringComparison.OrdinalIgnoreCase));
 }

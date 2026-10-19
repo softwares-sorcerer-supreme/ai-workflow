@@ -251,15 +251,12 @@ public sealed class IssueStageTests
     public void Claim_names_this_runner_only_while_its_job_holds_the_claim()
     {
         var issue = Open(7, Labels.Claimed);
-        var input = new StageInput(_project, issue, [], new Dictionary<string, IReadOnlyList<GbPull>>())
-        {
-            RunnerName = "laptop-1",
-        };
+        var input = new StageInput(_project, issue, [], new Dictionary<string, IReadOnlyList<GbPull>>());
         var running = new JobActivity(IsQueued: false, IsRunning: true);
 
         var holding = IssueStage.Compute(input with
         {
-            Jobs = running with { HoldsClaim = true }
+            Jobs = running with { ClaimHolder = "laptop-1" }
         });
 
         // A routine job runs before it claims: the claim on the issue is someone else's until then.
@@ -267,15 +264,9 @@ public sealed class IssueStageTests
         {
             Jobs = running
         });
-        var nameUnknown = IssueStage.Compute(input with
-        {
-            Jobs = running with { HoldsClaim = true },
-            RunnerName = null
-        });
 
         Assert.Equal("Claimed by laptop-1", Assert.Single(holding.Flags).Label);
         Assert.Equal("Claimed by another runner", Assert.Single(notYetClaimed.Flags).Label);
-        Assert.Equal("Claimed by another runner", Assert.Single(nameUnknown.Flags).Label);
     }
 
     [Theory]

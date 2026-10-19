@@ -39,6 +39,10 @@ public sealed class RunnerConfig
     public ProjectConfig? FindProject(string repo) =>
         Projects.FirstOrDefault(project => project.HasRepo(repo));
 
+    /// <summary>The project with this name (as in repos.yml, case-sensitive), or null.</summary>
+    public ProjectConfig? ProjectNamed(string name) =>
+        Projects.FirstOrDefault(project => project.Name == name);
+
     /// <summary>Every distinct repo of every project, in file order.</summary>
     public IEnumerable<string> AllRepos() =>
         Projects
