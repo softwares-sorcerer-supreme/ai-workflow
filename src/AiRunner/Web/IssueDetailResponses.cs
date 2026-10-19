@@ -40,8 +40,6 @@ public sealed record IssueDetailResponse(
 /// <summary>Builds the detail page of one issue from the issue board, the snapshot's PRs and the job table.</summary>
 public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boardReader, IJobReader jobs)
 {
-    private const string None = "none";
-
     /// <summary>The detail of "owner/repo#number", or null when the snapshot has no such issue.</summary>
     public IssueDetailResponse? Read(string repo, int number)
     {
@@ -57,8 +55,8 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
         var waiting = entry.Waiting is { } action ? CodeLabelResponse.From(action) : null;
         var pulls = PullsOf(entry, board);
         var subIssues = entry.SubIssues
-            .Where(subIssue => board.Entries.ContainsKey(subIssue.Key))
-            .Select(subIssue => board.Entries[subIssue.Key])
+            .Select(subIssue => board.Entries.GetValueOrDefault(subIssue.Key))
+            .OfType<IssueEntry>()
             .Select(subEntry => new SubIssueDetailResponse(IssueReader.RowOf(subEntry), PullsOf(subEntry, board)))
             .ToList();
         var timeline = TimelineOf(entry, pulls);
@@ -68,22 +66,13 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
 
     private static AnalysisSummaryResponse AnalysisOf(IssueEntry entry)
     {
-        var issue = entry.Issue;
+        var summary = AnalysisSummary.Of(entry.Issue);
+        var component = SnapshotRules.ComponentOf(entry.Issue, entry.Project);
 
-        var status = issue switch
-        {
-            _ when issue.HasLabel(Labels.QuestionsOpen) => new CodeLabelResponse("questions-open", "Questions open"),
-            _ when issue.HasLabel(Labels.Ready) => new CodeLabelResponse("ready", "Ready"),
-            _ => new CodeLabelResponse(None, "Not analysed yet"),
-        };
-        var complexity = issue switch
-        {
-            _ when issue.HasLabel(Labels.Complex) => new CodeLabelResponse("complex", "Complex"),
-            _ when issue.HasLabel(Labels.Simple) => new CodeLabelResponse("simple", "Simple"),
-            _ => new CodeLabelResponse(None, "Unknown"),
-        };
-
-        return new AnalysisSummaryResponse(status, complexity, SnapshotRules.ComponentOf(issue, entry.Project));
+        return new AnalysisSummaryResponse(
+            CodeLabelResponse.From(summary.Status),
+            CodeLabelResponse.From(summary.Complexity),
+            component);
     }
 
     /// <summary>

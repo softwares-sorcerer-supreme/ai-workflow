@@ -19,7 +19,6 @@ public sealed record IssueEntry(
 /// </summary>
 public sealed record IssueBoard(
     IReadOnlyDictionary<string, IssueEntry> Entries,
-    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> PullsByRepo,
     IReadOnlyList<PullSnapshot> Pulls)
 {
     /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
@@ -53,8 +52,7 @@ public sealed class IssueBoardReader(RunnerConfig config, ISnapshotReader snapsh
             .ToLookup(issue => IssueBoard.KeyOf(issue.Repo, issue.Parent!.Value), comparer);
 
         // First every stage, then the actions: "start the next sub-issue" reads the stages of the sub-issues.
-        var stages = new Dictionary<string, StageResult>(comparer);
-        var projects = new Dictionary<string, ProjectConfig>(comparer);
+        var staged = new Dictionary<string, Staged>(comparer);
         foreach (var issue in issues)
         {
             var issueProject = config.ProjectNamed(issue.Project);
@@ -65,41 +63,46 @@ public sealed class IssueBoardReader(RunnerConfig config, ISnapshotReader snapsh
                 continue;
             }
 
+            var subIssues = subIssuesOf[issue.Key].ToList();
             var claimHolder = comparer.Equals(issue.Key, claimedKey) ? runnerName : null;
-            var input = new StageInput(issueProject, issue, subIssuesOf[issue.Key].ToList(), pullsByRepo)
+            var input = new StageInput(issueProject, issue, subIssues, pullsByRepo)
             {
                 Jobs = ActivityOf(jobsOf[issue.Key], claimHolder),
             };
 
-            stages[issue.Key] = IssueStage.Compute(input);
-            projects[issue.Key] = issueProject;
+            staged[issue.Key] = new Staged(issueProject, issue, subIssues, IssueStage.Compute(input));
         }
 
         var entries = new Dictionary<string, IssueEntry>(comparer);
-        foreach (var issue in issues.Where(issue => stages.ContainsKey(issue.Key)))
+        foreach (var (key, item) in staged)
         {
-            var subIssues = subIssuesOf[issue.Key].ToList();
-            var stage = stages[issue.Key];
-            var progress = subIssues
-                .Select(subIssue => ProgressOf(subIssue, stages))
+            var progress = item.SubIssues
+                .Select(subIssue => ProgressOf(subIssue, staged))
                 .ToList();
-            var autoStart = projects[issue.Key].Settings.AutoStartFirstSubIssue;
-            var waiting = WaitingOn.Of(new WaitingInput(issue, stage, autoStart, progress));
+            var autoStart = item.Project.Settings.AutoStartFirstSubIssue;
+            var waiting = WaitingOn.Of(new WaitingInput(item.Issue, item.Stage, autoStart, progress));
 
-            entries[issue.Key] = new IssueEntry(projects[issue.Key], issue, subIssues, stage, waiting);
+            entries[key] = new IssueEntry(item.Project, item.Issue, item.SubIssues, item.Stage, waiting);
         }
 
-        return new IssueBoard(entries, pullsByRepo, pulls);
+        return new IssueBoard(entries, pulls);
     }
 
-    private static SubIssueProgress ProgressOf(IssueSnapshot subIssue, Dictionary<string, StageResult> stages)
+    /// <summary>One issue after pass 1: its project, sub-issues and stage.</summary>
+    private sealed record Staged(
+        ProjectConfig Project,
+        IssueSnapshot Issue,
+        IReadOnlyList<IssueSnapshot> SubIssues,
+        StageResult Stage);
+
+    private static SubIssueProgress ProgressOf(IssueSnapshot subIssue, Dictionary<string, Staged> staged)
     {
-        if (!stages.TryGetValue(subIssue.Key, out var stage))
+        if (!staged.TryGetValue(subIssue.Key, out var item))
         {
             return new SubIssueProgress(subIssue.IsOpen, IssueStage.New, false);
         }
 
-        return new SubIssueProgress(subIssue.IsOpen, stage.Stage.Code, stage.Badge is not null);
+        return new SubIssueProgress(subIssue.IsOpen, item.Stage.Stage.Code, item.Stage.Badge is not null);
     }
 
     /// <summary>The issue or PR this runner's running job holds the claim on, or null.</summary>
