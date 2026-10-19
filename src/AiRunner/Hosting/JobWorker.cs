@@ -278,9 +278,11 @@ public sealed class JobWorker(
             info.Workflow,
             elapsed.TotalSeconds,
             outcome.Result,
-            outcome.Detail);
+            outcome.Detail,
+            outcome.CopilotCalls);
 
         costLog.Record(entry);
-        stateStore.SetJobResult(jobId, outcome.Result, outcome.Detail);
+        var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);
+        stateStore.SetJobResult(jobId, jobResult);
     }
 }

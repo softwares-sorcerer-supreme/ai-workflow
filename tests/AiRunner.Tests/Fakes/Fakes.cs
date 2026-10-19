@@ -280,6 +280,9 @@ public sealed class FakeTime : TimeProvider
 
     public override DateTimeOffset GetUtcNow() => _now;
 
+    /// <summary>Fixed, so a "day" in a test does not depend on the machine running it.</summary>
+    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
     public void Advance(TimeSpan span) => _now += span;
 }
 

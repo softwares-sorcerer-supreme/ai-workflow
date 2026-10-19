@@ -69,7 +69,7 @@ public sealed class FinishIssueJob(
             await gitBucketClient.CloseDoneAsync(request.Repo, issue.Number, comment, cancellationToken);
             run.Info($"closed issue #{issue.Number} (PR {mergedRef} merged)");
 
-            return JobOutcome.Ok($"closed after {mergedRef}");
+            return JobOutcome.Ok($"closed after {mergedRef}", copilotCalls: 0);
         }
 
         var closedRef = JobSupport.PullRef(pulls[0].Number, request.Repo, target.Repo);
@@ -81,6 +81,6 @@ public sealed class FinishIssueJob(
             cancellationToken);
         await gitBucketClient.RemoveLabelAsync(request.Repo, issue.Number, Labels.Implementing, cancellationToken);
 
-        return JobOutcome.Ok($"{closedRef} closed without a merge");
+        return JobOutcome.Ok($"{closedRef} closed without a merge", copilotCalls: 0);
     }
 }

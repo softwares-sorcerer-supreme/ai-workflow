@@ -143,7 +143,7 @@ public sealed class ImplementIssueJob(
                 $"PR #{openPull.Number} from `{branch}` is already open, so I did not start again. " +
                 "Push to that PR, or close it and delete the branch to start over.",
                 cancellationToken);
-            return new JobOutcome("already-open", $"PR #{openPull.Number}");
+            return new JobOutcome("already-open", $"PR #{openPull.Number}", CopilotCalls: 0);
         }
 
         var baseRemote = Branches.Remote(baseBranch);
@@ -296,7 +296,9 @@ public sealed class ImplementIssueJob(
             await gitBucketClient.ApplyLabelsAsync(issueRepo, issue.Number, tooBigChange, cancellationToken);
 
             return new JobOutcome(
-                "too-big", $"{stats.Count} files, {lines} lines, {result.Rounds.Count} copilot calls");
+                "too-big",
+                $"{stats.Count} files, {lines} lines, {result.Rounds.Count} copilot calls",
+                CopilotCalls: result.Rounds.Count);
         }
 
         var openPulls = await gitBucketClient.ListPullsAsync(target.Repo, "open", cancellationToken);
@@ -323,7 +325,8 @@ public sealed class ImplementIssueJob(
 
         return new JobOutcome(
             failing ? "wip" : "ok",
-            $"PR #{pull.Number}, {stats.Count} files, {lines} lines, {result.Rounds.Count} copilot calls");
+            $"PR #{pull.Number}, {stats.Count} files, {lines} lines, {result.Rounds.Count} copilot calls",
+            CopilotCalls: result.Rounds.Count);
     }
 
     /// <summary>Saves a failed or oversized run too, so it cannot lose the work.</summary>
@@ -386,7 +389,7 @@ public sealed class ImplementIssueJob(
     {
         await gitBucketClient.AddCommentAsync(repoName, issue.Number, $"I did not start: {reason}", cancellationToken);
         await gitBucketClient.RemoveLabelAsync(repoName, issue.Number, Labels.Implement, cancellationToken);
-        return new JobOutcome("rejected", reason);
+        return new JobOutcome("rejected", reason, CopilotCalls: 0);
     }
 
     private static string PullBody(IssueRef issue, string prBody, AgentResult result)

@@ -26,6 +26,7 @@ public sealed class ReviewPullRequestJobTests : IDisposable
         var firstOutcome = await Job.RunAsync(firstReviewRequest, _kit.Run, default);
 
         Assert.Equal("needs changes: 1 bug, 0 risk, 0 convention, 1 style", firstOutcome.Detail);
+        Assert.Equal(1, firstOutcome.CopilotCalls);
 
         var first = _kit.GitBucket.CommentsOf(30).Single();
         Assert.True(BotComments.Is(first, Markers.Review));
@@ -150,6 +151,7 @@ public sealed class SequenceSubIssuesJobTests : IDisposable
         var outcome = await Job.RunAsync(sequenceRequest, _kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
+        Assert.Equal(0, outcome.CopilotCalls);
         Assert.Contains(Labels.Implement, _kit.GitBucket.LabelsOf(21));
         Assert.Single(_kit.GitBucket.CommentsOf(21));
 

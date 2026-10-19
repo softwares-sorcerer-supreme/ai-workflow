@@ -4,6 +4,8 @@
 export type { AnalysisSummaryResponse } from './models/analysis-summary-response';
 export type { ApiError } from './models/api-error';
 export type { CodeLabelResponse } from './models/code-label-response';
+export type { CostResponse } from './models/cost-response';
+export type { CostRowResponse } from './models/cost-row-response';
 export type { HealthResponse } from './models/health-response';
 export type { IssueDetailResponse } from './models/issue-detail-response';
 export type { IssueListResponse } from './models/issue-list-response';

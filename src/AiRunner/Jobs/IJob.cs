@@ -55,9 +55,10 @@ public sealed record JobInfo(
 
 /// <param name="Result">Short word for the cost log: ok, wip, red (review fix not pushed), rejected, too-big, not-needed, skipped.</param>
 /// <param name="Quiet">Nothing was spent and nothing changed; no cost row, no job row.</param>
-public sealed record JobOutcome(string Result, string Detail = "", bool Quiet = false)
+/// <param name="CopilotCalls">Copilot calls the job made; null when unknown (a failed job, an old row).</param>
+public sealed record JobOutcome(string Result, string Detail = "", bool Quiet = false, int? CopilotCalls = null)
 {
-    public static JobOutcome Ok(string detail = "") => new("ok", detail);
+    public static JobOutcome Ok(string detail = "", int? copilotCalls = null) => new("ok", detail, CopilotCalls: copilotCalls);
     public static JobOutcome NotNeeded(string reason) => new("not-needed", reason, Quiet: true);
 }
 

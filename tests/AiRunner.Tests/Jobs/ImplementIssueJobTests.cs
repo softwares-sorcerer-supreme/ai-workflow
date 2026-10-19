@@ -55,6 +55,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(2, _kit.Processes.Commands.Count);
         Assert.Contains("### Rounds by ai-runner", pull.Body);
         Assert.Contains("1 copilot calls", outcome.Detail);
+        Assert.Equal(1, outcome.CopilotCalls);
     }
 
     [Fact]
@@ -410,6 +411,7 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Equal("wip", outcome.Result);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
+        Assert.Equal(2, outcome.CopilotCalls);
         Assert.StartsWith("[WIP - checks failing]", _kit.GitBucket.Pulls.Single().Title);
     }
 

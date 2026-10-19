@@ -28,7 +28,8 @@ public sealed record JobResponse(
     string? Result,
     string? Detail,
     string? Error,
-    bool HasLog)
+    bool HasLog,
+    int? CopilotCalls)
 {
     public static JobResponse From(JobRecord job, RunnerConfig config)
     {
@@ -53,7 +54,8 @@ public sealed record JobResponse(
             job.Result,
             job.Detail,
             job.Error,
-            !string.IsNullOrEmpty(job.LogDir));
+            !string.IsNullOrEmpty(job.LogDir),
+            job.CopilotCalls);
     }
 }
 

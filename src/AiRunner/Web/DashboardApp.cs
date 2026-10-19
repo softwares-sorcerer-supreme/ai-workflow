@@ -20,6 +20,9 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
 
     /// <summary>Read access to the snapshot; the default is empty (the OpenAPI export needs none).</summary>
     public ISnapshotReader Snapshot { get; init; } = NoSnapshot.Instance;
+
+    /// <summary>Read access to the cost log; the default is empty (the OpenAPI export needs none).</summary>
+    public ICostReader Cost { get; init; } = NoCost.Instance;
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -97,6 +100,8 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Time);
         builder.Services.AddSingleton(options.Jobs);
         builder.Services.AddSingleton(options.Snapshot);
+        builder.Services.AddSingleton(options.Cost);
+        builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<OverviewReader>();
         builder.Services.AddSingleton<IssueBoardReader>();

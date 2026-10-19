@@ -43,6 +43,26 @@ public sealed class JobWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Copilot_calls_of_the_outcome_reach_the_cost_row_the_csv_and_the_job_row()
+    {
+        var logs = await RunAsync(() => Task.FromResult(JobOutcome.Ok("round 1", copilotCalls: 3)));
+
+        var cost = Assert.Single(_kit.State.ListCost());
+        Assert.Equal(3, cost.CopilotCalls);
+        Assert.EndsWith(",3", File.ReadAllLines(Path.Combine(logs, "cost.csv"))[1]);
+        Assert.Equal(3, _kit.State.QueryHistory(new JobQuery()).Items.Single().CopilotCalls);
+    }
+
+    [Fact]
+    public async Task A_failed_job_has_no_known_copilot_calls()
+    {
+        await RunAsync(() => throw new JobFailedException("no ANALYSIS block"));
+
+        Assert.Null(Assert.Single(_kit.State.ListCost()).CopilotCalls);
+        Assert.Null(_kit.State.QueryHistory(new JobQuery()).Items.Single().CopilotCalls);
+    }
+
+    [Fact]
     public async Task Failure_comment_uses_the_jobs_own_retry_hint()
     {
         var timeout = TimeSpan.FromMinutes(1);

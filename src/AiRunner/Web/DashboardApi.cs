@@ -1,3 +1,4 @@
+using System.Globalization;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Hosting;
@@ -61,7 +62,64 @@ public static class DashboardApi
             .WithName("getIssue")
             .WithSummary("One issue: stage, what it waits on, analysis summary, sub-issues, PRs and job timeline.");
 
+        api.MapGet("/cost", GetCost)
+            .WithTags("Cost")
+            .WithName("getCost")
+            .WithSummary("Copilot calls, jobs and job time per day, project or issue (with its sub-issues).");
+
         return endpoints;
+    }
+
+    /// <summary>The query string of <c>GET /api/cost</c>.</summary>
+    public sealed record CostFilter(
+        [FromQuery(Name = "by")] string? By,
+        [FromQuery(Name = "from")] string? From,
+        [FromQuery(Name = "to")] string? To);
+
+    private static Results<Ok<CostResponse>, BadRequest<ApiError>> GetCost(
+        [AsParameters] CostFilter filter,
+        CostReader cost)
+    {
+        var (by, from, to) = filter;
+
+        var grouping = CostGrouping.Day;
+        if (by is not null && !(Enum.TryParse(by, ignoreCase: true, out grouping) && Enum.IsDefined(grouping)))
+        {
+            return TypedResults.BadRequest(new ApiError($"Unknown grouping '{by}'. Use day, project or issue."));
+        }
+
+        if (!TryParseDay(from, out var fromDay) || !TryParseDay(to, out var toDay))
+        {
+            return TypedResults.BadRequest(new ApiError($"Dates are written {CostReader.DateFormat}."));
+        }
+
+        if (fromDay > toDay)
+        {
+            return TypedResults.BadRequest(new ApiError("'from' is after 'to'."));
+        }
+
+        var query = new CostQuery(grouping, new CostRange(fromDay, toDay));
+
+        return TypedResults.Ok(cost.Read(query));
+    }
+
+    /// <summary>A missing day is fine (open end); a present one must be a real calendar day.</summary>
+    private static bool TryParseDay(string? text, out DateOnly? day)
+    {
+        day = null;
+        if (text is null)
+        {
+            return true;
+        }
+
+        var isDay = DateOnly.TryParseExact(
+            text, CostReader.DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed);
+        if (isDay)
+        {
+            day = parsed;
+        }
+
+        return isDay;
     }
 
     /// <summary>The route values of <c>GET /api/issues/{owner}/{repo}/{number}</c>.</summary>

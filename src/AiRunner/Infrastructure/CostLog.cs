@@ -16,6 +16,9 @@ public interface ICostLog
 /// </summary>
 public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger<CostLog> logger) : ICostLog
 {
+    private const string OldHeader = "date,repo,number,workflow,duration_s,result,detail";
+    private const string Header = OldHeader + ",copilot_calls";
+
     private static readonly object Gate = new();
 
     public void Record(CostEntry entry)
@@ -40,7 +43,11 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
                 Directory.CreateDirectory(csvFolder);
                 if (!File.Exists(file))
                 {
-                    File.WriteAllText(file, "date,repo,number,workflow,duration_s,result,detail\n");
+                    File.WriteAllText(file, Header + "\n");
+                }
+                else
+                {
+                    UpgradeHeader(file);
                 }
 
                 var timestamp = entry.At.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
@@ -48,7 +55,9 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
                 var duration = entry.DurationSeconds.ToString("F0", CultureInfo.InvariantCulture);
                 var csvResult = Csv(entry.Result);
                 var csvDetail = Csv(entry.Detail);
-                var row = string.Join(",", timestamp, csvRepo, entry.Number, entry.Workflow, duration, csvResult, csvDetail);
+                var calls = entry.CopilotCalls?.ToString(CultureInfo.InvariantCulture) ?? "";
+                var row = string.Join(
+                    ",", timestamp, csvRepo, entry.Number, entry.Workflow, duration, csvResult, csvDetail, calls);
                 File.AppendAllText(file, row + "\n");
             }
         }
@@ -56,6 +65,22 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
         {
             logger.LogWarning("Could not append to {File} (open in Excel?): {Message}", file, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// A file from an older runner has the 7-column header. Only that line changes; its rows stay as they are
+    /// (a spreadsheet reads the missing last field as empty, which is "-" in the dashboard too).
+    /// </summary>
+    private static void UpgradeHeader(string file)
+    {
+        var lines = File.ReadAllLines(file);
+        if (lines.Length == 0 || lines[0] != OldHeader)
+        {
+            return;
+        }
+
+        lines[0] = Header;
+        File.WriteAllText(file, string.Join('\n', lines) + "\n");
     }
 
     private static string Csv(string value) =>

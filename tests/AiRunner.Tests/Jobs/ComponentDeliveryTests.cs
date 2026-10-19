@@ -384,6 +384,7 @@ public sealed class ComponentDeliveryTests
         var outcome = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
+        Assert.Equal(0, outcome.CopilotCalls);
         Assert.False(kit.GitBucket.Issues[12].IsOpen());
         Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(12));
         Assert.Contains(JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo), kit.GitBucket.CommentsOf(12).Last().Body);

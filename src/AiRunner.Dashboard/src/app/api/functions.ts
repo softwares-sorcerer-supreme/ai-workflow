@@ -17,3 +17,5 @@ export type { GetIssues$Params as GetIssues$Params } from './fn/issues/get-issue
 export { getIssues as getIssues } from './fn/issues/get-issues';
 export type { GetIssue$Params as GetIssue$Params } from './fn/issues/get-issue';
 export { getIssue as getIssue } from './fn/issues/get-issue';
+export type { GetCost$Params as GetCost$Params } from './fn/cost/get-cost';
+export { getCost as getCost } from './fn/cost/get-cost';

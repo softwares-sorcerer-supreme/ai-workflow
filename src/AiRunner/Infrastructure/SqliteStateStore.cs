@@ -17,6 +17,9 @@ public sealed record StoredJob(long Id, JobRequest Request, string Status, int A
 
 public sealed record ReviewState(string HeadSha, long? CommentId, string Result);
 
+/// <summary>How a job ended, as the dashboard reads it from the job row.</summary>
+public sealed record JobResult(string Result, string Detail, int? CopilotCalls = null);
+
 public sealed record CostEntry(
     DateTimeOffset At,
     string Repo,
@@ -24,7 +27,8 @@ public sealed record CostEntry(
     string Workflow,
     double DurationSeconds,
     string Result,
-    string Detail);
+    string Detail,
+    int? CopilotCalls = null);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -66,10 +70,10 @@ public interface IStateStore
     void SetJobLogDir(long id, string folderName);
 
     /// <summary>How the job ended, for the dashboard (the cost log has no job id to read it from).</summary>
-    void SetJobResult(long id, string result, string detail);
+    void SetJobResult(long id, JobResult jobResult);
 }
 
-public sealed partial class SqliteStateStore : IStateStore, IJobReader
+public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostReader
 {
     private readonly string _connectionString;
 
@@ -97,6 +101,8 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
         AddColumnIfMissing("jobs", "log_dir", "TEXT");
         AddColumnIfMissing("jobs", "result", "TEXT");
         AddColumnIfMissing("jobs", "detail", "TEXT");
+        AddColumnIfMissing("jobs", "copilot_calls", "INTEGER");
+        AddColumnIfMissing("cost_log", "copilot_calls", "INTEGER");
         CreateSnapshotTables();
     }
 
@@ -251,8 +257,8 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
         var at = Time(entry.At);
         Execute(
             """
-            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail)
-            VALUES ($at, $repo, $number, $wf, $d, $result, $detail)
+            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls)
+            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls)
             """,
             ("$at", at),
             ("$repo", entry.Repo),
@@ -260,18 +266,43 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
             ("$wf", entry.Workflow),
             ("$d", entry.DurationSeconds),
             ("$result", entry.Result),
-            ("$detail", entry.Detail));
+            ("$detail", entry.Detail),
+            ("$calls", entry.CopilotCalls));
+    }
+
+    public IReadOnlyList<CostRecord> ListCost()
+    {
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            "SELECT at, repo, number, workflow, duration_s, copilot_calls FROM cost_log ORDER BY id");
+        using var reader = command.ExecuteReader();
+
+        var records = new List<CostRecord>();
+        while (reader.Read())
+        {
+            records.Add(new CostRecord(
+                ParseTime(reader.GetString(0)),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.GetDouble(4),
+                reader.IsDBNull(5) ? null : reader.GetInt32(5)));
+        }
+
+        return records;
     }
 
     public void SetJobLogDir(long id, string folderName) =>
         Execute("UPDATE jobs SET log_dir = $dir WHERE id = $id", ("$id", id), ("$dir", folderName));
 
-    public void SetJobResult(long id, string result, string detail) =>
+    public void SetJobResult(long id, JobResult jobResult) =>
         Execute(
-            "UPDATE jobs SET result = $result, detail = $detail WHERE id = $id",
+            "UPDATE jobs SET result = $result, detail = $detail, copilot_calls = $calls WHERE id = $id",
             ("$id", id),
-            ("$result", result),
-            ("$detail", detail));
+            ("$result", jobResult.Result),
+            ("$detail", jobResult.Detail),
+            ("$calls", jobResult.CopilotCalls));
 
     public IReadOnlyList<JobRecord> ListQueue() =>
         QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
@@ -330,7 +361,7 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
     {
         var sql = $"""
             SELECT j.id, j.type, j.repo, j.number, j.status, j.attempts, j.created_at, j.started_at, j.finished_at,
-                j.error, j.log_dir, j.result, j.detail
+                j.error, j.log_dir, j.result, j.detail, j.copilot_calls
             FROM jobs j {tail}
             """;
 
@@ -354,7 +385,8 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader
                 reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.IsDBNull(10) ? null : reader.GetString(10),
                 reader.IsDBNull(11) ? null : reader.GetString(11),
-                reader.IsDBNull(12) ? null : reader.GetString(12)));
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetInt32(13)));
         }
 
         return records;

@@ -217,7 +217,10 @@ public sealed class FixReviewJob(
         await PostReplyAsync(replyTarget, reply, cancellationToken);
 
         var outcome = result.Failing ? "red" : stats is null ? "no-change" : "ok";
-        return new JobOutcome(outcome, $"fix {number}, {changed} files, {result.Rounds.Count} copilot calls");
+        return new JobOutcome(
+            outcome,
+            $"fix {number}, {changed} files, {result.Rounds.Count} copilot calls",
+            CopilotCalls: result.Rounds.Count);
     }
 
     private static string Reply(ReviewFixResult fix)
@@ -268,7 +271,7 @@ public sealed class FixReviewJob(
         var reply = $"## AI fix - not started\n\n{reason}";
         await PostReplyAsync(target, reply, cancellationToken);
 
-        return new JobOutcome("rejected", reason);
+        return new JobOutcome("rejected", reason, CopilotCalls: 0);
     }
 
     /// <summary>The reply carries what this fix read, so later comments count as new even without the database.</summary>

@@ -56,6 +56,7 @@ public sealed class FixReviewJobTests : IDisposable
         var outcome = await RunAsync(trigger);
 
         Assert.Equal("ok", outcome.Result);
+        Assert.Equal(1, outcome.CopilotCalls);
         Assert.Equal("feat/issue-12", _kit.Workspace.Requests.Single().OthersAt);
 
         var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
@@ -182,6 +183,7 @@ public sealed class FixReviewJobTests : IDisposable
         var outcome = await RunAsync(trigger);
 
         Assert.Equal("red", outcome.Result);
+        Assert.Equal(2, outcome.CopilotCalls);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
         Assert.Contains("AGENTS.md in this folder", _kit.Copilot.Requests[0].Prompt);
         Assert.Contains("fix.md", _kit.Copilot.Requests[1].Prompt);

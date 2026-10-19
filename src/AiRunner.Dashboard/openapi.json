@@ -350,6 +350,60 @@
           }
         }
       }
+    },
+    "/api/cost": {
+      "get": {
+        "tags": [
+          "Cost"
+        ],
+        "summary": "Copilot calls, jobs and job time per day, project or issue (with its sub-issues).",
+        "operationId": "getCost",
+        "parameters": [
+          {
+            "name": "by",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -399,6 +453,88 @@
           },
           "label": {
             "type": "string"
+          }
+        }
+      },
+      "CostResponse": {
+        "required": [
+          "by",
+          "byLabel",
+          "from",
+          "to",
+          "rows",
+          "total",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "byLabel": {
+            "type": "string"
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CostRowResponse"
+            }
+          },
+          "total": {
+            "$ref": "#/components/schemas/CostRowResponse"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CostRowResponse": {
+        "required": [
+          "key",
+          "label",
+          "calls",
+          "jobs",
+          "jobsWithoutCount",
+          "durationSeconds"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "jobs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "jobsWithoutCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -666,7 +802,8 @@
           "result",
           "detail",
           "error",
-          "hasLog"
+          "hasLog",
+          "copilotCalls"
         ],
         "type": "object",
         "properties": {
@@ -744,6 +881,13 @@
           },
           "hasLog": {
             "type": "boolean"
+          },
+          "copilotCalls": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -1148,6 +1292,9 @@
     },
     {
       "name": "Issues"
+    },
+    {
+      "name": "Cost"
     }
   ]
 }

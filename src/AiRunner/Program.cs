@@ -72,6 +72,7 @@ builder.Services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.Ge
 builder.Services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();

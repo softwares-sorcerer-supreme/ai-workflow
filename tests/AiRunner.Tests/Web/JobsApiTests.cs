@@ -226,7 +226,7 @@ public sealed class JobsApiTests : IAsyncDisposable
     public async Task One_job_carries_its_result_and_an_unknown_job_is_404()
     {
         var id = AddJob(JobType.ImplementIssue, "o/shop", 4, JobStatus.Failed);
-        _store.SetJobResult(id, "failed", "checks red");
+        _store.SetJobResult(id, new JobResult("failed", "checks red"));
         var client = await StartAsync();
 
         var root = await GetJsonAsync(client, $"api/jobs/{id}");

@@ -16,6 +16,7 @@ public sealed class DashboardHost(
     TimeProvider time,
     IJobReader jobs,
     ISnapshotReader snapshot,
+    ICostReader cost,
     ILogger<DashboardHost> logger) : BackgroundService
 {
     /// <summary>Where build-dashboard.ps1 puts the built UI (copied next to the runner's binaries).</summary>
@@ -28,6 +29,7 @@ public sealed class DashboardHost(
         {
             Jobs = jobs,
             Snapshot = snapshot,
+            Cost = cost,
         };
         var builder = DashboardApp.CreateBuilder(options);
         await using var app = DashboardApp.Build(builder, options);

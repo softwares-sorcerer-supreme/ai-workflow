@@ -121,11 +121,11 @@ public sealed class SequenceSubIssuesJob(
                     "Starting this sub-issue.",
                     cancellationToken);
                 run.Info($"started sub-issue #{step.Next.Number}");
-                return JobOutcome.Ok($"{closedNote}started #{step.Next.Number}");
+                return JobOutcome.Ok($"{closedNote}started #{step.Next.Number}", copilotCalls: 0);
 
             case SequenceStep.OpenFinalPrs:
                 var opened = await OpenFinalPrsAsync(project, input, parent, cancellationToken);
-                return JobOutcome.Ok($"{closedNote}final PRs: {opened}");
+                return JobOutcome.Ok($"{closedNote}final PRs: {opened}", copilotCalls: 0);
 
             case SequenceStep.CloseParent:
                 await gitBucketClient.AddCommentAsync(
@@ -134,16 +134,18 @@ public sealed class SequenceSubIssuesJob(
                     "All final PRs are merged. This issue is done, so I close it.",
                     cancellationToken);
                 await gitBucketClient.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
-                return JobOutcome.Ok($"{closedNote}parent #{parent.Number} closed");
+                return JobOutcome.Ok($"{closedNote}parent #{parent.Number} closed", copilotCalls: 0);
 
             default:
                 if (merged.Count > 0)
                 {
-                    return JobOutcome.Ok(closedSummary);
+                    return JobOutcome.Ok(closedSummary, copilotCalls: 0);
                 }
 
                 return abandoned.Count > 0
-                    ? JobOutcome.Ok($"{abandoned.Count} sub-issue(s) stopped, PR closed without a merge")
+                    ? JobOutcome.Ok(
+                        $"{abandoned.Count} sub-issue(s) stopped, PR closed without a merge",
+                        copilotCalls: 0)
                     : JobOutcome.NotNeeded(step.Reason);
         }
     }

@@ -120,6 +120,6 @@ public sealed class AnalyzeIssueJob(
         stateStore.SetLastHandledComment(request.Repo, issue.Number, thread.ReadUpTo);
         run.Info($"round {round}: {parsed.Status}, {parsed.Complexity}");
 
-        return JobOutcome.Ok($"round {round}, {parsed.Status}, {parsed.Complexity}");
+        return JobOutcome.Ok($"round {round}, {parsed.Status}, {parsed.Complexity}", copilotCalls: 1);
     }
 }

@@ -119,7 +119,7 @@ public sealed class JobReaderTests : IDisposable
     {
         var store = OpenStore();
         var id = AddFinishedJob(store, new JobRequest(JobType.ImplementIssue, "o/r", 4), JobStatus.Failed);
-        store.SetJobResult(id, "failed", "no PR");
+        store.SetJobResult(id, new JobResult("failed", "no PR"));
 
         var job = store.GetRecord(id);
 

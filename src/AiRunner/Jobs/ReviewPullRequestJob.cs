@@ -117,7 +117,8 @@ public sealed class ReviewPullRequestJob(
         var current = await gitBucketClient.GetPullAsync(request.Repo, pull.Number, cancellationToken);
         if (current.Head.Sha != sha)
         {
-            return new JobOutcome("outdated", $"head moved to {Text.ShortSha(current.Head.Sha)} during the review");
+            return new JobOutcome(
+                "outdated", $"head moved to {Text.ShortSha(current.Head.Sha)} during the review", CopilotCalls: 1);
         }
 
         var body = Markers.Wrap(review, Markers.Review);
@@ -147,6 +148,6 @@ public sealed class ReviewPullRequestJob(
             $"{parsed.Verdict}: {parsed.Bugs} bug, {parsed.Risks} risk, " +
             $"{parsed.Conventions} convention, {parsed.Style} style";
         run.Info(detail);
-        return JobOutcome.Ok(detail);
+        return JobOutcome.Ok(detail, copilotCalls: 1);
     }
 }
