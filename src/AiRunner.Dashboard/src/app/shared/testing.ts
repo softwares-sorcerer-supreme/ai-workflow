@@ -16,7 +16,6 @@ export function fakePollResource<T>(value?: T): FakePollResource<T> {
     value: signal<T | undefined>(value),
     error: signal<string | undefined>(undefined),
     isLoading: signal(value === undefined),
-    updatedAt: signal<Date | undefined>(undefined),
     reloads: 0,
     reload: () => {
       resource.reloads++;

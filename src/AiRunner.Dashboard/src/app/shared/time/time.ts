@@ -26,13 +26,17 @@ export class AppTime {
 
   protected readonly text = computed(() => {
     const iso = this.value();
-    const now = this.clock.now();
 
     if (!iso) {
       return '';
     }
 
-    return this.mode() === 'relative' ? formatRelative(iso, now) : formatLocal(iso, now);
+    // Only relative text changes as time passes; an absolute time must not re-render on every clock tick.
+    if (this.mode() === 'absolute') {
+      return formatLocal(iso, Date.now());
+    }
+
+    return formatRelative(iso, this.clock.now());
   });
 
   protected readonly full = computed(() => {

@@ -22,7 +22,7 @@ export const STAGE_TONES: Readonly<Record<string, Tone>> = {
 };
 
 /** Color per health code. The runner decides the state (C# Core/RunnerHealth); this only picks the color. */
-export const HEALTH_TONES: Readonly<Record<string, Tone>> = {
+const HEALTH_TONES: Readonly<Record<string, Tone>> = {
   ok: 'success',
   starting: 'info',
   stale: 'warning',
@@ -30,7 +30,7 @@ export const HEALTH_TONES: Readonly<Record<string, Tone>> = {
 };
 
 /** Icon per worker state code (`idle` or `busy`). */
-export const WORKER_ICONS: Readonly<Record<string, string>> = {
+const WORKER_ICONS: Readonly<Record<string, string>> = {
   idle: 'pause_circle',
   busy: 'play_circle',
 };

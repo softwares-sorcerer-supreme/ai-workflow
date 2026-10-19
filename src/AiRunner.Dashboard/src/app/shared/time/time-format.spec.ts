@@ -1,7 +1,6 @@
+import { TEST_NOW as NOW } from '../testing';
 import { formatDuration, formatRelative } from './time-format';
 import { DurationPipe } from './duration.pipe';
-
-const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
 
 describe('formatRelative', () => {
   it.each([

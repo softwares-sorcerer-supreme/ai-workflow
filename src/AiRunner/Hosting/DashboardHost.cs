@@ -32,10 +32,14 @@ public sealed class DashboardHost(
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
+            // Any start failure is only a warning (the dashboard must never stop the runner); the usual cause is a
+            // taken port, so the hint names the key, and the exception type tells the other causes apart.
             logger.LogWarning(
-                "Dashboard not started: port {Port} on 127.0.0.1 could not be used ({Message}). " +
-                "Free the port or set another one in repos.yml (dashboard.port). The runner keeps working.",
+                "Dashboard not started on 127.0.0.1:{Port} ({ErrorType}: {Message}). " +
+                "If the port is taken, free it or set another one in repos.yml (dashboard.port). " +
+                "The runner keeps working.",
                 port,
+                exception.GetType().Name,
                 exception.Message);
             return;
         }

@@ -29,8 +29,8 @@ public sealed record HealthResponse(
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
 {
-    public const string WorkerIdle = "idle";
-    public const string WorkerBusy = "busy";
+    private const string WorkerIdle = "idle";
+    private const string WorkerBusy = "busy";
 
     public static HealthResponse From(RunnerStatusSnapshot status, RunnerConfig config, DateTimeOffset now)
     {

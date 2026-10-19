@@ -13,8 +13,6 @@ export interface PollResource<T> {
   readonly error: Signal<string | undefined>;
   /** True until the first answer (value or error) arrived: show the loading state only then. */
   readonly isLoading: Signal<boolean>;
-  /** When the last successful answer arrived. */
-  readonly updatedAt: Signal<Date | undefined>;
   /** Load now (a retry button), then keep polling. */
   reload(): void;
 }
@@ -32,7 +30,6 @@ export function pollResource<T>(load: () => Promise<T>, intervalMs = POLL_INTERV
   const value = signal<T | undefined>(undefined);
   const error = signal<string | undefined>(undefined);
   const isLoading = signal(true);
-  const updatedAt = signal<Date | undefined>(undefined);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let isDestroyed = false;
@@ -61,7 +58,6 @@ export function pollResource<T>(load: () => Promise<T>, intervalMs = POLL_INTERV
       if (!isDestroyed) {
         value.set(result);
         error.set(undefined);
-        updatedAt.set(new Date());
       }
     } catch (failure) {
       if (!isDestroyed) {
@@ -98,7 +94,6 @@ export function pollResource<T>(load: () => Promise<T>, intervalMs = POLL_INTERV
     value: value.asReadonly(),
     error: error.asReadonly(),
     isLoading: isLoading.asReadonly(),
-    updatedAt: updatedAt.asReadonly(),
     reload: () => void run(),
   };
 }

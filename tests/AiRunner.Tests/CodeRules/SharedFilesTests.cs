@@ -86,6 +86,16 @@ public class SharedFilesTests
     }
 
     [Fact]
+    public void The_dashboard_section_that_is_left_out_of_the_check_exists_in_claude_md()
+    {
+        // If the heading is renamed, CheckedText would silently stop leaving the section out (or the exemption
+        // would hide the wrong text), so the rename must fail here first.
+        var text = File.ReadAllText(Path.Combine(TestPaths.RepoRoot(), "CLAUDE.md"));
+
+        Assert.Contains("\n## Dashboard", text);
+    }
+
+    [Fact]
     public void The_ui_checklist_skill_is_installed_with_the_other_skills()
     {
         var root = TestPaths.RepoRoot();

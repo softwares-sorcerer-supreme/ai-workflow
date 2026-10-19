@@ -12,7 +12,7 @@ namespace AiRunner.Web;
 /// </summary>
 public static class OpenApiExport
 {
-    public const string DocumentName = "v1";
+    private const string DocumentName = "v1";
 
     public static async Task WriteAsync(string path, CancellationToken cancellationToken)
     {
@@ -36,7 +36,7 @@ public static class OpenApiExport
         await File.WriteAllTextAsync(fullPath, json, cancellationToken);
     }
 
-    /// <summary>The v1 document as JSON, read from the app's services without starting a server.</summary>
+    /// <summary>The v1 document as JSON, read from the services of an app that has started (its routes are known then).</summary>
     public static async Task<string> GetDocumentAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         var provider = services.GetRequiredKeyedService<IOpenApiDocumentProvider>(DocumentName);
