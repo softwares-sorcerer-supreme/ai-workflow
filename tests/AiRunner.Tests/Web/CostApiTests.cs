@@ -114,6 +114,37 @@ public sealed class CostApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task By_model_lists_what_each_agent_spent_and_the_rows_carry_billed_and_tokens()
+    {
+        var reviewerUsage = new CopilotUsage(10, 1, 2, 3, 4);
+        var mainUsage = new CopilotUsage(90, 5, 6, 7, 8);
+        var parts = new[]
+        {
+            new UsagePart("round-1-copilot", "main", "sonnet", mainUsage),
+            new UsagePart("round-1-copilot", "code-reviewer", "haiku", reviewerUsage),
+        };
+        var usage = new JobUsage(mainUsage.Add(reviewerUsage), parts);
+        var at = DateTimeOffset.Parse("2026-03-05T10:00:00Z");
+        var entry = new CostEntry(at, "o/shop", 21, "implement", 600, "ok", "", 1)
+        {
+            Usage = usage,
+        };
+        _store.AddCost(entry);
+        var client = await StartAsync();
+
+        var cost = await GetAsync(client, "/api/cost?by=model");
+
+        Assert.Equal("model", cost.By);
+        Assert.Equal(["sonnet - main", "haiku - code-reviewer"], cost.Rows.Select(row => row.Key));
+        var total = cost.Total;
+        Assert.Equal((100L, 6L, 8L, 10L, 12L), (total.NanoAiu, total.InputTokens, total.CacheReadTokens,
+            total.CacheWriteTokens, total.OutputTokens));
+        Assert.Equal(
+            "A job counts in each row it used, so jobs and job time add up to more than the total.",
+            cost.Note);
+    }
+
+    [Fact]
     public async Task By_project_groups_by_project_and_unknown_repos_as_other()
     {
         Arrange();

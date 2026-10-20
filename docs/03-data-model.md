@@ -79,6 +79,7 @@ erDiagram
 | `review_state` | Per PR: last handled `head_sha`, the id of the review comment, and `result` (the verdict, `skipped`, `failed` or `pending`); `reviewed_sha` (head of the last posted review, base of the next incremental one), `review_count` (automatic reviews, `limits.max_reviews`) and `full_sha` (head that got the full review the label `ai-review-full` asked for). A null value keeps the old one (`COALESCE`); the comment tag `<!-- ai-runner:review sha=.. n=.. -->` carries the count on when the database is gone (a PR at the limit then gets one more review, which stores the count again). | `ReviewPullRequestJob` | `JobSupport.PlanPullAsync`, `ReviewPullRequestJob` |
 | `jobs` | The persistent queue. `key` = `Type:repo#number`. One `pending` row per key at a time. | `JobQueue`, `JobWorker` | `JobQueue` |
 | `cost_log` | One row per finished (or failed) job: workflow, seconds, result, detail, Copilot calls, tokens and credits (`nano_aiu`, from `--usage-output-file`). Mirrors `logs/cost.csv`. | `CostLog` -> `IStateStore.AddCost` | humans (SQL/CSV) |
+| `cost_usage_part` | Per cost row: what each agent spent on each model in each Copilot run (`cost_id`, `run` such as `round-2-copilot`, `agent`, `model`, the same five usage columns). Not in the CSV. | `IStateStore.AddCost` | `CostReport` (`by=model`) |
 
 Details worth knowing:
 
@@ -87,6 +88,17 @@ Details worth knowing:
 - `jobs.attempts` increases each time a job goes to `running` (`SqliteStateStore.cs:145`).
 - `PruneJobs` deletes `done`/`failed` rows older than `logRetentionDays` at each worker start (`JobWorker.cs`).
 - `cost_log` rows are never pruned.
+- The dashboard groups `cost_usage_part` by model and agent only. What the first round and the fix rounds of
+  implement / fix spend (to decide on a cheaper fix-round model) is one query on `ai-runner.db`:
+
+  ```sql
+  SELECT c.workflow, CASE WHEN p.run LIKE 'round-1-%' THEN 'round 1' ELSE 'fix rounds' END AS rounds,
+         p.agent, p.model, COUNT(*) AS runs, SUM(p.nano_aiu) AS nano_aiu,
+         SUM(p.input_tokens + p.cache_read_tokens + p.cache_write_tokens) AS input_side, SUM(p.output_tokens) AS output
+  FROM cost_usage_part p JOIN cost_log c ON c.id = p.cost_id
+  WHERE c.workflow IN ('implement', 'fix') AND p.run LIKE 'round-%'
+  GROUP BY 1, 2, 3, 4 ORDER BY nano_aiu DESC;
+  ```
 
 ## State that lives in GitBucket
 

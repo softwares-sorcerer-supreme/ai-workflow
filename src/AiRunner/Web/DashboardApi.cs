@@ -65,7 +65,7 @@ public static class DashboardApi
         api.MapGet("/cost", GetCost)
             .WithTags("Cost")
             .WithName("getCost")
-            .WithSummary("Copilot calls, jobs and job time per day, project or issue (with its sub-issues).");
+            .WithSummary("Copilot calls, billed credits, tokens, jobs and job time per day, project, issue or model.");
 
         return endpoints;
     }
@@ -85,7 +85,7 @@ public static class DashboardApi
         var grouping = CostGrouping.Day;
         if (by is not null && !(Enum.TryParse(by, ignoreCase: true, out grouping) && Enum.IsDefined(grouping)))
         {
-            return TypedResults.BadRequest(new ApiError($"Unknown grouping '{by}'. Use day, project or issue."));
+            return TypedResults.BadRequest(new ApiError($"Unknown grouping '{by}'. Use day, project, issue or model."));
         }
 
         if (!TryParseDay(from, out var fromDay) || !TryParseDay(to, out var toDay))

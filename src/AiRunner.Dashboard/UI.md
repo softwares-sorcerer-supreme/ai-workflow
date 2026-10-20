@@ -187,6 +187,9 @@ protected readonly columns: readonly DataColumn[] = [
 protected readonly trackById = (_index: number, row: JobRow) => row.id;
 ```
 - A column without an `appCell` template shows `row[key]` as text (`-` for null).
+- Counts that can grow large (calls, tokens, billed credits) go through Angular's `| number` pipe (`DecimalPipe`) for
+  thousands separators; in TypeScript use `formatNumber(value, inject(LOCALE_ID), '1.0-0')`. Format only, never
+  convert units.
 - `align: 'end'` for numbers and durations. `hideBelow: 'sm' | 'md'` drops less important columns on small screens;
   never hide the column that identifies the row.
 - Always pass `trackBy` with a stable id, so a 3 s refresh does not rebuild rows.
@@ -293,8 +296,9 @@ tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`).
 
 ### Charts
 
-No chart library. The one chart so far, `pages/cost/cost-chart` (bars of Copilot calls: columns over days, horizontal
-bars per project or issue), is inline SVG measured to its card's width, so text never scales. It only turns the API's
+No chart library. The one chart so far, `pages/cost/cost-chart` (bars of what Copilot billed, `nanoAiu` as sent:
+columns over days, horizontal bars per project, issue or model), is inline SVG measured to its card's width, so
+text never scales. It only turns the API's
 numbers into pixels (no sums, no reordering), uses `--mat-sys-primary` for marks and `--mat-sys-outline-variant`
 hairlines, has `role="img"` with `<title>`/`<desc>`, a tooltip per bar, and the data table under it is its text
 alternative. Follow the same rules for a new chart and move it to `shared/` once a second screen needs it.

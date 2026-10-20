@@ -1,4 +1,7 @@
-<app-page-header title="Cost" subtitle="Copilot calls and job time per day, project and issue.">
+<app-page-header
+  title="Cost"
+  subtitle="Billed Copilot credits, tokens, calls and job time per day, project, issue and model."
+>
   <mat-button-toggle-group
     actions
     aria-label="Group by"
@@ -28,7 +31,7 @@
   }
 
   <section class="app-card" aria-labelledby="chart-title">
-    <h2 id="chart-title" class="app-card-title">Copilot calls</h2>
+    <h2 id="chart-title" class="app-card-title">Billed (nano AIU)</h2>
 
     @if (cost.value(); as answer) {
       @if (answer.rows.length > 0) {
@@ -38,21 +41,21 @@
         <p class="app-muted caption">
           {{ answer.byLabel }}.
           @if (layout() === 'bars' && answer.rows.length > maxBars) {
-            The {{ maxBars }} groups with the most calls; the table lists all.
+            The {{ maxBars }} most billed groups; the table lists all.
           }
         </p>
         <app-cost-chart
           [rows]="answer.rows"
           [layout]="layout()"
-          [heading]="'Copilot calls - ' + answer.byLabel"
-          description="Bars of Copilot calls per group. The table below lists every value."
+          [heading]="'Billed (nano AIU) - ' + answer.byLabel"
+          description="Bars of what Copilot billed per group, in nano AIU. The table below lists every value."
         />
       } @else {
         <app-view-state
           kind="empty"
           icon="bar_chart"
           title="No jobs in this range"
-          message="Calls appear here once the runner has finished a job in the chosen days."
+          message="Billed credits appear here once the runner has finished a job in the chosen days."
         />
       }
     } @else if (cost.error()) {
@@ -85,13 +88,28 @@
         <span class="group" [class.total]="row.isTotal">{{ row.label }}</span>
       </ng-template>
       <ng-template appCell="calls" let-row>
-        <span [class.total]="row.isTotal">{{ row.calls }}</span>
+        <span [class.total]="row.isTotal">{{ row.calls | number }}</span>
       </ng-template>
       <ng-template appCell="jobs" let-row>
-        <span [class.total]="row.isTotal">{{ row.jobs }}</span>
+        <span [class.total]="row.isTotal">{{ row.jobs | number }}</span>
       </ng-template>
       <ng-template appCell="duration" let-row>
         <span [class.total]="row.isTotal">{{ row.durationSeconds | duration }}</span>
+      </ng-template>
+      <ng-template appCell="nanoAiu" let-row>
+        <span [class.total]="row.isTotal">{{ row.nanoAiu | number }}</span>
+      </ng-template>
+      <ng-template appCell="inputTokens" let-row>
+        <span [class.total]="row.isTotal">{{ row.inputTokens | number }}</span>
+      </ng-template>
+      <ng-template appCell="cacheReadTokens" let-row>
+        <span [class.total]="row.isTotal">{{ row.cacheReadTokens | number }}</span>
+      </ng-template>
+      <ng-template appCell="cacheWriteTokens" let-row>
+        <span [class.total]="row.isTotal">{{ row.cacheWriteTokens | number }}</span>
+      </ng-template>
+      <ng-template appCell="outputTokens" let-row>
+        <span [class.total]="row.isTotal">{{ row.outputTokens | number }}</span>
       </ng-template>
     </app-data-table>
   </section>

@@ -43,7 +43,9 @@ public sealed record ReviewState(string HeadSha, long? CommentId, string Result)
 /// <summary>How a job ended, as the dashboard reads it from the job row.</summary>
 public sealed record JobResult(string Result, string Detail, int? CopilotCalls = null);
 
-/// <param name="Usage">Tokens and credits from the run's usage files, or null when there were none.</param>
+/// <param name="Usage">
+/// Tokens and credits from the run's usage files (with their run, agent and model parts), or null when there were none.
+/// </param>
 public sealed record CostEntry(
     DateTimeOffset At,
     string Repo,
@@ -53,7 +55,7 @@ public sealed record CostEntry(
     string Result,
     string Detail,
     int? CopilotCalls = null,
-    CopilotUsage? Usage = null);
+    JobUsage? Usage = null);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -100,7 +102,7 @@ public interface IStateStore
 
 public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostReader
 {
-    /// <summary>The usage columns of cost_log as SQL ("nano_aiu, input_tokens, ..."), from CopilotUsage.ColumnNames.</summary>
+    /// <summary>The usage columns as SQL ("nano_aiu, input_tokens, ..."), from CopilotUsage.ColumnNames.</summary>
     private static readonly string UsageColumnList = string.Join(", ", CopilotUsage.ColumnNames);
 
     /// <summary>Their parameter names ("$usage0, $usage1, ..."), in the same order.</summary>
@@ -143,6 +145,14 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         {
             AddColumnIfMissing("cost_log", usageColumn, "INTEGER");
         }
+
+        // What each agent spent on each model in each Copilot run of a cost row (the dashboard's "by model").
+        var usageColumnDefinitions = string.Join(", ", CopilotUsage.ColumnNames.Select(column => $"{column} INTEGER"));
+        Execute($"""
+            CREATE TABLE IF NOT EXISTS cost_usage_part (cost_id INTEGER NOT NULL, run TEXT NOT NULL,
+                agent TEXT NOT NULL, model TEXT NOT NULL, {usageColumnDefinitions});
+            CREATE INDEX IF NOT EXISTS ix_cost_usage_part_cost ON cost_usage_part (cost_id);
+            """);
 
         CreateSnapshotTables();
     }
@@ -310,10 +320,7 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
     public void AddCost(CostEntry entry)
     {
         var at = Time(entry.At);
-        var usageValues = entry.Usage?.Values();
-        var usageParameters = Enumerable
-            .Range(0, CopilotUsage.ColumnNames.Count)
-            .Select(index => ($"$usage{index}", (object?)usageValues?[index]));
+        var usageParameters = UsageParameters(entry.Usage?.Total);
         (string, object?)[] parameters =
         [
             ("$at", at),
@@ -327,38 +334,96 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
             .. usageParameters,
         ];
 
-        Execute(
+        // One transaction: a cost row is never stored without its parts.
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var costCommand = Command(
+            connection,
             $"""
-            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls, {UsageColumnList})
-            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls, {UsageParameterList})
+            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls,
+                {UsageColumnList})
+            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls, {UsageParameterList});
+            SELECT last_insert_rowid();
             """,
             parameters);
+        costCommand.Transaction = transaction;
+        var costId = costCommand.ExecuteScalar();
+
+        foreach (var part in entry.Usage?.Parts ?? [])
+        {
+            var partUsage = UsageParameters(part.Usage);
+            (string, object?)[] partParameters =
+            [
+                ("$cost", costId),
+                ("$run", part.Run),
+                ("$agent", part.Agent),
+                ("$model", part.Model),
+                .. partUsage,
+            ];
+
+            using var partCommand = Command(
+                connection,
+                $"""
+                INSERT INTO cost_usage_part (cost_id, run, agent, model, {UsageColumnList})
+                VALUES ($cost, $run, $agent, $model, {UsageParameterList})
+                """,
+                partParameters);
+            partCommand.Transaction = transaction;
+            partCommand.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 
-    public IReadOnlyList<CostRecord> ListCost()
+    /// <summary>The $usage0..$usage4 parameters of a usage (all null without one).</summary>
+    private static IEnumerable<(string, object?)> UsageParameters(CopilotUsage? usage)
     {
+        var values = usage?.Values();
+
+        return Enumerable
+            .Range(0, CopilotUsage.ColumnNames.Count)
+            .Select(index => ($"$usage{index}", (object?)values?[index]));
+    }
+
+    /// <summary>
+    /// The usage in the columns from <paramref name="firstOrdinal"/> on, or null when they are empty.
+    /// </summary>
+    private static CopilotUsage? ReadUsage(SqliteDataReader reader, int firstOrdinal)
+    {
+        if (reader.IsDBNull(firstOrdinal))
+        {
+            return null;
+        }
+
+        var values = Enumerable
+            .Range(firstOrdinal, CopilotUsage.ColumnNames.Count)
+            .Select(reader.GetInt64)
+            .ToList();
+
+        return CopilotUsage.FromValues(values);
+    }
+
+    public IReadOnlyList<CostRecord> ListCost(bool withParts = false)
+    {
+        var partsByCost = withParts ? ListUsageParts() : [];
+
         using var connection = Open();
         using var command = Command(
             connection,
             $"""
-            SELECT at, repo, number, workflow, duration_s, copilot_calls, {UsageColumnList}
+            SELECT at, repo, number, workflow, duration_s, copilot_calls, id, {UsageColumnList}
             FROM cost_log ORDER BY id
             """);
         using var reader = command.ExecuteReader();
 
-        const int firstUsageOrdinal = 6;
+        // Ordinals of the SELECT above.
+        const int costIdOrdinal = 6;
+        const int firstUsageOrdinal = 7;
         var records = new List<CostRecord>();
         while (reader.Read())
         {
-            CopilotUsage? usage = null;
-            if (!reader.IsDBNull(firstUsageOrdinal))
-            {
-                var usageValues = Enumerable
-                    .Range(firstUsageOrdinal, CopilotUsage.ColumnNames.Count)
-                    .Select(reader.GetInt64)
-                    .ToList();
-                usage = CopilotUsage.FromValues(usageValues);
-            }
+            var usage = ReadUsage(reader, firstUsageOrdinal);
+            var costId = reader.GetInt64(costIdOrdinal);
 
             records.Add(new CostRecord(
                 ParseTime(reader.GetString(0)),
@@ -367,10 +432,40 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
                 reader.GetString(3),
                 reader.GetDouble(4),
                 reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                usage));
+                usage)
+            {
+                Parts = partsByCost.GetValueOrDefault(costId) ?? [],
+            });
         }
 
         return records;
+    }
+
+    private Dictionary<long, List<UsagePart>> ListUsageParts()
+    {
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            $"SELECT cost_id, run, agent, model, {UsageColumnList} FROM cost_usage_part ORDER BY rowid");
+        using var reader = command.ExecuteReader();
+
+        // Ordinals of the SELECT above: cost_id, run, agent, model, then the usage columns.
+        const int firstUsageOrdinal = 4;
+        var rows = new List<(long CostId, UsagePart Part)>();
+        while (reader.Read())
+        {
+            var costId = reader.GetInt64(0);
+            var run = reader.GetString(1);
+            var agent = reader.GetString(2);
+            var model = reader.GetString(3);
+            var usage = ReadUsage(reader, firstUsageOrdinal) ?? CopilotUsage.Zero;
+            var part = new UsagePart(run, agent, model, usage);
+            rows.Add((costId, part));
+        }
+
+        return rows
+            .GroupBy(row => row.CostId)
+            .ToDictionary(group => group.Key, group => group.Select(row => row.Part).ToList());
     }
 
     public void SetJobLogDir(long id, string folderName) =>

@@ -14,13 +14,26 @@ public sealed record CostRecord(
     string Workflow,
     double DurationSeconds,
     int? CopilotCalls,
-    CopilotUsage? Usage = null);
+    CopilotUsage? Usage = null)
+{
+    /// <summary>
+    /// What each agent spent on each model in each Copilot run of the job (empty for older rows, and unless the
+    /// reader was asked for them).
+    /// </summary>
+    public IReadOnlyList<UsagePart> Parts { get; init; } = [];
+
+    /// <summary>The job ran Copilot (the count is unknown or above 0); a breakdown or routine job did not.</summary>
+    public bool RanCopilot => CopilotCalls != 0;
+}
 
 public enum CostGrouping
 {
     Day,
     Project,
     Issue,
+
+    /// <summary>One row per model and agent ("claude-sonnet-5.5 - code-reviewer"), from the usage parts.</summary>
+    Model,
 }
 
 /// <summary>Inclusive local days; null = open end.</summary>
@@ -38,7 +51,8 @@ public sealed record CostInput(
 
 /// <summary>
 /// One group. <c>Calls</c> adds only the jobs that know their count; <c>JobsWithoutCount</c> says how many did not,
-/// so a total is never presented as complete when it is not.
+/// so a total is never presented as complete when it is not. <c>Usage</c> and <c>JobsWithoutUsage</c> do the same
+/// for the tokens and credits Copilot billed.
 /// </summary>
 public sealed record CostRow(
     string Key,
@@ -46,9 +60,23 @@ public sealed record CostRow(
     int Calls,
     int Jobs,
     int JobsWithoutCount,
-    double DurationSeconds);
+    double DurationSeconds)
+{
+    public CopilotUsage Usage { get; init; } = CopilotUsage.Zero;
 
-public sealed record CostResult(IReadOnlyList<CostRow> Rows, CostRow Total);
+    public int JobsWithoutUsage { get; init; }
+}
+
+/// <summary>
+/// The rows and their total. A grouping that splits a job (model) sets the last two: jobs that are in no row, and
+/// whether a job is in more than one row; the others leave them at 0 and false.
+/// </summary>
+public sealed record CostResult(IReadOnlyList<CostRow> Rows, CostRow Total)
+{
+    public int JobsOutsideRows { get; init; }
+
+    public bool RowsShareJobs { get; init; }
+}
 
 /// <summary>
 /// The cost totals of the dashboard (docs/specs/dashboard.md, API: cost). Pure: the rows are read elsewhere.
@@ -63,23 +91,71 @@ public static class CostReport
             .Where(record => IsInRange(LocalDay(record, input.Zone), query.Range))
             .ToList();
 
-        Func<CostRecord, (string Key, string Label)> grouper = query.By switch
+        var groups = query.By switch
         {
-            CostGrouping.Day => record => DayOf(record, input.Zone),
-            CostGrouping.Project => record => ProjectOf(record, input.Config),
-            _ => new IssueGrouper(input).GroupOf,
+            CostGrouping.Day => GroupBy(inRange, record => DayOf(record, input.Zone)),
+            CostGrouping.Project => GroupBy(inRange, record => ProjectOf(record, input.Config)),
+            CostGrouping.Model => ByModel(inRange),
+            _ => GroupBy(inRange, new IssueGrouper(input).GroupOf),
         };
-        var groups = GroupBy(inRange, grouper);
 
+        // Billed credits first: that is what costs money; calls and time break ties (older rows have no usage).
         var rows = query.By == CostGrouping.Day
             ? groups.OrderBy(row => row.Key, StringComparer.Ordinal).ToList()
             : groups
-                .OrderByDescending(row => row.Calls)
+                .OrderByDescending(row => row.Usage.NanoAiu)
+                .ThenByDescending(row => row.Calls)
                 .ThenByDescending(row => row.DurationSeconds)
                 .ThenBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-        return new CostResult(rows, RowOf("total", "Total", inRange));
+        var total = RowOf("total", "Total", inRange);
+        if (query.By != CostGrouping.Model)
+        {
+            return new CostResult(rows, total);
+        }
+
+        return new CostResult(rows, total)
+        {
+            JobsOutsideRows = inRange.Count(record => record.RanCopilot && record.Parts.Count == 0),
+            RowsShareJobs = inRange.Any(IsInSeveralModelRows),
+        };
+    }
+
+    /// <summary>
+    /// One row per agent and model, from the usage parts. <c>Calls</c> counts the Copilot runs that agent made with
+    /// that model, <c>Jobs</c> and the time are those of the jobs it appears in (a job with a subagent is in two rows).
+    /// Jobs without parts (older rows) appear in no row, only in the total.
+    /// </summary>
+    private static List<CostRow> ByModel(IReadOnlyList<CostRecord> records)
+    {
+        // The index tells two equal-looking jobs apart, so each job counts once per row.
+        return records
+            .SelectMany((record, index) => record.Parts.Select(part => (Index: index, Record: record, Part: part)))
+            .GroupBy(entry => (entry.Part.Model, entry.Part.Agent))
+            .Select(group =>
+            {
+                var (model, agent) = group.Key;
+                var name = $"{model} - {agent}";
+                var jobs = group
+                    .DistinctBy(entry => entry.Index)
+                    .Select(entry => entry.Record)
+                    .ToList();
+                var partUsages = group.Select(entry => entry.Part.Usage);
+
+                // Every part is a Copilot run whose call is known, so no job here lacks a count.
+                return new CostRow(
+                    name,
+                    name,
+                    group.Count(),
+                    jobs.Count,
+                    JobsWithoutCount: 0,
+                    jobs.Sum(record => record.DurationSeconds))
+                {
+                    Usage = CopilotUsage.Sum(partUsages),
+                };
+            })
+            .ToList();
     }
 
     private static List<CostRow> GroupBy(
@@ -96,14 +172,32 @@ public static class CostReport
             .ToList();
     }
 
-    private static CostRow RowOf(string key, string label, IReadOnlyCollection<CostRecord> records) =>
-        new(
+    /// <summary>The job used more than one model and agent pair (e.g. a subagent), so it is in several rows.</summary>
+    private static bool IsInSeveralModelRows(CostRecord record) =>
+        record.Parts
+            .DistinctBy(part => (part.Model, part.Agent))
+            .Skip(1)
+            .Any();
+
+    private static CostRow RowOf(string key, string label, IReadOnlyCollection<CostRecord> records)
+    {
+        var usages = records
+            .Select(record => record.Usage)
+            .OfType<CopilotUsage>();
+
+        return new CostRow(
             key,
             label,
             records.Sum(record => record.CopilotCalls ?? 0),
             records.Count,
             records.Count(record => record.CopilotCalls is null),
-            records.Sum(record => record.DurationSeconds));
+            records.Sum(record => record.DurationSeconds))
+        {
+            Usage = CopilotUsage.Sum(usages),
+            // A job that ran no Copilot has nothing to miss.
+            JobsWithoutUsage = records.Count(record => record.Usage is null && record.RanCopilot),
+        };
+    }
 
     private static DateOnly LocalDay(CostRecord record, TimeZoneInfo zone)
     {

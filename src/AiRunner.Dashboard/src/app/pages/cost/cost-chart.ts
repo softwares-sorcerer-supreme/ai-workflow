@@ -1,4 +1,5 @@
-import { Component, DestroyRef, ElementRef, computed, inject, input, signal } from '@angular/core';
+import { formatNumber } from '@angular/common';
+import { Component, DestroyRef, ElementRef, LOCALE_ID, computed, inject, input, signal } from '@angular/core';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CostRowResponse } from '../../api/models/cost-row-response';
 
@@ -35,11 +36,13 @@ const CHAR_WIDTH = 7;
 const COLUMN_PLOT_HEIGHT = 180;
 const COLUMN_TOP = 20;
 const COLUMN_AXIS = 24;
-const COLUMN_LEFT = 40;
+/** The least room left of the columns for the value labels; more when the largest value needs it. */
+const COLUMN_LEFT_MIN = 40;
 
 const BAR_ROW = 40;
 const BAR_THICKNESS = 14;
-const BAR_VALUE_ROOM = 56;
+/** The least room right of the longest bar for its value; more when the formatted value needs it. */
+const BAR_VALUE_ROOM_MIN = 56;
 
 /** How many groups the horizontal chart shows; the table below lists all of them. */
 export const MAX_BARS = 15;
@@ -47,7 +50,8 @@ export const MAX_BARS = 15;
 let nextId = 0;
 
 /**
- * One simple bar chart of Copilot calls for the cost screen. It only turns the API's numbers into pixels: the rows
+ * One simple bar chart of what Copilot billed (`nanoAiu`, shown as sent, never converted) for the cost screen. It
+ * only turns the API's numbers into pixels and formats them with thousands separators: the rows
  * come ordered and labelled by the API, nothing is summed here. Single series, so no legend; the card title names
  * what is plotted and the table under it is the text alternative. Inline SVG measured to the card's real width, so
  * text never scales.
@@ -143,19 +147,26 @@ let nextId = 0;
 export class CostChart {
   readonly rows = input.required<readonly CostRowResponse[]>();
   readonly layout = input<CostChartLayout>('columns');
-  /** The chart's accessible name, e.g. "Copilot calls by day". */
+  /** The chart's accessible name, e.g. "Billed (nano AIU) - By day". */
   readonly heading = input.required<string>();
   /** One sentence for screen readers: what the bars show and where the numbers are. */
-  readonly description = input('Bars of Copilot calls. The table below lists every value.');
+  readonly description = input('Bars of what Copilot billed, in nano AIU. The table below lists every value.');
 
   protected readonly titleId = `cost-chart-title-${nextId}`;
   protected readonly descId = `cost-chart-desc-${nextId++}`;
 
   private readonly width = signal(FALLBACK_WIDTH);
+  private readonly locale = inject(LOCALE_ID);
 
-  protected readonly geometry = computed<ChartGeometry>(() =>
-    this.layout() === 'bars' ? barsOf(this.rows(), this.width()) : columnsOf(this.rows(), this.width()),
-  );
+  protected readonly geometry = computed<ChartGeometry>(() => {
+    const chart: ChartInput = {
+      rows: this.rows(),
+      width: this.width(),
+      format: (value) => formatNumber(value, this.locale, '1.0-0'),
+    };
+
+    return this.layout() === 'bars' ? barsOf(chart) : columnsOf(chart);
+  });
 
   constructor() {
     const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
@@ -177,47 +188,72 @@ export class CostChart {
   }
 }
 
+/** What one layout needs: the API's rows, the measured width and the number format of the app's locale. */
+interface ChartInput {
+  rows: readonly CostRowResponse[];
+  width: number;
+  format: (value: number) => string;
+}
+
+/** The plotted value of a group: what Copilot billed, as the API sent it. */
+function valueOf(row: CostRowResponse): number {
+  return row.nanoAiu;
+}
+
 /** The tooltip of one group: the API's label and its numbers. */
-function tooltipOf(row: CostRowResponse): string {
-  return `${row.label}\nCalls: ${row.calls}\nJobs: ${row.jobs}`;
+function tooltipOf(row: CostRowResponse, format: ChartInput['format']): string {
+  return [
+    row.label,
+    `Billed: ${format(row.nanoAiu)} nano AIU`,
+    `Calls: ${format(row.calls)}`,
+    `Jobs: ${format(row.jobs)}`,
+  ].join('\n');
 }
 
 /** The largest value sets the scale; at least 1 so a chart of zeros draws no bars instead of dividing by zero. */
 function scaleMax(rows: readonly CostRowResponse[]): number {
-  return Math.max(1, ...rows.map((row) => row.calls));
+  return Math.max(1, ...rows.map(valueOf));
+}
+
+/** Rough pixels a line of the chart's 12 px text takes. */
+function textWidth(text: string): number {
+  return text.length * CHAR_WIDTH;
 }
 
 /** Vertical bars, oldest day on the left; the first and last day under the axis, the largest value on the left. */
-function columnsOf(rows: readonly CostRowResponse[], width: number): ChartGeometry {
+function columnsOf({ rows, width, format }: ChartInput): ChartGeometry {
   const max = scaleMax(rows);
-  const plotWidth = Math.max(1, width - COLUMN_LEFT);
+  const maxText = format(max);
+  // Billed values run into the millions: the left axis widens so its label is never clipped.
+  const columnLeft = Math.max(COLUMN_LEFT_MIN, textWidth(maxText) + 10);
+  const plotWidth = Math.max(1, width - columnLeft);
   const slot = plotWidth / Math.max(1, rows.length);
   const barWidth = Math.max(1, Math.min(BAR_MAX, slot - 2));
   const baseline = COLUMN_TOP + COLUMN_PLOT_HEIGHT;
   const height = baseline + COLUMN_AXIS;
 
   const marks = rows.map((row, index) => {
-    const slotX = COLUMN_LEFT + index * slot;
+    const slotX = columnLeft + index * slot;
     const x = slotX + (slot - barWidth) / 2;
-    const barHeight = (row.calls / max) * COLUMN_PLOT_HEIGHT;
+    const barHeight = (valueOf(row) / max) * COLUMN_PLOT_HEIGHT;
 
     return {
       key: row.key,
       path: barHeight > 0 ? columnPath(x, baseline, barWidth, barHeight) : '',
       hit: { x: slotX, y: COLUMN_TOP, width: slot, height: COLUMN_PLOT_HEIGHT },
-      tooltip: tooltipOf(row),
+      tooltip: tooltipOf(row, format),
     };
   });
 
   const texts: ChartGeometry['texts'] = [
-    { text: String(max), x: COLUMN_LEFT - 6, y: COLUMN_TOP + 4, anchor: 'end' },
-    { text: '0', x: COLUMN_LEFT - 6, y: baseline + 4, anchor: 'end' },
+    { text: maxText, x: columnLeft - 6, y: COLUMN_TOP + 4, anchor: 'end' },
+    { text: '0', x: columnLeft - 6, y: baseline + 4, anchor: 'end' },
   ];
 
   const first = rows.at(0);
   const last = rows.at(-1);
   if (first) {
-    texts.push({ text: first.label, x: COLUMN_LEFT, y: height - 6, anchor: 'start' });
+    texts.push({ text: first.label, x: columnLeft, y: height - 6, anchor: 'start' });
   }
 
   if (last && rows.length > 1) {
@@ -229,33 +265,34 @@ function columnsOf(rows: readonly CostRowResponse[], width: number): ChartGeomet
     height,
     marks,
     lines: [
-      { x1: COLUMN_LEFT, y1: COLUMN_TOP, x2: width, y2: COLUMN_TOP },
-      { x1: COLUMN_LEFT, y1: baseline, x2: width, y2: baseline },
+      { x1: columnLeft, y1: COLUMN_TOP, x2: width, y2: COLUMN_TOP },
+      { x1: columnLeft, y1: baseline, x2: width, y2: baseline },
     ],
     texts,
   };
 }
 
-/** Horizontal bars in the API's order (most calls first): the name above each bar, the value at its tip. */
-function barsOf(rows: readonly CostRowResponse[], width: number): ChartGeometry {
+/** Horizontal bars in the API's order (most billed first): the name above each bar, the value at its tip. */
+function barsOf({ rows, width, format }: ChartInput): ChartGeometry {
   const shown = rows.slice(0, MAX_BARS);
   const max = scaleMax(shown);
-  const plotWidth = Math.max(1, width - BAR_VALUE_ROOM);
+  const valueRoom = Math.max(BAR_VALUE_ROOM_MIN, textWidth(format(max)) + 12);
+  const plotWidth = Math.max(1, width - valueRoom);
   const maxChars = Math.max(4, Math.floor(width / CHAR_WIDTH));
 
   const marks = shown.map((row, index) => {
     const top = index * BAR_ROW;
     const barY = top + BAR_ROW - BAR_THICKNESS - 6;
-    const barLength = (row.calls / max) * plotWidth;
+    const barLength = (valueOf(row) / max) * plotWidth;
     const text = row.label.length > maxChars ? `${row.label.slice(0, maxChars - 3)}...` : row.label;
 
     return {
       key: row.key,
       path: barLength > 0 ? barPath(0, barY, barLength, BAR_THICKNESS) : '',
       hit: { x: 0, y: top, width, height: BAR_ROW },
-      tooltip: tooltipOf(row),
+      tooltip: tooltipOf(row, format),
       label: { text, full: row.label, x: 0, y: top + 14 },
-      value: { text: String(row.calls), x: barLength + 6, y: barY + BAR_THICKNESS - 2 },
+      value: { text: format(valueOf(row)), x: barLength + 6, y: barY + BAR_THICKNESS - 2 },
     };
   });
 

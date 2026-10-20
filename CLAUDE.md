@@ -200,7 +200,9 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   Copilot bills AI credits by tokens: `JobSupport.RunCopilotAsync` asks every run for `<logName>-usage.json` in the job's log folder
   (`--usage-output-file`, only when `copilot --help` lists it), and `JobWorker` adds up all of them (`JobRun.ReadUsage`,
   `Core/CopilotUsage`; failed jobs too) into `cost_log` / `cost.csv` columns `nano_aiu`, `input_tokens`, `cache_read_tokens`,
-  `cache_write_tokens`, `output_tokens` (null without usage). Per-model and per-agent numbers stay in the JSON files only.
+  `cache_write_tokens`, `output_tokens` (null without usage). What each agent spent on each model in each run (`agentMetrics`,
+  else `modelMetrics` as agent `main`) goes to `cost_usage_part` (`UsagePart`, not in the CSV); `GET /api/cost?by=model` groups it
+  per model and agent, and every cost row carries billed (`nanoAiu`, the CLI's raw value) and the four token counts.
 
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a
