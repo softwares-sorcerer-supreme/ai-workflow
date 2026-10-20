@@ -48,8 +48,9 @@ public sealed class AttachmentDownloadTests : IDisposable
         var apiHandler = new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var apiClient = new HttpClient(apiHandler) { BaseAddress = new Uri(apiUrl) };
         var downloadClient = new HttpClient(handler);
+        var web = new GitBucketWeb(new HttpClient(apiHandler), "");
 
-        return (new GitBucketClient(apiClient, downloadClient), handler);
+        return (new GitBucketClient(apiClient, downloadClient, web), handler);
     }
 
     private AttachmentDownload Download(long maxBytes = 1000, string url = Url) =>

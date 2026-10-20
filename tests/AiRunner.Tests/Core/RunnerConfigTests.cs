@@ -635,6 +635,32 @@ public class RunnerConfigTests
     }
 
     [Fact]
+    public void The_web_password_is_read_beside_the_config_and_is_empty_by_default()
+    {
+        var withPassword = RunnerConfig.ParseFile("""
+            git_bucket:
+              base_url: http://gitbucket
+              web_password: secret
+            """);
+        var withoutPassword = RunnerConfig.ParseFile("""
+            git_bucket:
+              base_url: http://gitbucket
+            """);
+
+        Assert.Equal("secret", withPassword.WebPassword);
+        Assert.Equal("http://gitbucket", withPassword.Config.GitBucket.BaseUrl);
+        Assert.Equal("", withoutPassword.WebPassword);
+    }
+
+    [Fact]
+    public void The_config_the_dashboard_gets_has_no_place_for_the_web_password()
+    {
+        var gitBucketSettings = typeof(GitBucketConfig).GetProperties().Select(property => property.Name);
+
+        Assert.Equal(["BaseUrl"], gitBucketSettings);
+    }
+
+    [Fact]
     public void The_base_url_is_checked_when_the_file_is_loaded()
     {
         var file = Path.Combine(Path.GetTempPath(), $"repos-{Guid.NewGuid():N}.yml");

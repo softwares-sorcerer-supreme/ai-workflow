@@ -49,7 +49,7 @@ internal static partial class ConfigResolver
     {
         var config = new RunnerConfig
         {
-            GitBucket = file.GitBucket,
+            GitBucket = new GitBucketConfig { BaseUrl = file.GitBucket.BaseUrl },
             PollIntervalSeconds = file.PollIntervalSeconds,
             RunnerName = file.RunnerName,
             Copilot = file.Copilot,

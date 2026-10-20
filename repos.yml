@@ -1,7 +1,8 @@
-# ai-runner config. Tokens are NOT here: use user secrets (see README).
+# ai-runner config. Tokens are NOT here: use user secrets (see README). Only web_password may be here.
 # All keys are snake_case. An unknown or misspelled key stops the start, with a hint.
 git_bucket:
   base_url: http://10.221.10.34:3000
+  web_password: ""          # sign-in password of the token's user: closes issues via the web page (the API cannot)
 
 poll_interval_seconds: 90
 runner_name: ""             # names this runner in claims (claim_enabled); empty = the machine user name

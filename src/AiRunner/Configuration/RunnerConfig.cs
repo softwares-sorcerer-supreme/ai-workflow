@@ -4,8 +4,8 @@ namespace AiRunner.Configuration;
 
 /// <summary>
 /// Everything from repos.yml, after the defaults and the project overrides are merged. Tokens are never here
-/// (user secrets or environment). Relative paths are resolved against the folder of repos.yml, so the runner
-/// works the same from any current directory.
+/// (user secrets or environment), and neither is the web password (<see cref="ConfigFile"/>). Relative paths are
+/// resolved against the folder of repos.yml, so the runner works the same from any current directory.
 /// </summary>
 public sealed class RunnerConfig
 {
@@ -55,7 +55,10 @@ public sealed class RunnerConfig
     public string EffectiveRunnerName() =>
         string.IsNullOrWhiteSpace(RunnerName) ? Environment.UserName : RunnerName.Trim();
 
-    public static RunnerConfig Load(string path)
+    public static RunnerConfig Load(string path) => LoadFile(path).Config;
+
+    /// <summary>The config plus what repos.yml holds that must stay out of it (the web password).</summary>
+    public static ConfigFile LoadFile(string path)
     {
         if (!File.Exists(path))
         {
@@ -63,21 +66,39 @@ public sealed class RunnerConfig
         }
 
         var yaml = File.ReadAllText(path);
-        var config = Parse(yaml);
+        var configFile = ParseFile(yaml);
         var fullPath = Path.GetFullPath(path);
-        config.RootDir = Path.GetDirectoryName(fullPath)!;
+        configFile.Config.RootDir = Path.GetDirectoryName(fullPath)!;
 
-        if (string.IsNullOrWhiteSpace(config.GitBucket.BaseUrl))
+        if (string.IsNullOrWhiteSpace(configFile.Config.GitBucket.BaseUrl))
         {
             throw new InvalidOperationException("git_bucket.base_url is missing in " + path);
         }
 
-        return config;
+        return configFile;
     }
 
     /// <summary>Reads repos.yml text: strict snake_case keys, defaults merged into each project, everything validated.</summary>
-    public static RunnerConfig Parse(string yaml) => ConfigResolver.Resolve(ConfigResolver.Deserialize(yaml));
+    public static RunnerConfig Parse(string yaml) => ParseFile(yaml).Config;
+
+    public static ConfigFile ParseFile(string yaml)
+    {
+        var file = ConfigResolver.Deserialize(yaml);
+        var config = ConfigResolver.Resolve(file);
+
+        return new ConfigFile(config, file.GitBucket.WebPassword);
+    }
 }
+
+/// <summary>
+/// repos.yml as the runner's entry point needs it: the config, and the web password beside it rather than inside it,
+/// because the config is handed to the dashboard and no secret may reach the dashboard (docs/adr/0001).
+/// </summary>
+/// <param name="WebPassword">
+/// git_bucket.web_password: the sign-in password of the token's user, for closing issues through the web page
+/// (/api/v3 cannot). Empty = not set. Never put it in an API response or a log.
+/// </param>
+public sealed record ConfigFile(RunnerConfig Config, string WebPassword);
 
 /// <summary>Workflow names used in repos.yml (workflows: and models:).</summary>
 public static class Workflows

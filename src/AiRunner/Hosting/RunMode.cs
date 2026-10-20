@@ -12,6 +12,10 @@ public sealed record RunMode
     public bool CopilotTest { get; init; }
     public bool SetupLabels { get; init; }
     public string? AttachmentTestUrl { get; init; }
+
+    /// <summary>The issue <c>--close-test</c> closes, as <c>owner/repo#n</c>.</summary>
+    public string? CloseTestIssue { get; init; }
+
     public string? ConfigPath { get; init; }
 
     /// <summary>Where <c>--openapi</c> writes the dashboard API document (for the generated UI client).</summary>
@@ -19,7 +23,8 @@ public sealed record RunMode
 
     /// <summary>The normal mode: poll every interval until Ctrl+C (with <c>--dry-run</c>: plan only).</summary>
     public bool IsPollingLoop =>
-        !RunOnce && !CopilotTest && !SetupLabels && AttachmentTestUrl is null && OpenApiPath is null;
+        !RunOnce && !CopilotTest && !SetupLabels && AttachmentTestUrl is null && CloseTestIssue is null &&
+        OpenApiPath is null;
 
     public static RunMode Parse(string[] arguments) => new()
     {
@@ -28,6 +33,7 @@ public sealed record RunMode
         CopilotTest = arguments.Contains("--copilot-test"),
         SetupLabels = arguments.Contains("--setup-labels"),
         AttachmentTestUrl = ValueOf(arguments, "--attachment-test"),
+        CloseTestIssue = ValueOf(arguments, "--close-test"),
         ConfigPath = ValueOf(arguments, "--config"),
         OpenApiPath = ValueOf(arguments, "--openapi"),
     };

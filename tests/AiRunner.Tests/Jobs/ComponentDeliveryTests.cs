@@ -1,3 +1,4 @@
+using AiRunner.Infrastructure;
 using AiRunner.Jobs;
 using AiRunner.Tests.Fakes;
 using static AiRunner.Tests.Fakes.DeliveryLayouts;
@@ -389,6 +390,25 @@ public sealed class ComponentDeliveryTests
         Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(12));
         Assert.Contains(JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo), kit.GitBucket.CommentsOf(12).Last().Body);
         Assert.Equal([kit.Project.IssuesRepo], kit.GitBucket.ReposOf("close-issue"));
+    }
+
+    [Theory]
+    [MemberData(nameof(Names), MemberType = typeof(DeliveryLayouts))]
+    public async Task A_failed_close_writes_nothing_so_the_retry_does_not_comment_twice(string layout)
+    {
+        using var kit = new JobTestKit(project: Create(layout));
+        var (_, second) = Pair(kit.Project);
+        ArrangeSimpleIssue(kit, second);
+        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
+        var commentsBefore = kit.GitBucket.CommentsOf(12).Count();
+        kit.GitBucket.CloseError = "sign-in refused";
+
+        await Assert.ThrowsAsync<GitBucketException>(
+            () => FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default));
+
+        Assert.True(kit.GitBucket.Issues[12].IsOpen());
+        Assert.Contains(Labels.Implementing, kit.GitBucket.LabelsOf(12));
+        Assert.Equal(commentsBefore, kit.GitBucket.CommentsOf(12).Count());
     }
 
     [Theory]

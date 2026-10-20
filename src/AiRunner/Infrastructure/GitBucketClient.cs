@@ -40,7 +40,9 @@ public interface IGitBucketClient
 
     Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken);
 
-    /// <summary>Closes an issue (state = closed); nothing happens when it is closed already.</summary>
+    /// <summary>
+    /// Closes an issue; nothing happens when it is closed already. Throws when it is still open afterwards.
+    /// </summary>
     Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken);
 
     /// <summary>No error when the label is not on the issue.</summary>
@@ -77,7 +79,8 @@ public sealed record DownloadedAttachment(string Path, string? OriginalName, str
 /// Every text sent to GitBucket goes through AsciiSanitizer, because this GitBucket returns
 /// HTTP 500 on non-ASCII text. Every comment gets the bot marker. Lists read every page.
 /// </summary>
-public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadClient) : IGitBucketClient
+public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadClient, GitBucketWeb web)
+    : IGitBucketClient
 {
     /// <summary>Safety stop for lists; 50 pages is far more than a pilot repo has.</summary>
     private const int MaxPages = 50;
@@ -202,16 +205,35 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             cancellationToken);
     }
 
+    /// <summary>
+    /// /api/v3 has no route that changes an issue's state (PATCH answers 404), so this posts the "Close" form of the
+    /// issue page, signed in on the web side as the token's user (<see cref="GitBucketWeb"/>). The form answers with a
+    /// redirect whether it worked or not; only the issue read back from the API says it is closed.
+    /// </summary>
     public async Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken)
     {
-        await SendAsync<JsonElement>(
-            HttpMethod.Patch,
-            $"repos/{repo}/issues/{number}",
-            new
-            {
-                state = "closed"
-            },
-            cancellationToken);
+        var issue = await GetIssueAsync(repo, number, cancellationToken);
+        if (!issue.IsOpen())
+        {
+            return;
+        }
+
+        var closeUrl = $"{repo}/issue_comments/state";
+        KeyValuePair<string, string>[] closeForm = [new("issueId", number.ToString()), new("action", "close")];
+        var answer = await web.PostSignedInAsync(closeUrl, closeForm, CurrentLoginAsync, cancellationToken);
+
+        var closedIssue = await GetIssueAsync(repo, number, cancellationToken);
+        if (closedIssue.IsOpen())
+        {
+            web.ForgetSession();
+
+            var reason = answer.IsSignInPage
+                ? "GitBucket still asks to sign in right after a sign-in it accepted"
+                : $"the user of the GitBucket token needs write access to {repo}";
+            throw new GitBucketException(
+                answer.Status,
+                $"POST {closeUrl} -> {(int)answer.Status}: #{number} is still open; {reason}.");
+        }
     }
 
     public async Task AddLabelsAsync(
@@ -333,7 +355,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         using var response = await downloadClient.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         var status = (int)response.StatusCode;
-        if (status is >= 300 and < 400)
+        if (WebAnswer.IsRedirectStatus(response.StatusCode))
         {
             var location = response.Headers.Location?.ToString() ?? "?";
             throw new AttachmentDownloadException(
@@ -392,6 +414,14 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
     }
 
     // ---- helpers ----
+
+    /// <summary>The token's user: the web side signs in as the same account the API acts as.</summary>
+    private async Task<string> CurrentLoginAsync(CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUserAsync(cancellationToken);
+
+        return user.Login;
+    }
 
     /// <summary>Same scheme, host and port as the API: the token is never sent anywhere else.</summary>
     private bool IsOnGitBucket(Uri uri)

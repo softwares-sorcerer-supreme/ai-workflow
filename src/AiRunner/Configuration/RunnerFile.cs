@@ -6,7 +6,7 @@ namespace AiRunner.Configuration;
 
 internal sealed class RunnerFile
 {
-    public GitBucketConfig GitBucket { get; set; } = new();
+    public GitBucketFile GitBucket { get; set; } = new();
     public int PollIntervalSeconds { get; set; } = 90;
     public string RunnerName { get; set; } = "";
     public CopilotConfig Copilot { get; set; } = new();
@@ -18,6 +18,16 @@ internal sealed class RunnerFile
     public SettingsFile Defaults { get; set; } = new();
     public Dictionary<string, ProjectFile> Projects { get; set; } = [];
     public List<LegacyRepoFile> Repos { get; set; } = [];
+}
+
+/// <summary>
+/// The git_bucket block. The web password is not copied into <see cref="RunnerConfig"/>: the dashboard gets the
+/// config, and no secret may reach it (docs/adr/0001). It travels next to it in <see cref="ConfigFile"/>.
+/// </summary>
+internal sealed class GitBucketFile
+{
+    public string BaseUrl { get; set; } = "";
+    public string WebPassword { get; set; } = "";
 }
 
 internal class SettingsFile
