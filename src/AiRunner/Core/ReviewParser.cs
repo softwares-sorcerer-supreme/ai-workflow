@@ -7,6 +7,9 @@ public sealed record ReviewResult(string Verdict, int Bugs, int Risks, int Style
     /// tests...).
     /// </summary>
     public int Conventions { get; init; }
+
+    /// <summary>Findings of the previous review that this (incremental) review found still open.</summary>
+    public int StillOpen { get; init; }
 }
 
 /// <summary>
@@ -17,6 +20,7 @@ public static class ReviewParser
 {
     private static readonly string[] Verdicts = ["looks good", "needs changes", "needs discussion"];
     private static readonly string[] Severities = ["bug", "risk", "convention", "style"];
+    private static readonly string[] Statuses = ["fixed", "still open"];
 
     public static ReviewResult Parse(string block)
     {
@@ -44,9 +48,38 @@ public static class ReviewParser
             counts[severity]++;
         }
 
+        var stillOpen = CountStillOpen(block);
+
         return new ReviewResult(verdict, counts["bug"], counts["risk"], counts["style"])
         {
             Conventions = counts["convention"],
+            StillOpen = stillOpen,
         };
+    }
+
+    /// <summary>Previous findings an incremental review checked again; a full review writes None.</summary>
+    private static int CountStillOpen(string block)
+    {
+        var previous = MarkdownSections.Get(block, "Previous findings")
+            ?? throw new FormatException("'### Previous findings' section not found");
+
+        var stillOpen = 0;
+        foreach (var cells in MarkdownSections.TableRows(previous).Where(row => row.Length >= 2))
+        {
+            var status = cells[1].Trim('*', '`', ' ').ToLowerInvariant();
+
+            if (!Statuses.Contains(status))
+            {
+                throw new FormatException(
+                    $"Previous findings status must be one of: {string.Join(", ", Statuses)}; got '{status}'");
+            }
+
+            if (status == "still open")
+            {
+                stillOpen++;
+            }
+        }
+
+        return stillOpen;
     }
 }

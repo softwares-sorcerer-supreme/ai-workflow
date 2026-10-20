@@ -518,11 +518,44 @@ public class ReviewParserTests
     {
         var text = Samples.Review(verdict: "looks good");
         var start = text.IndexOf("| #", StringComparison.Ordinal);
-        var end = text.IndexOf("### Spec check", StringComparison.Ordinal);
+        var end = text.IndexOf("### Previous findings", StringComparison.Ordinal);
 
         var result = ReviewParser.Parse(text[..start] + "None\n\n" + text[end..]);
 
         Assert.Equal((0, 0, 0), (result.Bugs, result.Risks, result.Style));
+    }
+
+    private const string PreviousRows = """
+        | # | Status | Where | Problem |
+        | --- | --- | --- | --- |
+        | P1 | fixed | `a.cs:4` | Null check missing |
+        | P2 | still open | `a.cs:20` | No test for the empty file |
+        """;
+
+    [Fact]
+    public void Previous_findings_count_the_ones_still_open_and_none_is_zero()
+    {
+        var incremental = ReviewParser.Parse(Samples.Review(previous: PreviousRows));
+        var full = ReviewParser.Parse(Samples.Review());
+
+        Assert.Equal(1, incremental.StillOpen);
+        Assert.Equal(1, incremental.Bugs);
+        Assert.Equal(0, full.StillOpen);
+    }
+
+    [Fact]
+    public void Unknown_previous_status_fails() =>
+        Assert.Throws<FormatException>(
+            () => ReviewParser.Parse(Samples.Review(previous: PreviousRows.Replace("still open", "maybe"))));
+
+    [Fact]
+    public void A_review_without_previous_findings_fails()
+    {
+        var text = Samples.Review();
+        var start = text.IndexOf("### Previous findings", StringComparison.Ordinal);
+        var end = text.IndexOf("### Spec check", StringComparison.Ordinal);
+
+        Assert.Throws<FormatException>(() => ReviewParser.Parse(text[..start] + text[end..]));
     }
 }
 

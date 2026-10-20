@@ -102,7 +102,7 @@ public class RunnerConfigTests
               trigger_keyword: "@bot"
               workflows: [analyze, review]
               models: { analyze: strong, implement: cheap }
-              limits: { max_diff_lines: 500, max_changed_files: 9 }
+              limits: { max_diff_lines: 500, max_changed_files: 9, max_reviews: 4 }
               review: { skip_paths: ["docs/**"] }
               never_edit: [Jenkinsfile]
             projects:
@@ -135,6 +135,7 @@ public class RunnerConfigTests
         Assert.Equal(["implement"], tuned.Workflows);
         Assert.Equal(400, tuned.Limits.MaxDiffLines);
         Assert.Equal(9, tuned.Limits.MaxChangedFiles);
+        Assert.Equal(4, tuned.Limits.MaxReviews);
         Assert.Equal("strong", tuned.ModelFor("analyze"));
         Assert.Equal("other", tuned.ModelFor("implement"));
         Assert.Equal(["docs/**"], tuned.Review.SkipPaths);
@@ -151,6 +152,7 @@ public class RunnerConfigTests
         Assert.Equal(15, settings.Limits.MaxChangedFiles);
         Assert.Equal(800, settings.Limits.MaxDiffLines);
         Assert.Equal(2, settings.Implement.MaxFixRounds);
+        Assert.Equal(3, settings.Limits.MaxReviews);
         Assert.True(settings.Review.IsScoped);
         Assert.False(settings.ClaimEnabled);
         Assert.False(settings.AutoStartFirstSubIssue);
@@ -616,6 +618,31 @@ public class RunnerConfigTests
         Assert.Contains("run_in 'sideways'", runIn.Message);
         Assert.Contains("review.scope 'everything'", scope.Message);
         Assert.Contains("models.deploy", model.Message);
+    }
+
+    [Fact]
+    public void A_model_for_the_breakdown_is_an_error_because_the_breakdown_runs_no_copilot()
+    {
+        var breakdown = Fails("""
+            defaults: { models: { breakdown: x } }
+            repos:
+              - { owner: o, name: r }
+            """);
+
+        Assert.Contains("models.breakdown is not a workflow that runs Copilot", breakdown.Message);
+        Assert.Contains("models.analyze picks its model", breakdown.Message);
+    }
+
+    [Fact]
+    public void Max_reviews_below_one_is_an_error()
+    {
+        var zero = Fails("""
+            defaults: { limits: { max_reviews: 0 } }
+            repos:
+              - { owner: o, name: r }
+            """);
+
+        Assert.Contains("limits.max_reviews must be 1 or more", zero.Message);
     }
 
     [Fact]

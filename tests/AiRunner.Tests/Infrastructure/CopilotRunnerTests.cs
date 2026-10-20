@@ -37,6 +37,38 @@ public class CopilotRunnerTests
         Assert.DoesNotContain("--attachment", processes.Commands.Single());
     }
 
+    [Fact]
+    public async Task A_usage_file_is_asked_for_when_the_help_lists_the_flag()
+    {
+        var processes = new FakeProcesses { StdOut = "Options:\n  --usage-output-file <path>" };
+        var runner = new CopilotRunner(new RunnerConfig(), processes, NullLogger<CopilotRunner>.Instance);
+        var request = new CopilotRequest("work", "prompt", null, null, Timeout)
+        {
+            UsageFile = "C:\\logs\\copilot-usage.json",
+        };
+
+        await runner.RunAsync(request, default);
+        await runner.RunAsync(request, default);
+
+        Assert.Equal(["--help"], processes.Commands.Where(command => command == "--help"));
+        Assert.Contains("--usage-output-file C:\\logs\\copilot-usage.json", processes.Commands.Last());
+    }
+
+    [Fact]
+    public async Task An_older_cli_gets_no_usage_flag()
+    {
+        var processes = new FakeProcesses { StdOut = "Options:\n  --attachment <path>" };
+        var runner = new CopilotRunner(new RunnerConfig(), processes, NullLogger<CopilotRunner>.Instance);
+        var request = new CopilotRequest("work", "prompt", null, null, Timeout)
+        {
+            UsageFile = "C:\\logs\\copilot-usage.json",
+        };
+
+        await runner.RunAsync(request, default);
+
+        Assert.DoesNotContain("--usage-output-file", processes.Commands.Last());
+    }
+
     [Theory]
     [InlineData("Options:\n  --attachment <path>   Attach a file", true)]
     [InlineData("Options:\n  --add-dir <directory>", false)]

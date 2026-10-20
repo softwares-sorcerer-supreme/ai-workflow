@@ -15,11 +15,35 @@ public static class JobStatus
 
 public sealed record StoredJob(long Id, JobRequest Request, string Status, int Attempts);
 
-public sealed record ReviewState(string HeadSha, long? CommentId, string Result);
+/// <summary>
+/// The review row of a PR. <c>HeadSha</c> is the last head the review job handled (reviewed, skipped or failed), so it
+/// is not planned again. The other values are left as they are when a write does not set them (null).
+/// </summary>
+public sealed record ReviewState(string HeadSha, long? CommentId, string Result)
+{
+    /// <summary>Result when the head was not reviewed because it had only skip_paths files (or none).</summary>
+    public const string Skipped = "skipped";
+
+    /// <summary>Result when the review job failed on the head (it is not retried on every poll).</summary>
+    public const string Failed = "failed";
+
+    /// <summary>Result of a row written before the first review, when a full review was asked for by label.</summary>
+    public const string Pending = "pending";
+
+    /// <summary>Head of the last posted review: the base of the next incremental review.</summary>
+    public string? ReviewedSha { get; init; }
+
+    /// <summary>Automatic reviews posted so far (limits.max_reviews); null on a row from an older runner.</summary>
+    public int? ReviewCount { get; init; }
+
+    /// <summary>Head that got the full review the label ai-review-full asked for.</summary>
+    public string? FullReviewSha { get; init; }
+}
 
 /// <summary>How a job ended, as the dashboard reads it from the job row.</summary>
 public sealed record JobResult(string Result, string Detail, int? CopilotCalls = null);
 
+/// <param name="Usage">Tokens and credits from the run's usage files, or null when there were none.</param>
 public sealed record CostEntry(
     DateTimeOffset At,
     string Repo,
@@ -28,7 +52,8 @@ public sealed record CostEntry(
     double DurationSeconds,
     string Result,
     string Detail,
-    int? CopilotCalls = null);
+    int? CopilotCalls = null,
+    CopilotUsage? Usage = null);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -75,6 +100,14 @@ public interface IStateStore
 
 public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostReader
 {
+    /// <summary>The usage columns of cost_log as SQL ("nano_aiu, input_tokens, ..."), from CopilotUsage.ColumnNames.</summary>
+    private static readonly string UsageColumnList = string.Join(", ", CopilotUsage.ColumnNames);
+
+    /// <summary>Their parameter names ("$usage0, $usage1, ..."), in the same order.</summary>
+    private static readonly string UsageParameterList = string.Join(
+        ", ",
+        Enumerable.Range(0, CopilotUsage.ColumnNames.Count).Select(index => $"$usage{index}"));
+
     private readonly string _connectionString;
 
     public SqliteStateStore(RunnerConfig config) : this(config.ResolvePath(config.Paths.State)) { }
@@ -103,6 +136,14 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         AddColumnIfMissing("jobs", "detail", "TEXT");
         AddColumnIfMissing("jobs", "copilot_calls", "INTEGER");
         AddColumnIfMissing("cost_log", "copilot_calls", "INTEGER");
+        AddColumnIfMissing("review_state", "reviewed_sha", "TEXT");
+        AddColumnIfMissing("review_state", "review_count", "INTEGER");
+        AddColumnIfMissing("review_state", "full_sha", "TEXT");
+        foreach (var usageColumn in CopilotUsage.ColumnNames)
+        {
+            AddColumnIfMissing("cost_log", usageColumn, "INTEGER");
+        }
+
         CreateSnapshotTables();
     }
 
@@ -155,7 +196,10 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         using var connection = Open();
         using var command = Command(
             connection,
-            "SELECT head_sha, comment_id, result FROM review_state WHERE repo = $repo AND pr = $pr",
+            """
+            SELECT head_sha, comment_id, result, reviewed_sha, review_count, full_sha
+            FROM review_state WHERE repo = $repo AND pr = $pr
+            """,
             ("$repo", repo),
             ("$pr", pullNumber));
         using var reader = command.ExecuteReader();
@@ -169,20 +213,31 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         long? commentId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
         var result = reader.GetString(2);
 
-        return new ReviewState(headSha, commentId, result);
+        return new ReviewState(headSha, commentId, result)
+        {
+            ReviewedSha = reader.IsDBNull(3) ? null : reader.GetString(3),
+            ReviewCount = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+            FullReviewSha = reader.IsDBNull(5) ? null : reader.GetString(5),
+        };
     }
 
     public void SetReview(string repo, int pullNumber, ReviewState reviewState) =>
         Execute(
             """
-            INSERT INTO review_state (repo, pr, head_sha, comment_id, result) VALUES ($repo, $pr, $sha, $cid, $result)
-            ON CONFLICT(repo, pr) DO UPDATE SET head_sha = $sha, comment_id = COALESCE($cid, comment_id), result = $result
+            INSERT INTO review_state (repo, pr, head_sha, comment_id, result, reviewed_sha, review_count, full_sha)
+            VALUES ($repo, $pr, $sha, $cid, $result, $reviewed, $count, $full)
+            ON CONFLICT(repo, pr) DO UPDATE SET head_sha = $sha, comment_id = COALESCE($cid, comment_id), result = $result,
+                reviewed_sha = COALESCE($reviewed, reviewed_sha), review_count = COALESCE($count, review_count),
+                full_sha = COALESCE($full, full_sha)
             """,
             ("$repo", repo),
             ("$pr", pullNumber),
             ("$sha", reviewState.HeadSha),
             ("$cid", reviewState.CommentId),
-            ("$result", reviewState.Result));
+            ("$result", reviewState.Result),
+            ("$reviewed", reviewState.ReviewedSha),
+            ("$count", reviewState.ReviewCount),
+            ("$full", reviewState.FullReviewSha));
 
     public long AddJob(JobRequest request)
     {
@@ -255,11 +310,12 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
     public void AddCost(CostEntry entry)
     {
         var at = Time(entry.At);
-        Execute(
-            """
-            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls)
-            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls)
-            """,
+        var usageValues = entry.Usage?.Values();
+        var usageParameters = Enumerable
+            .Range(0, CopilotUsage.ColumnNames.Count)
+            .Select(index => ($"$usage{index}", (object?)usageValues?[index]));
+        (string, object?)[] parameters =
+        [
             ("$at", at),
             ("$repo", entry.Repo),
             ("$number", entry.Number),
@@ -267,7 +323,16 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
             ("$d", entry.DurationSeconds),
             ("$result", entry.Result),
             ("$detail", entry.Detail),
-            ("$calls", entry.CopilotCalls));
+            ("$calls", entry.CopilotCalls),
+            .. usageParameters,
+        ];
+
+        Execute(
+            $"""
+            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls, {UsageColumnList})
+            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls, {UsageParameterList})
+            """,
+            parameters);
     }
 
     public IReadOnlyList<CostRecord> ListCost()
@@ -275,19 +340,34 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         using var connection = Open();
         using var command = Command(
             connection,
-            "SELECT at, repo, number, workflow, duration_s, copilot_calls FROM cost_log ORDER BY id");
+            $"""
+            SELECT at, repo, number, workflow, duration_s, copilot_calls, {UsageColumnList}
+            FROM cost_log ORDER BY id
+            """);
         using var reader = command.ExecuteReader();
 
+        const int firstUsageOrdinal = 6;
         var records = new List<CostRecord>();
         while (reader.Read())
         {
+            CopilotUsage? usage = null;
+            if (!reader.IsDBNull(firstUsageOrdinal))
+            {
+                var usageValues = Enumerable
+                    .Range(firstUsageOrdinal, CopilotUsage.ColumnNames.Count)
+                    .Select(reader.GetInt64)
+                    .ToList();
+                usage = CopilotUsage.FromValues(usageValues);
+            }
+
             records.Add(new CostRecord(
                 ParseTime(reader.GetString(0)),
                 reader.GetString(1),
                 reader.GetInt32(2),
                 reader.GetString(3),
                 reader.GetDouble(4),
-                reader.IsDBNull(5) ? null : reader.GetInt32(5)));
+                reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                usage));
         }
 
         return records;

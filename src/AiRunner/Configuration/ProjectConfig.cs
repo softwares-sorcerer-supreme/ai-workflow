@@ -218,6 +218,12 @@ public sealed class LimitsConfig
     /// <summary>Review fixes per PR (each an @ai comment answered with commits); counted from the bot's replies on the PR.</summary>
     public int MaxReviewFixes { get; set; } = 5;
 
+    /// <summary>
+    /// Automatic reviews per PR, one per new head commit (fix commits too); the first covers the whole PR, later ones
+    /// only the new commits. The label <c>ai-review-full</c> asks for one more full review outside this limit.
+    /// </summary>
+    public int MaxReviews { get; set; } = 3;
+
     /// <summary>Still "simple"? Above the limits Workflow 2 opens no PR.</summary>
     public bool Allows(int changedFiles, int changedLines) =>
         changedFiles <= MaxChangedFiles && changedLines <= MaxDiffLines;

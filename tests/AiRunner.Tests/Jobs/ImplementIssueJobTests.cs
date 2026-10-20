@@ -416,6 +416,38 @@ public sealed class ImplementIssueJobTests : IDisposable
     }
 
     [Fact]
+    public async Task A_fix_round_that_fails_the_same_way_stops_the_rounds_early()
+    {
+        SimpleIssueWithSpec();
+        _kit.Settings.Implement.MaxFixRounds = 5;
+        _kit.Processes.ExitCodes["make test"] = 1;
+
+        var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
+        var outcome = await Job.RunAsync(implementRequest, _kit.Run, default);
+
+        Assert.Equal("wip", outcome.Result);
+        Assert.Equal(2, _kit.Copilot.Requests.Count);
+        Assert.Contains(
+            "no progress since round 1 (same failing checks), stopped",
+            _kit.GitBucket.Pulls.Single().Body);
+    }
+
+    [Fact]
+    public async Task A_fix_round_that_fails_differently_gets_another_round()
+    {
+        SimpleIssueWithSpec();
+        _kit.Settings.Implement.MaxFixRounds = 5;
+        _kit.Processes.ExitCodeSequence["make test"] = new Queue<int>([1, 2, 0]);
+
+        var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
+        var outcome = await Job.RunAsync(implementRequest, _kit.Run, default);
+
+        Assert.Equal("ok", outcome.Result);
+        Assert.Equal(3, _kit.Copilot.Requests.Count);
+        Assert.DoesNotContain("no progress", _kit.GitBucket.Pulls.Single().Body);
+    }
+
+    [Fact]
     public async Task No_fix_rounds_configured_means_one_copilot_run()
     {
         SimpleIssueWithSpec();

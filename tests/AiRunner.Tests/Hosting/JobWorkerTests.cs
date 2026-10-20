@@ -119,8 +119,63 @@ public sealed class JobWorkerTests : IDisposable
 
         var cost = Assert.Single(_kit.State.ListCost());
         Assert.Equal(3, cost.CopilotCalls);
-        Assert.EndsWith(",3", File.ReadAllLines(Path.Combine(logs, "cost.csv"))[1]);
+        Assert.EndsWith(",3,,,,,", File.ReadAllLines(Path.Combine(logs, "cost.csv"))[1]);
         Assert.Equal(3, _kit.State.QueryHistory(new JobQuery()).Items.Single().CopilotCalls);
+    }
+
+    /// <summary>Writes the given usage files into its run folder, as the Copilot CLI does, then ends.</summary>
+    /// <param name="ending">"ok", "failed" (throws) or "quiet" (a not-needed outcome).</param>
+    private sealed class UsageWritingJob(Dictionary<string, string> usageFiles, string ending) : IJob
+    {
+        public JobType Type => JobType.AnalyzeIssue;
+        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
+
+        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken)
+        {
+            foreach (var (name, json) in usageFiles)
+            {
+                jobRun.Save(name, json);
+            }
+
+            return ending switch
+            {
+                "failed" => throw new JobFailedException("no ANALYSIS block"),
+                "quiet" => Task.FromResult(JobOutcome.NotNeeded("nothing to do after all")),
+                _ => Task.FromResult(JobOutcome.Ok("round 2", copilotCalls: 2)),
+            };
+        }
+    }
+
+    private static string UsageJson(long nanoAiu, long output) =>
+        $$"""{ "totalNanoAiu": {{nanoAiu}}, "tokenDetails": { "output": { "tokenCount": {{output}} } } }""";
+
+    [Theory]
+    [InlineData("ok")]
+    [InlineData("failed")]
+    [InlineData("quiet")]   // the job row goes, the cost Copilot billed stays
+    public async Task The_usage_files_of_every_round_are_added_up_in_the_cost_row(string ending)
+    {
+        var usageFiles = new Dictionary<string, string>
+        {
+            ["round-1-copilot-usage.json"] = UsageJson(100, 10),
+            ["round-2-copilot-usage.json"] = UsageJson(50, 5),
+            ["round-3-copilot-usage.json"] = "not json",
+        };
+        var (worker, queue, _) = _kit.CreateWorker(new UsageWritingJob(usageFiles, ending));
+
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        var cost = Assert.Single(_kit.State.ListCost());
+        Assert.Equal(new CopilotUsage(150, 0, 0, 0, 15), cost.Usage);
+    }
+
+    [Fact]
+    public async Task A_job_without_usage_files_has_no_usage()
+    {
+        await RunAsync(() => Task.FromResult(JobOutcome.Ok("round 1", copilotCalls: 1)));
+
+        Assert.Null(Assert.Single(_kit.State.ListCost()).Usage);
     }
 
     [Fact]

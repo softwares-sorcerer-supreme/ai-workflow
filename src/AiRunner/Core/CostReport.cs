@@ -3,14 +3,18 @@ using AiRunner.Configuration;
 
 namespace AiRunner.Core;
 
-/// <summary>One row of the cost log. <c>CopilotCalls</c> is null for old rows and for failed jobs.</summary>
+/// <summary>
+/// One row of the cost log. <c>CopilotCalls</c> is null for old rows and for failed jobs; <c>Usage</c> is null for old
+/// rows, jobs without a Copilot call and a CLI without --usage-output-file (a failed job still has it).
+/// </summary>
 public sealed record CostRecord(
     DateTimeOffset At,
     string Repo,
     int Number,
     string Workflow,
     double DurationSeconds,
-    int? CopilotCalls);
+    int? CopilotCalls,
+    CopilotUsage? Usage = null);
 
 public enum CostGrouping
 {

@@ -23,7 +23,7 @@ Technical (how we build it: library, pattern, data access, API shape, performanc
 - Q2: <one sentence>? (why I ask: <one short reason>)
 Other (scope, timing, who decides, environments):
 - Q3: <one sentence>? (why I ask: <one short reason>)
-(One numbering for all groups; keep the numbers of earlier questions. A group with nothing says `- None`. When every group is empty, write None under the heading.)
+(One numbering for all groups; keep the numbers of earlier questions that are still open: only this newest analysis is shown in full next round, so list every open question here again. A group with nothing says `- None`. When every group is empty, write None under the heading.)
 
 ### Related code
 - `path/to/file` - <role in this change>

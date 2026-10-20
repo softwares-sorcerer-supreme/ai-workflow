@@ -34,6 +34,9 @@ erDiagram
         TEXT head_sha
         INTEGER comment_id
         TEXT result
+        TEXT reviewed_sha
+        INTEGER review_count
+        TEXT full_sha
     }
     jobs {
         INTEGER id PK
@@ -73,9 +76,9 @@ erDiagram
 | --- | --- | --- | --- |
 | `issue_seen` | Fingerprint (`updated_at` + sorted lower-case labels) of the last poll where an issue needed nothing. Same fingerprint = comments are not read again. | `Poller.PollRepoAsync` (`Hosting/Poller.cs:74`) | `Poller` |
 | `issue_state` | `last_handled_comment`: the newest `@ai` comment id the runner already answered (the **local cursor**). Updated with `MAX(old, new)` so it never moves back. | `AnalyzeIssueJob`, `FixReviewJob` (reply and `OnFailed`) | `JobSupport` -> `JobPlanner` |
-| `review_state` | Per PR: last reviewed `head_sha`, the id of the review comment, and `result` (the verdict, `skipped` or `failed`). `comment_id` keeps its old value when a new one is null (`COALESCE`). | `ReviewPullRequestJob` | `JobSupport.PlanPullAsync`, `ReviewPullRequestJob` |
+| `review_state` | Per PR: last handled `head_sha`, the id of the review comment, and `result` (the verdict, `skipped`, `failed` or `pending`); `reviewed_sha` (head of the last posted review, base of the next incremental one), `review_count` (automatic reviews, `limits.max_reviews`) and `full_sha` (head that got the full review the label `ai-review-full` asked for). A null value keeps the old one (`COALESCE`); the comment tag `<!-- ai-runner:review sha=.. n=.. -->` carries the count on when the database is gone (a PR at the limit then gets one more review, which stores the count again). | `ReviewPullRequestJob` | `JobSupport.PlanPullAsync`, `ReviewPullRequestJob` |
 | `jobs` | The persistent queue. `key` = `Type:repo#number`. One `pending` row per key at a time. | `JobQueue`, `JobWorker` | `JobQueue` |
-| `cost_log` | One row per finished (or failed) job: workflow, seconds, result, detail. Mirrors `logs/cost.csv`. | `CostLog` -> `IStateStore.AddCost` | humans (SQL/CSV) |
+| `cost_log` | One row per finished (or failed) job: workflow, seconds, result, detail, Copilot calls, tokens and credits (`nano_aiu`, from `--usage-output-file`). Mirrors `logs/cost.csv`. | `CostLog` -> `IStateStore.AddCost` | humans (SQL/CSV) |
 
 Details worth knowing:
 

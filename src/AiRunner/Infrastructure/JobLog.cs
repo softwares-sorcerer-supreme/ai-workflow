@@ -11,6 +11,11 @@ namespace AiRunner.Infrastructure;
 /// </summary>
 public sealed class JobRun(string directory, ILogger logger)
 {
+    /// <summary>
+    /// End of the name of every Copilot usage file in the folder ("copilot-usage.json", "round-2-copilot-usage.json").
+    /// </summary>
+    public const string UsageFileSuffix = "-usage.json";
+
     public string Dir { get; } = directory;
 
     /// <summary>When JobWorker cancels the job (it sets this from the same timeout); jobs use it to avoid starting work they cannot finish.</summary>
@@ -51,6 +56,49 @@ public sealed class JobRun(string directory, ILogger logger)
             var targetFile = Path.Combine(directoryPath, fileName);
             File.Copy(sourceFile, targetFile, overwrite: true);
         }
+    }
+
+    /// <summary>The full path of a file in the folder, for a tool that writes it itself; the folder is created first.</summary>
+    public string PathFor(string fileName)
+    {
+        var directoryPath = EnsureDir();
+
+        return Path.Combine(directoryPath, fileName);
+    }
+
+    /// <summary>
+    /// The sum of every Copilot usage file of the run, or null when there is none (no Copilot call, or a CLI without
+    /// --usage-output-file). A file that cannot be read is skipped: cost is best effort, it never fails a job.
+    /// </summary>
+    public CopilotUsage? ReadUsage()
+    {
+        if (!Directory.Exists(Dir))
+        {
+            return null;
+        }
+
+        CopilotUsage? total = null;
+        foreach (var usageFile in Directory.EnumerateFiles(Dir, "*" + UsageFileSuffix))
+        {
+            CopilotUsage? usage;
+            try
+            {
+                var json = File.ReadAllText(usageFile);
+                usage = CopilotUsage.Parse(json);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning("Could not read {File}: {Message}", usageFile, exception.Message);
+                continue;
+            }
+
+            if (usage is not null)
+            {
+                total = (total ?? CopilotUsage.Zero).Add(usage);
+            }
+        }
+
+        return total;
     }
 
     /// <summary>A line in job.log and in the console.</summary>

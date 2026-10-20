@@ -80,34 +80,51 @@ public sealed class CostStorageTests : IDisposable
         Assert.Null(store.GetRecord(unknown)!.CopilotCalls);
     }
 
+    private const string Header =
+        "date,repo,number,workflow,duration_s,result,detail,copilot_calls," +
+        "nano_aiu,input_tokens,cache_read_tokens,cache_write_tokens,output_tokens";
+
+    private static readonly CopilotUsage Usage = new(677165000, 4, 0, 53842, 82);
+
     [Fact]
-    public void A_new_cost_csv_has_copilot_calls_as_its_last_column()
+    public void A_new_cost_csv_has_copilot_calls_then_the_usage_as_its_last_columns()
     {
         var store = new SqliteStateStore(StateFile, pooling: false);
         var costLog = OpenCostLog(store);
 
-        costLog.Record(Entry(copilotCalls: 3));
+        costLog.Record(Entry(copilotCalls: 3) with { Usage = Usage });
         costLog.Record(Entry(copilotCalls: null));
 
         var lines = File.ReadAllLines(CostCsv);
-        Assert.Equal("date,repo,number,workflow,duration_s,result,detail,copilot_calls", lines[0]);
-        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,3", lines[1]);
-        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,", lines[2]);
+        Assert.Equal(Header, lines[0]);
+        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,3,677165000,4,0,53842,82", lines[1]);
+        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,,,,,,", lines[2]);
     }
 
-    [Fact]
-    public void An_old_cost_csv_gets_the_new_header_and_keeps_its_rows()
+    [Theory]
+    [InlineData("date,repo,number,workflow,duration_s,result,detail")]
+    [InlineData("date,repo,number,workflow,duration_s,result,detail,copilot_calls")]
+    public void An_old_cost_csv_gets_the_new_header_and_keeps_its_rows(string oldHeader)
     {
-        File.WriteAllText(
-            CostCsv,
-            "date,repo,number,workflow,duration_s,result,detail\n2026-01-01 10:00:00,o/r,1,implement,120,ok,PR #3\n");
+        File.WriteAllText(CostCsv, oldHeader + "\n2026-01-01 10:00:00,o/r,1,implement,120,ok,PR #3\n");
         var store = new SqliteStateStore(StateFile, pooling: false);
 
         OpenCostLog(store).Record(Entry(copilotCalls: 2));
 
         var lines = File.ReadAllLines(CostCsv);
-        Assert.Equal("date,repo,number,workflow,duration_s,result,detail,copilot_calls", lines[0]);
+        Assert.Equal(Header, lines[0]);
         Assert.Equal("2026-01-01 10:00:00,o/r,1,implement,120,ok,PR #3", lines[1]);
-        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,2", lines[2]);
+        Assert.Equal("2026-03-05 10:00:00,o/r,7,analyze,61,ok,round 1,2,,,,,", lines[2]);
+    }
+
+    [Fact]
+    public void The_usage_of_a_cost_row_is_read_back_and_a_row_without_it_stays_null()
+    {
+        var store = new SqliteStateStore(StateFile, pooling: false);
+
+        store.AddCost(Entry(copilotCalls: 1) with { Usage = Usage });
+        store.AddCost(Entry(copilotCalls: 1));
+
+        Assert.Equal([Usage, null], store.ListCost().Select(cost => cost.Usage));
     }
 }

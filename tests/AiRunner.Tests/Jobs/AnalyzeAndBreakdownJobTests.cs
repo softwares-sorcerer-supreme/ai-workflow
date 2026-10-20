@@ -33,6 +33,7 @@ public sealed class AnalyzeIssueJobTests : IDisposable
 
         var request = Assert.Single(_kit.Copilot.Requests);
         Assert.Equal("grill-issue", request.Agent);
+        Assert.Equal(Path.Combine(_kit.Run.Dir, "copilot-usage.json"), request.UsageFile);
         Assert.Contains("AGENTS.md in this folder", request.Prompt);
         Assert.Equal(["write", "shell"], request.DenyTools);
         var contextFile = Path.Combine(_kit.Workspace.Dir, "context.md");

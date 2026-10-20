@@ -25,7 +25,14 @@ public sealed record PullPlanInput(
     string? ReviewedSha,
     string BotLogin,
     IReadOnlyList<GbComment>? Comments = null,
-    long LastHandledCommentId = 0);
+    long LastHandledCommentId = 0)
+{
+    /// <summary>Automatic reviews of this PR so far (local state; the review job checks the comment tag too).</summary>
+    public int ReviewCount { get; init; }
+
+    /// <summary>Head commit that already got the full review the label ai-review-full asked for, or null.</summary>
+    public string? FullReviewSha { get; init; }
+}
 
 /// <summary>What <see cref="JobPlanner.WhyNotFix"/> checks before a review fix may start.</summary>
 /// <param name="Target">The component the fix changes; its commands check the fix.</param>

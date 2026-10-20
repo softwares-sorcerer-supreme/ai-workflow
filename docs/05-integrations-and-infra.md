@@ -144,7 +144,7 @@ flowchart TB
 | Why did it not pick up my issue? | `--once --dry-run` output line for the issue: `skip (reason)` |
 | Why did a job fail? | The failure comment on the issue/PR names `logs/jobs/<folder>`; read `job.log`, `error.txt`, `round-N-copilot-*`, `round-N-check-M.txt`, `fix-N.md` |
 | What did Copilot do in a round? | `round-N-transcript.md` (from `--share`) |
-| How much did it cost? | `logs/cost.csv` (seconds and result per job; only implement/fix write "N copilot calls" in the detail text, there is no premium-request count) |
+| How much did it cost? | `logs/cost.csv` (seconds, result, Copilot calls, tokens and `nano_aiu` per job; per model and per agent: `logs/jobs/<run>/*-usage.json`) |
 | Reset everything local | Delete `ai-runner.db`; delete `work/` to re-clone. Both are safe. |
 | Retry a failed issue job | Read the log, fix the cause, remove `ai:failed` |
 | Retry a failed PR job | Review: push a new commit. Fix: write `@ai` again. |

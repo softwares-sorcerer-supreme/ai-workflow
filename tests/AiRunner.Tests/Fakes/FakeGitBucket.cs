@@ -285,8 +285,12 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.CompletedTask;
     }
 
+    /// <summary>Every label removal, issues and PRs alike.</summary>
+    public List<(int Number, string Label)> RemovedLabels { get; } = [];
+
     public Task RemoveLabelAsync(string repo, int number, string label, CancellationToken cancellationToken)
     {
+        RemovedLabels.Add((number, label));
         if (Issues.ContainsKey(number))
         {
             var remainingLabels = LabelsOf(number)

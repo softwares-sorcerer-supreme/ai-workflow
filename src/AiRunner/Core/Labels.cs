@@ -20,6 +20,9 @@ public static class Labels
     public const string Implement = "ai-implement";
     public const string NeedsCloudAgent = "needs-cloud-agent";
 
+    /// <summary>On a PR: one more full AI review, outside limits.max_reviews; the runner removes it when it starts.</summary>
+    public const string ReviewFull = "ai-review-full";
+
     /// <summary>Every label the runner uses, with a color and description, for --setup-labels.</summary>
     public static IReadOnlyList<(string Name, string Color, string Description)> All(
         string triggerLabel,
@@ -39,6 +42,7 @@ public static class Labels
         (Breakdown, "006b75", "Human: breakdown approved, create sub-issues"),
         (Implement, "0e8a16", "Human: Copilot, build this"),
         (NeedsCloudAgent, "e99695", "Human: Copilot quota empty, use the GitHub mirror"),
+        (ReviewFull, "1d76db", "Human: one more full AI review of this PR (outside max_reviews)"),
     ];
 }
 

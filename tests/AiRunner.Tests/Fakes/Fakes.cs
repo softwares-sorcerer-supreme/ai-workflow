@@ -153,8 +153,18 @@ public sealed class FakeGit : IGitClient
         return Task.CompletedTask;
     }
 
-    public Task<string> DiffAsync(string directory, string baseRef, string headRef, CancellationToken cancellationToken) =>
-        Task.FromResult("diff --git a/x b/x\n");
+    /// <summary>Every (base, head) range DiffAsync was asked for.</summary>
+    public List<(string BaseRef, string HeadRef)> Diffs { get; } = [];
+
+    /// <summary>What DiffAsync returns, whatever the range.</summary>
+    public string DiffText { get; set; } = "diff --git a/x b/x\n";
+
+    public Task<string> DiffAsync(string directory, string baseRef, string headRef, CancellationToken cancellationToken)
+    {
+        Diffs.Add((baseRef, headRef));
+
+        return Task.FromResult(DiffText);
+    }
 
     public List<string> StageAndDiffs { get; } = [];
     /// <summary>Null: every call returns a different diff (the agent changed code). Set it to model a round that changed nothing.</summary>
@@ -165,11 +175,15 @@ public sealed class FakeGit : IGitClient
         return Task.FromResult(FixedDiff ?? $"diff --git a/src/a.txt b/src/a.txt\n+change {StageAndDiffs.Count}\n");
     }
 
+    /// <summary>Changed files per base ref, for a range that differs from ChangedFiles (an incremental review).</summary>
+    public Dictionary<string, List<string>> ChangedFilesSince { get; } = [];
+
     public Task<IReadOnlyList<string>> ChangedFilesAsync(
         string directory,
         string baseRef,
         string headRef,
-        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(ChangedFiles);
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<string>>(ChangedFilesSince.GetValueOrDefault(baseRef) ?? ChangedFiles);
 
     /// <summary>Paths that differ from HEAD per clone folder, as the pretend agent left them. A restore removes them.</summary>
     public Dictionary<string, List<string>> Changed { get; } = new(StringComparer.OrdinalIgnoreCase);

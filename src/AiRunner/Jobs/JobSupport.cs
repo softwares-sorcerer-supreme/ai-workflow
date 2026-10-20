@@ -286,7 +286,10 @@ public static class JobSupport
     public static async Task<string> RunCopilotAsync(this ICopilotRunner copilot, CopilotRequest request, JobRun run,
         CancellationToken cancellationToken, string logName = "copilot")
     {
-        var result = await copilot.RunAsync(request, cancellationToken);
+        // JobWorker adds up every *-usage.json of the run folder for the cost row, failed runs included.
+        var usageFile = run.PathFor($"{logName}{JobRun.UsageFileSuffix}");
+        var requestWithUsage = request with { UsageFile = usageFile };
+        var result = await copilot.RunAsync(requestWithUsage, cancellationToken);
         run.Save($"{logName}-stdout.txt", result.StdOut);
         run.Save($"{logName}-stderr.txt", result.StdErr);
         run.Info($"copilot exit {result.ExitCode} after {result.Duration.TotalSeconds:F0}s");
@@ -298,7 +301,8 @@ public static class JobSupport
 
         if (!result.Ok && CopilotRunner.LooksLikeQuotaError(result))
         {
-            throw new JobFailedException("Copilot stopped: the premium requests of the seat look used up. " +
+            throw new JobFailedException("Copilot stopped: the premium requests or AI credits of the seat " +
+                                         "look used up. " +
                                          $"Wait for the quota to reset, then remove {Labels.Failed} to retry.");
         }
 
