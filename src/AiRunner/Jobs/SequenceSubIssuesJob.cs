@@ -128,12 +128,13 @@ public sealed class SequenceSubIssuesJob(
                 return JobOutcome.Ok($"{closedNote}final PRs: {opened}", copilotCalls: 0);
 
             case SequenceStep.CloseParent:
+                // Close first, so a failed close leaves no comment behind to be posted again on the next poll.
+                await gitBucketClient.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
                 await gitBucketClient.AddCommentAsync(
                     request.Repo,
                     parent.Number,
                     "All final PRs are merged. This issue is done, so I close it.",
                     cancellationToken);
-                await gitBucketClient.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
                 return JobOutcome.Ok($"{closedNote}parent #{parent.Number} closed", copilotCalls: 0);
 
             default:

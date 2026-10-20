@@ -135,6 +135,27 @@ public class IssueLinksTests
         Assert.Null(IssueLinks.Find(null, Backend, Project));
         Assert.Null(IssueLinks.Find("nothing here", Backend, Project));
     }
+
+    [Theory]
+    [InlineData("org/mbh-issues#12", "org/mbh-issues", 12)]
+    [InlineData("  ai-bot/ai.workflow#3 ", "ai-bot/ai.workflow", 3)]
+    public void A_typed_issue_ref_is_parsed(string text, string expectedRepo, int expectedNumber)
+    {
+        Assert.Equal(new IssueRef(expectedRepo, expectedNumber), IssueLinks.ParseRef(text));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("#12")]
+    [InlineData("org/repo")]
+    [InlineData("org/repo#0")]
+    [InlineData("org/repo#x")]
+    [InlineData("org/repo#12 and more")]
+    [InlineData("org/repo#99999999999")]
+    public void Anything_else_is_not_an_issue_ref(string text)
+    {
+        Assert.Null(IssueLinks.ParseRef(text));
+    }
 }
 
 /// <summary>A simple issue whose PR is open is watched until the PR is merged.</summary>

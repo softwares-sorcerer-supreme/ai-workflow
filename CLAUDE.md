@@ -33,6 +33,7 @@ dotnet run --project src/AiRunner -- --once             # poll once, run queued 
 dotnet run --project src/AiRunner -- --setup-labels     # create the workflow labels in every repo
 dotnet run --project src/AiRunner -- --copilot-test     # start copilot as a child process
 dotnet run --project src/AiRunner -- --attachment-test <url>   # download one _attached file, show the answer (no Copilot)
+dotnet run --project src/AiRunner -- --close-test owner/repo#n # close one issue through the web form (no Copilot; it closes it)
 dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashboard API's OpenAPI document (no config, no token)
 ./build-dashboard.ps1                                           # build the dashboard UI into src/AiRunner/wwwroot (see Dashboard)
 ```
@@ -42,7 +43,7 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
   `Configuration/` sees the raw types. A job that needs "the" code component but is not told which uses
   `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
-- Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test` or the loop yourself: they spend Copilot premium requests
+- Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test`, `--close-test` or the loop yourself: they spend Copilot premium requests
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
   and VPN; leave these to the user.
 - `repos.yml` is found in the current folder or a parent (or `--config <path>`); `paths` in it are relative to its folder.
@@ -203,6 +204,12 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
 - GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketClient`); keep templates ASCII.
 - `since` on issue lists is ignored; comment `DELETE` fails (use `PATCH`, never delete); `/pulls/{n}/files` does not exist (use `git diff` on the clone).
   Lists are paged with `per_page=100&page=n` until a page brings nothing new.
+  `/api/v3` cannot edit an issue (`PATCH issues/{n}` = 404), so `GitBucketClient.CloseIssueAsync` signs in on the web side as the token's
+  user (`git_bucket.web_password`, repos.yml only; `RunnerConfig.LoadFile` returns it in `ConfigFile` beside the config,
+  never inside it, so it cannot reach the dashboard; `GitBucketWeb` owns the cookie session and the sign-in), posts the issue page's form
+  `{repo}/issue_comments/state` (`issueId`, `action=close`) and reads the issue back from the API (still open = exception,
+  and the next close signs in again). Writes after a close go after it (`JobSupport.CloseDoneAsync`, the parent close),
+  so a failed close posts nothing to repeat on the next poll.
 - `ProcessRunner` strips token env vars from every child process. git gets auth via `GIT_CONFIG_COUNT/KEY_i/VALUE_i` env vars
   (http.extraHeader, hooks and fsmonitor off) — never put tokens on a command line or in `.git/config`.
   `AgentSession` (implement and review fix) discards the clone and pushes nothing if `.git/config` changed during the run.

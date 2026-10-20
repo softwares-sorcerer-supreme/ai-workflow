@@ -6,13 +6,14 @@ using AiRunner.Jobs;
 using AiRunner.Web;
 
 // Modes:
-//   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard when enabled)
-//   --once          poll once, run the queued jobs, exit
-//   --dry-run       print what would be queued; run nothing (with --once: a single poll)
-//   --setup-labels  create the runner's labels in every repo of every project in repos.yml
-//   --copilot-test  start copilot as a child process and show its output
-//   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
-//   --openapi FILE  write the dashboard API's OpenAPI document (no config, no token, no network)
+//   (none)                     poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard)
+//   --once                     poll once, run the queued jobs, exit
+//   --dry-run                  print what would be queued; run nothing (with --once: a single poll)
+//   --setup-labels             create the runner's labels in every repo of every project in repos.yml
+//   --copilot-test             start copilot as a child process and show its output
+//   --attachment-test URL      download one _attached file and show what GitBucket answered (no Copilot)
+//   --close-test owner/repo#n  close one issue through the web form, the way the jobs do (no Copilot; it closes it!)
+//   --openapi FILE             write the dashboard API's OpenAPI document (no config, no token, no network)
 var mode = RunMode.Parse(args);
 
 if (mode.OpenApiPath is not null)
@@ -22,7 +23,8 @@ if (mode.OpenApiPath is not null)
 }
 
 var configPath = mode.ConfigPath ?? FindConfig();
-var config = RunnerConfig.Load(configPath);
+var configFile = RunnerConfig.LoadFile(configPath);
+var config = configFile.Config;
 var fullConfigPath = Path.GetFullPath(configPath);
 
 // No args passed to the host on purpose: flags like "--once" are not config keys.
@@ -46,7 +48,8 @@ builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(identity);
 
 // Attachments are web routes, not /api/v3: a second client that never follows redirects (a redirect to the
-// login page is reported, and the token cannot be sent on to another host).
+// login page is reported, and the token cannot be sent on to another host). Closing an issue is a web form too
+// (the API has no route for it): a third client with a session cookie, signed in with git_bucket.web_password.
 builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(
     new HttpClient
     {
@@ -62,7 +65,8 @@ builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(
     {
         Timeout = TimeSpan.FromMinutes(2),
         DefaultRequestHeaders = { Authorization = new AuthenticationHeaderValue("token", token) },
-    }));
+    },
+    GitBucketWeb.Create(config.GitBucket.BaseUrl, configFile.WebPassword)));
 builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
 builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
 builder.Services.AddSingleton<IGitClient, GitClient>();
@@ -100,6 +104,7 @@ builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddSingleton<LabelSetup>();
 builder.Services.AddSingleton<CopilotSelfTest>();
 builder.Services.AddSingleton<AttachmentSelfTest>();
+builder.Services.AddSingleton<CloseSelfTest>();
 builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
     config.EffectiveRunnerName(),
     fullConfigPath,
@@ -133,6 +138,12 @@ if (mode.CopilotTest)
 if (mode.AttachmentTestUrl is { } attachmentTestUrl)
 {
     await services.GetRequiredService<AttachmentSelfTest>().RunAsync(attachmentTestUrl, cancellationToken);
+    return;
+}
+
+if (mode.CloseTestIssue is { } closeTestIssue)
+{
+    await services.GetRequiredService<CloseSelfTest>().RunAsync(closeTestIssue, cancellationToken);
     return;
 }
 

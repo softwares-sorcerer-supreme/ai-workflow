@@ -161,8 +161,11 @@ public static class JobSupport
     }
 
     /// <summary>
-    /// An issue whose PR is merged: comment why, drop ai:implementing and close it. GitBucket cannot close an issue
-    /// of another repo, so the runner does it.
+    /// An issue whose PR is merged: close it, drop ai:implementing and comment why. GitBucket cannot close an issue
+    /// of another repo, so the runner does it. The close goes first: when it fails nothing is written yet, so the
+    /// retry on the next poll does not post the comment twice. The other way round is accepted on purpose: when the
+    /// label or the comment fails after a close, the issue stays closed with ai:implementing and no comment (no poll
+    /// looks at it again). That is the smaller harm: the goal, a closed issue, is reached, and nothing repeats.
     /// </summary>
     public static async Task CloseDoneAsync(
         this IGitBucketClient gitBucketClient,
@@ -171,9 +174,9 @@ public static class JobSupport
         string comment,
         CancellationToken cancellationToken)
     {
-        await gitBucketClient.AddCommentAsync(repo, number, comment, cancellationToken);
-        await gitBucketClient.RemoveLabelAsync(repo, number, Labels.Implementing, cancellationToken);
         await gitBucketClient.CloseIssueAsync(repo, number, cancellationToken);
+        await gitBucketClient.RemoveLabelAsync(repo, number, Labels.Implementing, cancellationToken);
+        await gitBucketClient.AddCommentAsync(repo, number, comment, cancellationToken);
     }
 
     /// <summary>

@@ -22,6 +22,21 @@ public static class IssueLinks
         $@"(?<![\w/.-])(?<repo>{RepoPattern})#(?<n>\d+)\b",
         RegexOptions.IgnoreCase);
 
+    private static readonly Regex WholeRef = new($@"^(?<repo>{RepoPattern})#(?<n>\d+)$");
+
+    /// <summary>Exactly <c>owner/repo#n</c> (n above 0), as a person types it on the command line; else null.</summary>
+    public static IssueRef? ParseRef(string text)
+    {
+        var trimmed = text.Trim();
+        var match = WholeRef.Match(trimmed);
+        if (!match.Success || !int.TryParse(match.Groups["n"].Value, out var number) || number <= 0)
+        {
+            return null;
+        }
+
+        return new IssueRef(match.Groups["repo"].Value, number);
+    }
+
     /// <summary>
     /// In this order: an <c>Issue: owner/repo#n</c> line (the last one: the runner writes it last); any
     /// <c>owner/repo#n</c>; <c>close/fix/resolve #n</c>; the first <c>#n</c> (both in the repo of the PR).

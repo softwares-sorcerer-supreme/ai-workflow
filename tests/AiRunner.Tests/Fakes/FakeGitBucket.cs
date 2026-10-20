@@ -37,6 +37,9 @@ public sealed class FakeGitBucket : IGitBucketClient
     /// <summary>When set, listing issues fails with this message (VPN down, token rejected).</summary>
     public string? IssueListError { get; set; }
 
+    /// <summary>When set, closing an issue fails with this message (web sign-in refused, no write access).</summary>
+    public string? CloseError { get; set; }
+
     // ---- arrange helpers ----
 
     public GbIssue AddIssue(int number, string title, string? body = null, params string[] labels)
@@ -258,6 +261,11 @@ public sealed class FakeGitBucket : IGitBucketClient
     public Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("close-issue", repo));
+        if (CloseError is not null)
+        {
+            throw new GitBucketException(System.Net.HttpStatusCode.Unauthorized, CloseError);
+        }
+
         Issues[number] = Issues[number] with
         {
             State = "closed"

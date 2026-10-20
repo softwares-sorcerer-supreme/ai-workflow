@@ -186,7 +186,7 @@ dotnet run --project src/AiRunner -- --once
 dotnet run --project src/AiRunner
 ```
 
-Other diagnostic modes are `--copilot-test` (check the Copilot child process) and `--attachment-test <url>` (check a GitBucket `/_attached/` download). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
+Other diagnostic modes are `--copilot-test` (check the Copilot child process), `--attachment-test <url>` (check a GitBucket `/_attached/` download) and `--close-test owner/repo#n` (close one issue through the web form; needs `git_bucket.web_password`). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
 
 The runner locates `repos.yml` in the current directory or a parent directory. Use `--config <path>` to select another file. On a non-dry run, it installs the checked-out `agents/` and `skills/` definitions into `~/.copilot/`.
 

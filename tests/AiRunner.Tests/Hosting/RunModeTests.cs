@@ -30,6 +30,7 @@ public class RunModeTests
     [InlineData("--setup-labels")]
     [InlineData("--copilot-test")]
     [InlineData("--attachment-test", "http://gb.test/_attached/1")]
+    [InlineData("--close-test", "o/r#7")]
     [InlineData("--openapi", "openapi.json")]
     public void Other_modes_never_start_the_dashboard(params string[] arguments)
     {
