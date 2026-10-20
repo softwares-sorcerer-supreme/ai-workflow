@@ -14,11 +14,13 @@ public sealed class PollerTests : IDisposable
 
     public void Dispose() => _kit.Dispose();
 
-    private Poller NewPoller(bool dryRun = false) =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.State, _queue, _kit.Identity, NullLogger<Poller>.Instance)
-        {
-            DryRun = dryRun
-        };
+    private Poller NewPoller(bool dryRun = false)
+    {
+        var poller = _kit.NewPoller(_queue);
+        poller.DryRun = dryRun;
+
+        return poller;
+    }
 
     private List<JobRequest> Pending() =>
         _kit.State.ListJobs(JobStatus.Pending).Select(job => job.Request).ToList();
@@ -60,6 +62,27 @@ public sealed class PollerTests : IDisposable
 
         var queuedJob = Assert.Single(Pending());
         Assert.Equal(JobType.AnalyzeIssue, queuedJob.Type);
+    }
+
+    [Fact]
+    public async Task A_failed_poll_is_shown_in_the_runner_status_until_a_poll_goes_through()
+    {
+        _kit.GitBucket.IssueListError = "connection refused";
+        var poller = NewPoller();
+
+        await poller.PollOnceAsync(default);
+
+        var failed = _kit.Status.Snapshot();
+        var error = Assert.Single(failed.Errors);
+        Assert.Equal("demo", error.Project);
+        Assert.Contains("connection refused", error.Message);
+        Assert.NotNull(failed.LastPollEndedAt);
+        Assert.False(failed.IsPolling);
+
+        _kit.GitBucket.IssueListError = null;
+        await poller.PollOnceAsync(default);
+
+        Assert.Empty(_kit.Status.Snapshot().Errors);
     }
 
     [Fact]

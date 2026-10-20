@@ -1,0 +1,104 @@
+// Every rule sits under app-markdown: this component has no style encapsulation (see markdown.ts).
+app-markdown {
+  display: block;
+  min-width: 0;
+  font: var(--mat-sys-body-medium);
+  overflow-wrap: anywhere;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  h1,
+  h2 {
+    margin: var(--app-space-5) 0 var(--app-space-3);
+    font: var(--mat-sys-title-large);
+  }
+
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: var(--app-space-4) 0 var(--app-space-2);
+    font: var(--mat-sys-title-medium);
+  }
+
+  p,
+  ul,
+  ol,
+  blockquote,
+  pre,
+  table {
+    margin: 0 0 var(--app-space-3);
+  }
+
+  ul,
+  ol {
+    padding-left: var(--app-space-5);
+  }
+
+  a {
+    color: var(--mat-sys-primary);
+  }
+
+  code {
+    font-family: var(--app-font-mono);
+    padding: 0 var(--app-space-1);
+    border-radius: var(--app-radius-small);
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  pre {
+    padding: var(--app-space-3);
+    border-radius: var(--app-radius-small);
+    background: var(--mat-sys-surface-container-high);
+    font-family: var(--app-font-mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+
+    code {
+      padding: 0;
+      background: none;
+    }
+  }
+
+  blockquote {
+    padding-left: var(--app-space-3);
+    border-left: 4px solid var(--mat-sys-outline-variant);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  // A wide table scrolls inside its own box, never the page.
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: var(--app-space-1) var(--app-space-2);
+    border: 1px solid var(--mat-sys-outline-variant);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  th {
+    font: var(--mat-sys-label-large);
+  }
+
+  img {
+    max-width: 100%;
+  }
+
+  hr {
+    margin: var(--app-space-4) 0;
+    border: none;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+}

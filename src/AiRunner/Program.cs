@@ -3,22 +3,27 @@ using AiRunner.Configuration;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Web;
 
 // Modes:
-//   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C
+//   (none)          poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard when enabled)
 //   --once          poll once, run the queued jobs, exit
 //   --dry-run       print what would be queued; run nothing (with --once: a single poll)
 //   --setup-labels  create the runner's labels in every repo of every project in repos.yml
 //   --copilot-test  start copilot as a child process and show its output
 //   --attachment-test URL  download one _attached file and show what GitBucket answered (no Copilot)
-var runOnce = args.Contains("--once");
-var dryRun = args.Contains("--dry-run");
-var copilotTest = args.Contains("--copilot-test");
-var setupLabels = args.Contains("--setup-labels");
-var attachmentTestUrl = GetArg(args, "--attachment-test");
-var configPath = GetArg(args, "--config") ?? FindConfig();
+//   --openapi FILE  write the dashboard API's OpenAPI document (no config, no token, no network)
+var mode = RunMode.Parse(args);
 
+if (mode.OpenApiPath is not null)
+{
+    await OpenApiExport.WriteAsync(mode.OpenApiPath, CancellationToken.None);
+    return;
+}
+
+var configPath = mode.ConfigPath ?? FindConfig();
 var config = RunnerConfig.Load(configPath);
+var fullConfigPath = Path.GetFullPath(configPath);
 
 // No args passed to the host on purpose: flags like "--once" are not config keys.
 var builder = Host.CreateApplicationBuilder();
@@ -32,7 +37,7 @@ builder.Logging.AddSimpleConsole(options =>
 
 var token = builder.Configuration["GitBucket:Token"]
     ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
-    ?? (copilotTest ? "" : throw new InvalidOperationException(
+    ?? (mode.CopilotTest ? "" : throw new InvalidOperationException(
         "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
 var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket:GitPassword"] ?? token };
 
@@ -62,7 +67,12 @@ builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
 builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
 builder.Services.AddSingleton<IGitClient, GitClient>();
 builder.Services.AddSingleton<IWorkspace, Workspace>();
-builder.Services.AddSingleton<IStateStore, SqliteStateStore>();
+builder.Services.AddSingleton<SqliteStateStore>();
+builder.Services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+builder.Services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
 builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();
@@ -84,34 +94,43 @@ builder.Services.AddSingleton<ClaimService>();
 
 // Hosting.
 builder.Services.AddSingleton<JobQueue>();
+builder.Services.AddSingleton<SnapshotRecorder>();
 builder.Services.AddSingleton<Poller>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddSingleton<LabelSetup>();
 builder.Services.AddSingleton<CopilotSelfTest>();
 builder.Services.AddSingleton<AttachmentSelfTest>();
+builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
+    config.EffectiveRunnerName(),
+    fullConfigPath,
+    serviceProvider.GetRequiredService<TimeProvider>()));
 
-var isPollingLoop = !runOnce && !copilotTest && !setupLabels && attachmentTestUrl is null;
-if (isPollingLoop)
+if (mode.IsPollingLoop)
 {
     builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<Poller>());
 
-    if (!dryRun)
+    if (!mode.DryRun)
     {
         builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<JobWorker>());
     }
+}
+
+if (mode.ShouldStartDashboard(config.Dashboard))
+{
+    builder.Services.AddHostedService<DashboardHost>();
 }
 
 using var host = builder.Build();
 var services = host.Services;
 var cancellationToken = CancellationToken.None;
 
-if (copilotTest)
+if (mode.CopilotTest)
 {
     await services.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
     return;
 }
 
-if (attachmentTestUrl is not null)
+if (mode.AttachmentTestUrl is { } attachmentTestUrl)
 {
     await services.GetRequiredService<AttachmentSelfTest>().RunAsync(attachmentTestUrl, cancellationToken);
     return;
@@ -122,7 +141,6 @@ var currentUser = await services.GetRequiredService<IGitBucketClient>().GetCurre
 identity.Login = currentUser.Login;
 
 var logger = services.GetRequiredService<ILogger<Program>>();
-var fullConfigPath = Path.GetFullPath(configPath);
 logger.LogInformation(
     "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
     identity.Login,
@@ -131,25 +149,25 @@ logger.LogInformation(
     config.AllRepos().Count(),
     fullConfigPath);
 
-if (setupLabels)
+if (mode.SetupLabels)
 {
     await services.GetRequiredService<LabelSetup>().RunAsync(cancellationToken);
     return;
 }
 
-services.GetRequiredService<Poller>().DryRun = dryRun;
+services.GetRequiredService<Poller>().DryRun = mode.DryRun;
 
-if (!dryRun)
+if (!mode.DryRun)
 {
     services.GetRequiredService<AgentInstaller>().Install();
     services.GetRequiredService<JobLog>().Cleanup();
 }
 
-if (runOnce)
+if (mode.RunOnce)
 {
     await services.GetRequiredService<Poller>().PollOnceAsync(cancellationToken);
 
-    if (!dryRun)
+    if (!mode.DryRun)
     {
         await services.GetRequiredService<JobWorker>().DrainAsync(cancellationToken);
     }
@@ -158,12 +176,6 @@ if (runOnce)
 }
 
 await host.RunAsync();
-
-static string? GetArg(string[] arguments, string name)
-{
-    var argumentIndex = Array.IndexOf(arguments, name);
-    return argumentIndex >= 0 && argumentIndex + 1 < arguments.Length ? arguments[argumentIndex + 1] : null;
-}
 
 // repos.yml in the current folder, or in the repo root when started with "dotnet run --project src/AiRunner".
 static string FindConfig()

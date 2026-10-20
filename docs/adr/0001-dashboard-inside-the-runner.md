@@ -1,0 +1,3 @@
+# The dashboard runs inside the runner and reads a snapshot, not GitBucket
+
+The dashboard is served by the runner process (Kestrel on `127.0.0.1`, started only in loop mode), and the issue view reads a snapshot the poller writes into SQLite on every poll. A separate app was rejected: it would poll GitBucket a second time, need its own token, and see the running job only through the database. The snapshot is a cache like the rest of `ai-runner.db`, so deleting the database stays safe. One consequence: the dashboard shows one runner only; a team view across runners needs its own design, built on the GitBucket data the runners already share.

@@ -17,6 +17,9 @@ public sealed record StoredJob(long Id, JobRequest Request, string Status, int A
 
 public sealed record ReviewState(string HeadSha, long? CommentId, string Result);
 
+/// <summary>How a job ended, as the dashboard reads it from the job row.</summary>
+public sealed record JobResult(string Result, string Detail, int? CopilotCalls = null);
+
 public sealed record CostEntry(
     DateTimeOffset At,
     string Repo,
@@ -24,7 +27,8 @@ public sealed record CostEntry(
     string Workflow,
     double DurationSeconds,
     string Result,
-    string Detail);
+    string Detail,
+    int? CopilotCalls = null);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -61,9 +65,15 @@ public interface IStateStore
     void DeleteJob(long id);
 
     void AddCost(CostEntry entry);
+
+    /// <summary>Remembers the job's log folder (a name under logs/jobs/) so the dashboard can open it.</summary>
+    void SetJobLogDir(long id, string folderName);
+
+    /// <summary>How the job ended, for the dashboard (the cost log has no job id to read it from).</summary>
+    void SetJobResult(long id, JobResult jobResult);
 }
 
-public sealed class SqliteStateStore : IStateStore
+public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostReader
 {
     private readonly string _connectionString;
 
@@ -87,6 +97,13 @@ public sealed class SqliteStateStore : IStateStore
             CREATE TABLE IF NOT EXISTS cost_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, repo TEXT NOT NULL,
                 number INTEGER NOT NULL, workflow TEXT NOT NULL, duration_s REAL NOT NULL, result TEXT NOT NULL, detail TEXT);
             """);
+
+        AddColumnIfMissing("jobs", "log_dir", "TEXT");
+        AddColumnIfMissing("jobs", "result", "TEXT");
+        AddColumnIfMissing("jobs", "detail", "TEXT");
+        AddColumnIfMissing("jobs", "copilot_calls", "INTEGER");
+        AddColumnIfMissing("cost_log", "copilot_calls", "INTEGER");
+        CreateSnapshotTables();
     }
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)
@@ -240,8 +257,8 @@ public sealed class SqliteStateStore : IStateStore
         var at = Time(entry.At);
         Execute(
             """
-            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail)
-            VALUES ($at, $repo, $number, $wf, $d, $result, $detail)
+            INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls)
+            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls)
             """,
             ("$at", at),
             ("$repo", entry.Repo),
@@ -249,10 +266,156 @@ public sealed class SqliteStateStore : IStateStore
             ("$wf", entry.Workflow),
             ("$d", entry.DurationSeconds),
             ("$result", entry.Result),
-            ("$detail", entry.Detail));
+            ("$detail", entry.Detail),
+            ("$calls", entry.CopilotCalls));
+    }
+
+    public IReadOnlyList<CostRecord> ListCost()
+    {
+        using var connection = Open();
+        using var command = Command(
+            connection,
+            "SELECT at, repo, number, workflow, duration_s, copilot_calls FROM cost_log ORDER BY id");
+        using var reader = command.ExecuteReader();
+
+        var records = new List<CostRecord>();
+        while (reader.Read())
+        {
+            records.Add(new CostRecord(
+                ParseTime(reader.GetString(0)),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.GetDouble(4),
+                reader.IsDBNull(5) ? null : reader.GetInt32(5)));
+        }
+
+        return records;
+    }
+
+    public void SetJobLogDir(long id, string folderName) =>
+        Execute("UPDATE jobs SET log_dir = $dir WHERE id = $id", ("$id", id), ("$dir", folderName));
+
+    public void SetJobResult(long id, JobResult jobResult) =>
+        Execute(
+            "UPDATE jobs SET result = $result, detail = $detail, copilot_calls = $calls WHERE id = $id",
+            ("$id", id),
+            ("$result", jobResult.Result),
+            ("$detail", jobResult.Detail),
+            ("$calls", jobResult.CopilotCalls));
+
+    public IReadOnlyList<JobRecord> ListQueue() =>
+        QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
+
+    public IReadOnlyList<JobRecord> ListActive() =>
+        QueryRecords("WHERE j.status IN ('pending', 'running') ORDER BY j.id");
+
+    public JobRecord? GetRecord(long id) =>
+        QueryRecords("WHERE j.id = $id", ("$id", id)).FirstOrDefault();
+
+    public IReadOnlyList<JobRecord> ListForItem(string repo, int number) =>
+        QueryRecords(
+            "WHERE j.repo = $repo COLLATE NOCASE AND j.number = $number ORDER BY j.id DESC",
+            ("$repo", repo),
+            ("$number", number));
+
+    public JobPage QueryHistory(JobQuery query)
+    {
+        var conditions = new List<string>();
+        var args = new List<(string, object?)>();
+
+        if (query.Status is not null)
+        {
+            conditions.Add("j.status = $status");
+            args.Add(("$status", query.Status));
+        }
+
+        if (query.Type is not null)
+        {
+            conditions.Add("j.type = $type");
+            args.Add(("$type", query.Type));
+        }
+
+        if (query.Repos is not null)
+        {
+            var names = query.Repos.Select((repo, index) => ($"$repo{index}", repo)).ToList();
+            var placeholders = names.Count == 0 ? "NULL" : string.Join(", ", names.Select(name => name.Item1));
+            conditions.Add($"j.repo COLLATE NOCASE IN ({placeholders})");
+            args.AddRange(names.Select(name => (name.Item1, (object?)name.repo)));
+        }
+
+        var where = conditions.Count == 0 ? "" : "WHERE " + string.Join(" AND ", conditions);
+        var countSql = $"SELECT COUNT(*) FROM jobs j {where}";
+        var total = Convert.ToInt32(Scalar(countSql, args.ToArray()) ?? 0, CultureInfo.InvariantCulture);
+
+        var pageSize = Math.Max(1, query.PageSize);
+
+        // long: a huge page number must give an empty page, not wrap around to a wrong one.
+        var offset = (long)(Math.Max(1, query.Page) - 1) * pageSize;
+        var items = QueryRecords($"{where} ORDER BY j.id DESC LIMIT {pageSize} OFFSET {offset}", args.ToArray());
+
+        return new JobPage(items, total);
     }
 
     // ---- helpers ----
+
+    private List<JobRecord> QueryRecords(string tail, params (string, object?)[] args)
+    {
+        var sql = $"""
+            SELECT j.id, j.type, j.repo, j.number, j.status, j.attempts, j.created_at, j.started_at, j.finished_at,
+                j.error, j.log_dir, j.result, j.detail, j.copilot_calls
+            FROM jobs j {tail}
+            """;
+
+        using var connection = Open();
+        using var command = Command(connection, sql, args);
+        using var reader = command.ExecuteReader();
+
+        var records = new List<JobRecord>();
+        while (reader.Read())
+        {
+            records.Add(new JobRecord(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetString(4),
+                reader.GetInt32(5),
+                ParseTime(reader.GetString(6)),
+                reader.IsDBNull(7) ? null : ParseTime(reader.GetString(7)),
+                reader.IsDBNull(8) ? null : ParseTime(reader.GetString(8)),
+                reader.IsDBNull(9) ? null : reader.GetString(9),
+                reader.IsDBNull(10) ? null : reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+        }
+
+        return records;
+    }
+
+    private static DateTimeOffset ParseTime(string text) =>
+        DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+    /// <summary>Upgrades a database made by an older runner; a new database already has the column.</summary>
+    private void AddColumnIfMissing(string table, string column, string type)
+    {
+        using var connection = Open();
+        using var command = Command(connection, $"PRAGMA table_info({table})");
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        reader.Close();
+        using var alter = Command(connection, $"ALTER TABLE {table} ADD COLUMN {column} {type}");
+        alter.ExecuteNonQuery();
+    }
 
     private List<StoredJob> QueryJobs(string where, params (string, object?)[] args)
     {

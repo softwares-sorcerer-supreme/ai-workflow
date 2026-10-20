@@ -1,0 +1,15 @@
+// The six tones as classes on a component host: `.tone-<tone>` sets `--<prefix>-bg`, `--<prefix>-fg` and
+// `--<prefix>-dot` from the `--app-tone-<tone>-*` tokens in styles.scss. A component then styles itself with its own
+// `--<prefix>-*` variables and never names a tone color.
+//
+//   @use '../_tones' as tones;
+//   @include tones.host-variants(chip);   // :host(.tone-info) { --chip-bg: ...; }
+@mixin host-variants($prefix) {
+  @each $tone in neutral, info, progress, success, warning, danger {
+    :host(.tone-#{$tone}) {
+      --#{$prefix}-bg: var(--app-tone-#{$tone}-bg);
+      --#{$prefix}-fg: var(--app-tone-#{$tone}-fg);
+      --#{$prefix}-dot: var(--app-tone-#{$tone}-dot);
+    }
+  }
+}

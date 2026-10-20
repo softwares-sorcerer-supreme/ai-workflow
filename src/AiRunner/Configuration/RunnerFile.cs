@@ -14,6 +14,7 @@ internal sealed class RunnerFile
     public int LogRetentionDays { get; set; } = 30;
     public AttachmentsConfig Attachments { get; set; } = new();
     public GitConfig Git { get; set; } = new();
+    public DashboardConfig Dashboard { get; set; } = new();
     public SettingsFile Defaults { get; set; } = new();
     public Dictionary<string, ProjectFile> Projects { get; set; } = [];
     public List<LegacyRepoFile> Repos { get; set; } = [];

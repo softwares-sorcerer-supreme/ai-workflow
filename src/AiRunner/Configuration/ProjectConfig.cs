@@ -65,6 +65,20 @@ public sealed class ProjectConfig
         }
     }
 
+    /// <summary>
+    /// The code component a work item names, or null when the name is unknown. No name (data from before
+    /// components existed) means the only code component, if there is exactly one.
+    /// </summary>
+    public ComponentConfig? CodeComponentOf(string? componentName)
+    {
+        if (componentName is null)
+        {
+            return SoleCodeComponent;
+        }
+
+        return CodeComponents.FirstOrDefault(component => component.Name == componentName);
+    }
+
     /// <summary>The folder name of a repo inside the project folder: the repo name without the owner.</summary>
     public static string FolderOf(string repo)
     {

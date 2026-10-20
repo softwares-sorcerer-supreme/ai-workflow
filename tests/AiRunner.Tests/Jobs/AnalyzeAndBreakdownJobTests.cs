@@ -22,6 +22,7 @@ public sealed class AnalyzeIssueJobTests : IDisposable
         var outcome = await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
+        Assert.Equal(1, outcome.CopilotCalls);
 
         var comments = _kit.GitBucket.CommentsOf(12);
         Assert.Equal(2, comments.Count);
@@ -179,6 +180,7 @@ public sealed class BreakdownIssueJobTests : IDisposable
         var outcome = await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
+        Assert.Equal(0, outcome.CopilotCalls);   // the breakdown reads the analysis; it never starts Copilot
         Assert.Contains(("origin/main", "feat/issue-12"), _kit.Git.Pushes);
 
         var subIssues = _kit.GitBucket.Issues.Values

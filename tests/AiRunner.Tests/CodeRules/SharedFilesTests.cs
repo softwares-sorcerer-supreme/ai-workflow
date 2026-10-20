@@ -35,11 +35,36 @@ public class SharedFilesTests
         {
             var isBuildOutput =
                 file.Contains($"{separator}obj{separator}") || file.Contains($"{separator}bin{separator}");
-            if (!isBuildOutput)
+            var isPackage = file.Contains($"{separator}node_modules{separator}");
+            if (!isBuildOutput && !isPackage)
             {
                 yield return file;
             }
         }
+    }
+
+    /// <summary>
+    /// The text the rule checks. CLAUDE.md's "## Dashboard" section is left out: the dashboard is part of the runner
+    /// itself, not a product repo, so it may name its own UI framework there.
+    /// </summary>
+    private static string CheckedText(string root, string file)
+    {
+        var text = File.ReadAllText(file);
+        var isClaudeFile = Path.GetRelativePath(root, file) == "CLAUDE.md";
+        if (!isClaudeFile)
+        {
+            return text;
+        }
+
+        var sectionStart = text.IndexOf("\n## Dashboard", StringComparison.Ordinal);
+        if (sectionStart < 0)
+        {
+            return text;
+        }
+
+        var sectionEnd = text.IndexOf("\n## ", sectionStart + 1, StringComparison.Ordinal);
+
+        return sectionEnd < 0 ? text[..sectionStart] : text[..sectionStart] + text[sectionEnd..];
     }
 
     [Fact]
@@ -50,7 +75,7 @@ public class SharedFilesTests
 
         foreach (var file in SharedFiles(root))
         {
-            var text = File.ReadAllText(file);
+            var text = CheckedText(root, file);
             foreach (var word in ForbiddenWords.Where(word => text.Contains(word, StringComparison.OrdinalIgnoreCase)))
             {
                 offenders.Add($"{Path.GetRelativePath(root, file)}: {word}");
@@ -58,6 +83,16 @@ public class SharedFilesTests
         }
 
         Assert.True(offenders.Count == 0, "Stack or project names in shared files:\n" + string.Join("\n", offenders));
+    }
+
+    [Fact]
+    public void The_dashboard_section_that_is_left_out_of_the_check_exists_in_claude_md()
+    {
+        // If the heading is renamed, CheckedText would silently stop leaving the section out (or the exemption
+        // would hide the wrong text), so the rename must fail here first.
+        var text = File.ReadAllText(Path.Combine(TestPaths.RepoRoot(), "CLAUDE.md"));
+
+        Assert.Contains("\n## Dashboard", text);
     }
 
     [Fact]

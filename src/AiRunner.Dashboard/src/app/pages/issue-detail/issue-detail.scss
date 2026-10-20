@@ -1,0 +1,18 @@
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+}
+
+.facts {
+  margin-top: var(--app-space-4);
+}
+
+.waiting {
+  color: var(--app-tone-warning-fg);
+}
+
+a.row-link {
+  color: var(--mat-sys-primary);
+  overflow-wrap: anywhere;
+}

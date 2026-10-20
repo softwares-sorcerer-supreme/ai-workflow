@@ -1,0 +1,46 @@
+<mat-toolbar class="toolbar">
+  @if (isNarrow()) {
+    <button mat-icon-button type="button" aria-label="Open the menu" (click)="sidenav.toggle()">
+      <mat-icon>menu</mat-icon>
+    </button>
+  }
+  <a class="brand" routerLink="/overview">
+    <mat-icon aria-hidden="true">smart_toy</mat-icon>
+    <span>ai-runner</span>
+  </a>
+  <span class="tagline app-muted">dashboard - read only</span>
+</mat-toolbar>
+
+<app-health-strip />
+
+<mat-sidenav-container class="body">
+  <mat-sidenav
+    #sidenav
+    class="nav"
+    [mode]="isNarrow() ? 'over' : 'side'"
+    [opened]="!isNarrow()"
+    [fixedInViewport]="false"
+  >
+    <mat-nav-list aria-label="Screens">
+      @for (item of navItems; track item.path) {
+        <a
+          mat-list-item
+          [routerLink]="item.path"
+          routerLinkActive
+          #link="routerLinkActive"
+          [activated]="link.isActive"
+          (click)="isNarrow() && sidenav.close()"
+        >
+          <mat-icon matListItemIcon aria-hidden="true">{{ item.icon }}</mat-icon>
+          <span matListItemTitle>{{ item.label }}</span>
+        </a>
+      }
+    </mat-nav-list>
+  </mat-sidenav>
+
+  <mat-sidenav-content>
+    <main class="content">
+      <router-outlet />
+    </main>
+  </mat-sidenav-content>
+</mat-sidenav-container>

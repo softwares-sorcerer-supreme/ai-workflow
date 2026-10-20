@@ -28,6 +28,14 @@ public sealed class JobRun(string directory, ILogger logger)
     public Task<bool> ClaimAsync(CancellationToken cancellationToken) =>
         Claimer is null ? Task.FromResult(true) : Claimer(cancellationToken);
 
+    /// <summary>
+    /// Set by JobWorker so the dashboard can show which round an agent session is in. Without it (tests, other
+    /// modes) reporting a round does nothing.
+    /// </summary>
+    public Action<int>? RoundChanged { get; set; }
+
+    public void ReportRound(int round) => RoundChanged?.Invoke(round);
+
     public void Save(string fileName, string content)
     {
         var directoryPath = EnsureDir();
@@ -61,14 +69,7 @@ public sealed class JobRun(string directory, ILogger logger)
 
 public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
 {
-    private string Root
-    {
-        get
-        {
-            var logsFolder = config.ResolvePath(config.Paths.Logs);
-            return Path.Combine(logsFolder, "jobs");
-        }
-    }
+    private string Root => config.JobLogsFolder;
 
     public JobRun Begin(JobRequest request)
     {

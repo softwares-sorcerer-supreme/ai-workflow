@@ -1,3 +1,4 @@
+using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
 using AiRunner.Tests.Fakes;
@@ -29,6 +30,76 @@ public sealed class JobWorkerTests : IDisposable
         return logs;
     }
 
+    /// <summary>The real store, except that storing a job's result fails (database locked, disk error).</summary>
+    private sealed class ResultFailingStore(IStateStore inner) : IStateStore
+    {
+        public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo) => inner.GetIssueFingerprints(repo);
+
+        public void SetIssueFingerprint(string repo, int issue, string fingerprint) =>
+            inner.SetIssueFingerprint(repo, issue, fingerprint);
+
+        public long GetLastHandledComment(string repo, int issue) => inner.GetLastHandledComment(repo, issue);
+
+        public void SetLastHandledComment(string repo, int issue, long commentId) =>
+            inner.SetLastHandledComment(repo, issue, commentId);
+
+        public ReviewState? GetReview(string repo, int pullNumber) => inner.GetReview(repo, pullNumber);
+
+        public void SetReview(string repo, int pullNumber, ReviewState reviewState) =>
+            inner.SetReview(repo, pullNumber, reviewState);
+
+        public long AddJob(JobRequest request) => inner.AddJob(request);
+
+        public StoredJob? GetJob(long id) => inner.GetJob(id);
+
+        public StoredJob? FindJob(string key, string status) => inner.FindJob(key, status);
+
+        public IReadOnlyList<StoredJob> ListJobs(string status) => inner.ListJobs(status);
+
+        public void UpdateJobPayload(long id, string? payload) => inner.UpdateJobPayload(id, payload);
+
+        public void SetJobStatus(long id, string status, string? error = null) =>
+            inner.SetJobStatus(id, status, error);
+
+        public void PruneJobs(DateTimeOffset finishedBefore) => inner.PruneJobs(finishedBefore);
+
+        public void DeleteJob(long id) => inner.DeleteJob(id);
+
+        public void AddCost(CostEntry entry) => inner.AddCost(entry);
+
+        public void SetJobLogDir(long id, string folderName) => inner.SetJobLogDir(id, folderName);
+
+        public void SetJobResult(long id, JobResult jobResult) => throw new InvalidOperationException("database is locked");
+    }
+
+    [Fact]
+    public async Task A_result_that_cannot_be_stored_does_not_turn_success_into_failure()
+    {
+        var job = new StubJob(() => Task.FromResult(JobOutcome.Ok("fine")));
+        var (worker, queue, _) = _kit.CreateWorker(new ResultFailingStore(_kit.State), job);
+
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        Assert.Empty(_kit.GitBucket.CommentsOf(7));
+        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Single(_kit.State.ListJobs(JobStatus.Done));
+        Assert.Single(_kit.State.ListCost());
+    }
+
+    [Fact]
+    public async Task A_result_that_cannot_be_stored_does_not_stop_the_failure_report()
+    {
+        var job = new StubJob(() => throw new JobFailedException("no ANALYSIS block"));
+        var (worker, queue, _) = _kit.CreateWorker(new ResultFailingStore(_kit.State), job);
+
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+        await worker.DrainAsync(default);
+
+        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
+    }
+
     [Fact]
     public async Task Failure_posts_a_comment_adds_ai_failed_and_writes_a_cost_row()
     {
@@ -39,6 +110,26 @@ public sealed class JobWorkerTests : IDisposable
         var costFile = Path.Combine(logs, "cost.csv");
         Assert.Contains("failed", File.ReadAllText(costFile));
         Assert.Single(_kit.State.ListJobs(JobStatus.Failed));
+    }
+
+    [Fact]
+    public async Task Copilot_calls_of_the_outcome_reach_the_cost_row_the_csv_and_the_job_row()
+    {
+        var logs = await RunAsync(() => Task.FromResult(JobOutcome.Ok("round 1", copilotCalls: 3)));
+
+        var cost = Assert.Single(_kit.State.ListCost());
+        Assert.Equal(3, cost.CopilotCalls);
+        Assert.EndsWith(",3", File.ReadAllLines(Path.Combine(logs, "cost.csv"))[1]);
+        Assert.Equal(3, _kit.State.QueryHistory(new JobQuery()).Items.Single().CopilotCalls);
+    }
+
+    [Fact]
+    public async Task A_failed_job_has_no_known_copilot_calls()
+    {
+        await RunAsync(() => throw new JobFailedException("no ANALYSIS block"));
+
+        Assert.Null(Assert.Single(_kit.State.ListCost()).CopilotCalls);
+        Assert.Null(_kit.State.QueryHistory(new JobQuery()).Items.Single().CopilotCalls);
     }
 
     [Fact]
@@ -109,6 +200,100 @@ public sealed class JobWorkerTests : IDisposable
         Assert.Empty(_kit.GitBucket.CommentsOf(7));
         Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
         Assert.Single(_kit.State.ListJobs(JobStatus.Done));
+    }
+
+    [Fact]
+    public async Task The_worker_shows_busy_while_a_job_runs_and_idle_after_it()
+    {
+        DateTimeOffset? busySinceDuringJob = null;
+
+        await RunAsync(() =>
+        {
+            busySinceDuringJob = _kit.Status.Snapshot().WorkerBusySince;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        });
+
+        Assert.NotNull(busySinceDuringJob);
+        Assert.Null(_kit.Status.Snapshot().WorkerBusySince);
+    }
+
+    private sealed class RoundJob(Func<JobRun, Task<JobOutcome>> run) : IJob
+    {
+        public JobType Type => JobType.AnalyzeIssue;
+        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
+        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) =>
+            run(jobRun);
+    }
+
+    [Fact]
+    public async Task The_running_job_and_its_round_are_visible_while_it_runs_and_gone_after_it()
+    {
+        RunningJob? during = null;
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(jobRun =>
+        {
+            during = _kit.Status.Snapshot().Running;
+            jobRun.ReportRound(2);
+            during = _kit.Status.Snapshot().Running;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        var request = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(request);
+
+        await worker.DrainAsync(default);
+
+        Assert.NotNull(during);
+        Assert.Equal("AnalyzeIssue", during.Type);
+        Assert.Equal(request.Repo, during.Repo);
+        Assert.Equal(7, during.Number);
+        Assert.Equal(2, during.Round);
+        Assert.Null(_kit.Status.Snapshot().Running);
+    }
+
+    [Fact]
+    public async Task A_job_that_has_not_reported_a_round_has_none()
+    {
+        RunningJob? during = null;
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(_ =>
+        {
+            during = _kit.Status.Snapshot().Running;
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        Assert.NotNull(during);
+        Assert.Null(during.Round);
+    }
+
+    [Fact]
+    public async Task The_log_folder_of_a_kept_job_is_stored_on_its_row()
+    {
+        var (worker, queue, _) = _kit.CreateWorker(new RoundJob(jobRun =>
+        {
+            jobRun.Save("note.txt", "x");
+
+            return Task.FromResult(JobOutcome.Ok("fine"));
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        var job = Assert.Single(_kit.State.QueryHistory(new JobQuery()).Items);
+        Assert.NotNull(job.LogDir);
+        Assert.EndsWith("-7-AnalyzeIssue", job.LogDir);
+        Assert.Equal("ok", job.Result);
+    }
+
+    [Fact]
+    public async Task The_worker_is_idle_again_after_a_failed_job()
+    {
+        await RunAsync(() => throw new JobFailedException("no ANALYSIS block"));
+
+        Assert.Null(_kit.Status.Snapshot().WorkerBusySince);
     }
 
     [Fact]

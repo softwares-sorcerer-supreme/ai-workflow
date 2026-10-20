@@ -1,0 +1,62 @@
+@use '../../shared/tones';
+
+:host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-1) var(--app-space-4);
+  padding: var(--app-space-2) var(--app-space-4);
+  box-sizing: border-box;
+  background: var(--strip-bg);
+  color: var(--strip-fg);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  font: var(--mat-sys-body-small);
+}
+
+@include tones.host-variants(strip);
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--strip-dot);
+}
+
+.state {
+  font: var(--mat-sys-label-large);
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  white-space: nowrap;
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+  }
+}
+
+.errors {
+  color: inherit;
+  font: var(--mat-sys-label-large);
+}
+
+.app-muted {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.spacer {
+  flex: 1;
+}
+
+@media (max-width: 599.98px) {
+  .runner,
+  .spacer {
+    display: none;
+  }
+}

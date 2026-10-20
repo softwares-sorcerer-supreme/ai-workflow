@@ -1,0 +1,98 @@
+<app-page-header title="Cost" subtitle="Copilot calls and job time per day, project and issue.">
+  <mat-button-toggle-group
+    actions
+    aria-label="Group by"
+    hideSingleSelectionIndicator
+    [value]="by()"
+    (change)="setBy($event.value)"
+  >
+    @for (option of groupings; track option.code) {
+      <mat-button-toggle [value]="option.code">{{ option.label }}</mat-button-toggle>
+    }
+  </mat-button-toggle-group>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="date">
+    <mat-label>From</mat-label>
+    <input matInput type="date" [value]="from()" [max]="to() || null" (change)="setFrom($any($event.target).value)" />
+  </mat-form-field>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="date">
+    <mat-label>To</mat-label>
+    <input matInput type="date" [value]="to()" [min]="from() || null" (change)="setTo($any($event.target).value)" />
+  </mat-form-field>
+</app-page-header>
+
+<div class="app-stack">
+  @if (cost.value()?.note; as note) {
+    <app-inline-note icon="info">{{ note }}</app-inline-note>
+  }
+
+  <section class="app-card" aria-labelledby="chart-title">
+    <h2 id="chart-title" class="app-card-title">Copilot calls</h2>
+
+    @if (cost.value(); as answer) {
+      @if (answer.rows.length > 0) {
+        @if (cost.error(); as message) {
+          <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+        }
+        <p class="app-muted caption">
+          {{ answer.byLabel }}.
+          @if (layout() === 'bars' && answer.rows.length > maxBars) {
+            The {{ maxBars }} groups with the most calls; the table lists all.
+          }
+        </p>
+        <app-cost-chart
+          [rows]="answer.rows"
+          [layout]="layout()"
+          [heading]="'Copilot calls - ' + answer.byLabel"
+          description="Bars of Copilot calls per group. The table below lists every value."
+        />
+      } @else {
+        <app-view-state
+          kind="empty"
+          icon="bar_chart"
+          title="No jobs in this range"
+          message="Calls appear here once the runner has finished a job in the chosen days."
+        />
+      }
+    } @else if (cost.error()) {
+      <app-view-state
+        kind="error"
+        title="Could not load the cost"
+        [message]="cost.error()"
+        [canRetry]="true"
+        (retry)="cost.reload()"
+      />
+    } @else {
+      <app-view-state kind="loading" />
+    }
+  </section>
+
+  <section class="app-card" aria-labelledby="table-title">
+    <h2 id="table-title" class="app-card-title">Totals</h2>
+
+    <app-data-table
+      [rows]="lines()"
+      [columns]="columns"
+      [loading]="cost.isLoading()"
+      [error]="cost.error()"
+      [trackBy]="trackByKey"
+      (retry)="cost.reload()"
+      emptyTitle="No jobs in this range"
+      emptyMessage="Rows appear here once the runner has finished a job in the chosen days."
+    >
+      <ng-template appCell="label" let-row>
+        <span class="group" [class.total]="row.isTotal">{{ row.label }}</span>
+      </ng-template>
+      <ng-template appCell="calls" let-row>
+        <span [class.total]="row.isTotal">{{ row.calls }}</span>
+      </ng-template>
+      <ng-template appCell="jobs" let-row>
+        <span [class.total]="row.isTotal">{{ row.jobs }}</span>
+      </ng-template>
+      <ng-template appCell="duration" let-row>
+        <span [class.total]="row.isTotal">{{ row.durationSeconds | duration }}</span>
+      </ng-template>
+    </app-data-table>
+  </section>
+</div>

@@ -33,6 +33,8 @@ dotnet run --project src/AiRunner -- --once             # poll once, run queued 
 dotnet run --project src/AiRunner -- --setup-labels     # create the workflow labels in every repo
 dotnet run --project src/AiRunner -- --copilot-test     # start copilot as a child process
 dotnet run --project src/AiRunner -- --attachment-test <url>   # download one _attached file, show the answer (no Copilot)
+dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashboard API's OpenAPI document (no config, no token)
+./build-dashboard.ps1                                           # build the dashboard UI into src/AiRunner/wwwroot (see Dashboard)
 ```
 
 - Config: `Configuration/ConfigResolver` reads `repos.yml` strictly into the raw `RunnerFile` types and merges them into
@@ -56,7 +58,10 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
   `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a GitBucket/CLI quirk is fixed in exactly one class.
 - `Jobs/` — one `IJob` per workflow step. A job orchestrates: load fresh data, ask Core, call Infrastructure. Expected failures throw `JobFailedException`.
 - `Hosting/` — `Poller` (GitBucket -> `JobPlanner` -> `JobQueue`), `JobQueue` (SQLite-backed, one pending job per key), `JobWorker`
-  (one job at a time, timeout, failure comment + `ai:failed`, cost row). Scheduling and lifetime only.
+  (one job at a time, timeout, failure comment + `ai:failed`, cost row), `RunnerStatus` (in-memory health the poller and worker
+  write), `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
+- `Web/` — the dashboard's read-only HTTP API (`DashboardApp`, `MapDashboardApi`, response records). May use `Core`,
+  `Configuration`, Infrastructure read interfaces and `Hosting/RunnerStatus`; `Core/` and `Jobs/` never reference it.
 - `Program.cs` — DI registration and command-line modes only.
 
 Key mechanics that span several files:
@@ -160,6 +165,39 @@ Key mechanics that span several files:
   (a `convention` finding in the review); no runner logic depends on them.
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
 
+## Dashboard
+
+Local, read-only status page of one runner (`docs/specs/dashboard.md`, `docs/adr/0001`-`0003`). `repos.yml` global block
+`dashboard: { enabled: false, port: 5180 }`; only the polling loop (not `--once`, `--dry-run` or the other modes) starts
+`Hosting/DashboardHost`, which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
+token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; GET only, anything else 405; no CORS, no auth). A taken port
+is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`,
+`Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
+
+- **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
+  `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
+  is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on
+  the first and every 10th poll, keeps the closed issues and runner PRs the dashboard still needs (`Core/SnapshotRules`; a closed sub-issue
+  stays while its parent is kept). It never throws and never touches
+  fingerprints, decisions or the queue; `--dry-run` writes none. `Core/IssueStage` finds "its PR" through `IssuePulls` /
+  `SubIssueSequencer.SlotPulls` / `FinalPull`, the same helpers `FinishIssueJob` and the sequencer use.
+
+- **Cost.** `JobOutcome.CopilotCalls` (analyze/review 1, implement/fix `Rounds.Count`, breakdown and routine jobs 0, a failed job
+  null) is written by `JobWorker` to `cost_log.copilot_calls`, `jobs.copilot_calls` and the last column of `cost.csv`; old rows are
+  null and show as "-". `Core/CostReport` groups by local day, project or issue (a sub-issue rolls up into its parent, a review/fix job
+  into the issue its PR links); `GET /api/cost` only serves it.
+
+- UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
+  (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a
+  waiting-on action, a health state or a total.
+- The TypeScript client in `src/AiRunner.Dashboard/src/app/api/` is generated from the OpenAPI document and committed with
+  `src/AiRunner.Dashboard/openapi.json`. After any API change run `./build-dashboard.ps1` (or `--openapi` + `npm run generate:api`)
+  and commit the regenerated files with the C# change.
+- npm commands (in `src/AiRunner.Dashboard/`): `npm start` (dev server, `/api` proxied to `127.0.0.1:5180`), `npm test` (unit tests
+  once), `npm run build`, `npm run generate:api`. Node must match `engines` in its `package.json`.
+- `dotnet build` and `dotnet test` never need Node. `build-dashboard.ps1` copies the build to `src/AiRunner/wwwroot/` (not committed);
+  without it the runner serves a "dashboard not built" page.
+
 ## GitBucket and security constraints
 
 - GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketClient`); keep templates ASCII.
@@ -200,7 +238,7 @@ Key mechanics that span several files:
   - Short `=>` members and lambdas are fine; use a block body when the expression spans several lines or needs a local.
   - Renaming covers locals, parameters, lambda parameters, private fields and constructor parameters only. Never rename JSON/YAML/SQLite/CLI-bound
     members, template text or markers just for style.
-- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeGitBucket`)
+- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`, `Web/` on a `TestServer`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeGitBucket`)
   and build data with `Samples.Issue/Human/Bot` and the filled templates in `Samples.cs`.
 - `SQLitePCLRaw.lib.e_sqlite3` is pinned in the csproj to fix NU1903; don't drop it.
 

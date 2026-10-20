@@ -1,0 +1,29 @@
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-3);
+
+  .app-card-title {
+    margin: 0;
+  }
+}
+
+.message {
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin-bottom: var(--app-space-3);
+}
+
+.queue-label {
+  font: var(--mat-sys-body-small);
+}
+
+a.waiting-link {
+  color: var(--mat-sys-primary);
+  overflow-wrap: anywhere;
+}

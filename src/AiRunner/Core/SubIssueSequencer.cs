@@ -107,12 +107,9 @@ public static class SubIssueSequencer
             }
 
             var slot = new SubIssueSlot(input.Parent, order);
-            var slotPulls = input.PullsOf(subIssue.Repo)
-                .Where(pull => pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
-                               pull.Base.Ref == Branches.Feature(slot.Parent))
-                .ToList();
+            var slotPulls = SlotPulls(slot, input.PullsOf(subIssue.Repo));
 
-            if (slotPulls.Count > 0 && !slotPulls.Any(pull => pull.IsMerged() || pull.IsOpen()))
+            if (IssuePulls.OutcomeOf(slotPulls) == PullOutcome.ClosedWithoutMerge)
             {
                 abandoned.Add(new AbandonedSubIssue(subIssue, slotPulls[0]));
             }
@@ -166,7 +163,6 @@ public static class SubIssueSequencer
     /// <summary>The final PRs: one per repo that has sub-issues, then the parent is closed when they are all merged.</summary>
     private static SequenceDecision DecideFinal(SequenceInput input)
     {
-        var feature = Branches.Feature(input.Parent);
         var repos = input.Repos;
 
         if (repos.Count == 0)
@@ -174,7 +170,7 @@ public static class SubIssueSequencer
             return new(SequenceStep.Wait, "no sub-issues");
         }
 
-        var finalPulls = repos.ToDictionary(repo => repo, repo => FinalPull(input.PullsOf(repo), feature));
+        var finalPulls = FinalPulls(input.Parent, repos, input.PullsOf);
         var missing = repos.Where(repo => finalPulls[repo] is null).ToList();
 
         if (missing.Count > 0 || !input.HasFinalList)
@@ -182,7 +178,7 @@ public static class SubIssueSequencer
             return new(SequenceStep.OpenFinalPrs, "all sub-issues are done") { Repos = missing };
         }
 
-        if (finalPulls.Values.All(pull => pull!.IsMerged()))
+        if (AllMerged(finalPulls))
         {
             return new(SequenceStep.CloseParent, "all final PRs are merged");
         }
@@ -190,12 +186,40 @@ public static class SubIssueSequencer
         return new(SequenceStep.Wait, "waiting for the final PRs to be merged");
     }
 
+    /// <summary>
+    /// The final PR of each repo that has sub-issues (<see cref="FinalPull"/>), null where none counts yet. The
+    /// sequencer closes the parent and the dashboard shows it merged by the same rule: <see cref="AllMerged"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<string, GbPull?> FinalPulls(
+        int parent,
+        IReadOnlyList<string> repos,
+        Func<string, IReadOnlyList<GbPull>> pullsOf)
+    {
+        var feature = Branches.Feature(parent);
+
+        return repos.ToDictionary(
+            repo => repo,
+            repo => FinalPull(pullsOf(repo), feature),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Every repo has its final PR and every one is merged (false when there is no repo).</summary>
+    public static bool AllMerged(IReadOnlyDictionary<string, GbPull?> finalPulls) =>
+        finalPulls.Count > 0 && finalPulls.Values.All(pull => pull is not null && pull.IsMerged());
+
+    /// <summary>
+    /// The PRs of a sub-issue slot: its branch ai/issue-{parent}-{order} into the feature branch. A PR from that
+    /// branch into another base does not count. The dashboard's stage uses the same rule.
+    /// </summary>
+    public static IReadOnlyList<GbPull> SlotPulls(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
+        pulls
+            .Where(pull => pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
+                           pull.Base.Ref == Branches.Feature(slot.Parent))
+            .ToList();
+
     /// <summary>The merged PR of a sub-issue slot (its branch into the feature branch), or null.</summary>
     public static GbPull? MergedPull(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
-        pulls.FirstOrDefault(pull =>
-            pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
-            pull.Base.Ref == Branches.Feature(slot.Parent) &&
-            pull.IsMerged());
+        SlotPulls(slot, pulls).FirstOrDefault(pull => pull.IsMerged());
 
     /// <summary>
     /// The final PR of a repo: head is the feature branch, merged or still open (a merged one wins). A PR that was

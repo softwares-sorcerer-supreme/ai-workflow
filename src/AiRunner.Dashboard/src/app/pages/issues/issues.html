@@ -1,0 +1,93 @@
+<app-page-header title="Issues" subtitle="Every issue the runner polls, with its stage.">
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>Project</mat-label>
+    <mat-select [value]="project()" (selectionChange)="setProject($event.value)">
+      <mat-option value="">All projects</mat-option>
+      @for (option of projectOptions(); track option.name) {
+        <mat-option [value]="option.name">{{ option.name }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>Component</mat-label>
+    <mat-select [value]="component()" (selectionChange)="setComponent($event.value)">
+      <mat-option value="">All components</mat-option>
+      @for (name of componentOptions(); track name) {
+        <mat-option [value]="name">{{ name }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>Stage</mat-label>
+    <mat-select [value]="stage()" (selectionChange)="setStage($event.value)">
+      <mat-option value="">All stages</mat-option>
+      @for (option of stageOptions(); track option.code) {
+        <mat-option [value]="option.code">{{ option.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field actions appearance="outline" subscriptSizing="dynamic" class="filter">
+    <mat-label>State</mat-label>
+    <mat-select [value]="state()" (selectionChange)="setState($event.value)">
+      <mat-option value="">Open and closed</mat-option>
+      @for (option of stateOptions; track option.code) {
+        <mat-option [value]="option.code">{{ option.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <mat-slide-toggle actions [checked]="flat()" (change)="setFlat($event.checked)">Flat list</mat-slide-toggle>
+</app-page-header>
+
+<section class="app-card" aria-labelledby="issues-title">
+  <h2 id="issues-title" class="app-card-title">Issues</h2>
+
+  <app-data-table
+    [rows]="rows()"
+    [columns]="columns"
+    [loading]="issues.isLoading()"
+    [error]="issues.error()"
+    [trackBy]="trackByIssue"
+    (retry)="issues.reload()"
+    emptyTitle="No issues found"
+    emptyMessage="Issues appear here after the runner's next poll. With a filter set, try All."
+  >
+    <ng-template appCell="issue" let-row>
+      <div class="issue" [class.sub-issue]="row.isSubIssue">
+        @if (row.isSubIssue) {
+          <mat-icon class="nest" aria-hidden="true">subdirectory_arrow_right</mat-icon>
+        }
+        <span class="number app-mono">#{{ row.number }}</span>
+        <a class="title" [routerLink]="link(row)">{{ row.title }}</a>
+        @if (row.htmlUrl) {
+          <a
+            class="external"
+            [href]="row.htmlUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open in GitBucket"
+            ><mat-icon aria-hidden="true">open_in_new</mat-icon></a
+          >
+        }
+      </div>
+    </ng-template>
+    <ng-template appCell="stage" let-row>
+      <app-stage-chip [code]="row.stage" [label]="row.stageLabel" />
+    </ng-template>
+    <ng-template appCell="flags" let-row>
+      <div class="marks">
+        @if (row.badge; as badge) {
+          <app-status-chip [label]="badge.label" [tone]="markTone(badge.code)" [icon]="markIcon(badge.code)" />
+        }
+        @for (flag of row.flags; track flag.code) {
+          <app-status-chip [label]="flag.label" [tone]="markTone(flag.code)" [icon]="markIcon(flag.code)" />
+        }
+      </div>
+    </ng-template>
+    <ng-template appCell="state" let-row>{{ row.stateLabel }}</ng-template>
+    <ng-template appCell="updatedAt" let-row><app-time [value]="row.updatedAt" /></ng-template>
+  </app-data-table>
+</section>

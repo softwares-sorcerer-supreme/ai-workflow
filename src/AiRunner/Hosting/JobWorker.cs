@@ -7,7 +7,7 @@ using AiRunner.Jobs;
 namespace AiRunner.Hosting;
 
 /// <summary>A job that ended, for the cost row: what ran, for how long, and how it ended.</summary>
-public sealed record FinishedJob(JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
+public sealed record FinishedJob(long JobId, JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
 
 /// <summary>A job that failed and must be reported on its issue or PR.</summary>
 /// <param name="LogFolder">Name of the job's log folder, or null when it has none.</param>
@@ -27,6 +27,7 @@ public sealed class JobWorker(
     IStateStore stateStore,
     IGitBucketClient gitBucketClient,
     ClaimService claims,
+    RunnerStatus status,
     ILogger<JobWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -75,6 +76,9 @@ public sealed class JobWorker(
 
         stateStore.SetJobStatus(stored.Id, JobStatus.Running);
         var run = jobLog.Begin(request);
+        var logFolder = Path.GetFileName(run.Dir);
+        stateStore.SetJobLogDir(stored.Id, logFolder);
+        run.RoundChanged = status.JobRound;
         var stopwatch = Stopwatch.StartNew();
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -86,6 +90,25 @@ public sealed class JobWorker(
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
         var target = new ClaimTarget(request.Repo, request.Number) { Until = run.Deadline };
         var isClaimHeld = false;
+        var runningJob = new RunningJob(
+            stored.Id,
+            request.Type.ToString(),
+            request.Repo,
+            request.Number,
+            DateTimeOffset.UtcNow);
+        status.WorkerBusy(runningJob);
+
+        // Both kinds of job claim through here, so the dashboard learns of every claim that went through.
+        async Task<bool> TryClaimAsync(CancellationToken token)
+        {
+            var isClaimed = await claims.TryClaimAsync(target, token);
+            if (isClaimed)
+            {
+                status.ClaimHeld();
+            }
+
+            return isClaimed;
+        }
 
         try
         {
@@ -95,14 +118,14 @@ public sealed class JobWorker(
                 {
                     run.Claimer = async token =>
                     {
-                        isClaimHeld = isClaimHeld || await claims.TryClaimAsync(target, token);
+                        isClaimHeld = isClaimHeld || await TryClaimAsync(token);
 
                         return isClaimHeld;
                     };
                 }
                 else
                 {
-                    isClaimHeld = await claims.TryClaimAsync(target, timeoutSource.Token);
+                    isClaimHeld = await TryClaimAsync(timeoutSource.Token);
                     if (!isClaimHeld)
                     {
                         logger.LogDebug("{Request}: claimed by another runner", request);
@@ -125,7 +148,7 @@ public sealed class JobWorker(
 
             stateStore.SetJobStatus(stored.Id, JobStatus.Done);
             run.Info($"{request}: {outcome.Result} {outcome.Detail} in {stopwatch.Elapsed.TotalSeconds:F0}s");
-            var finished = new FinishedJob(request, job.Info, stopwatch.Elapsed, outcome);
+            var finished = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, outcome);
             Record(finished);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -161,10 +184,9 @@ public sealed class JobWorker(
             }
 
             var failedOutcome = new JobOutcome("failed", message);
-            var failedJob = new FinishedJob(request, job.Info, stopwatch.Elapsed, failedOutcome);
+            var failedJob = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, failedOutcome);
             Record(failedJob);
 
-            var logFolder = Path.GetFileName(run.Dir);
             var failure = new JobFailure(job, request, message, logFolder);
             await ReportFailureAsync(failure);
         }
@@ -175,6 +197,8 @@ public sealed class JobWorker(
             {
                 await ReleaseClaimAsync(target);
             }
+
+            status.WorkerIdle();
         }
     }
 
@@ -246,7 +270,7 @@ public sealed class JobWorker(
 
     private void Record(FinishedJob finished)
     {
-        var (request, info, elapsed, outcome) = finished;
+        var (jobId, request, info, elapsed, outcome) = finished;
         var entry = new CostEntry(
             DateTimeOffset.UtcNow,
             request.Repo,
@@ -254,8 +278,22 @@ public sealed class JobWorker(
             info.Workflow,
             elapsed.TotalSeconds,
             outcome.Result,
-            outcome.Detail);
+            outcome.Detail,
+            outcome.CopilotCalls);
 
         costLog.Record(entry);
+
+        var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);
+
+        try
+        {
+            stateStore.SetJobResult(jobId, jobResult);
+        }
+        catch (Exception exception)
+        {
+            // The job already ended: a database error here must not turn a finished job into a failed one, or stop
+            // the failure report of a job that failed. Like the cost row, the result is best effort.
+            logger.LogWarning("Could not store the result of job {JobId}: {Message}", jobId, exception.Message);
+        }
     }
 }

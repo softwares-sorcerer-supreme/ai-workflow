@@ -1,5 +1,6 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
+using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
 using AiRunner.Tests.Fakes;
@@ -87,6 +88,56 @@ public sealed class ClaimTests
         Assert.Equal((Me, ClaimState.Claimed), (claimWhileRunning!.Runner, claimWhileRunning.State));
         Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(7));
         Assert.Equal(ClaimState.Released, ClaimsOn(kit).Single().State);
+    }
+
+    [Fact]
+    public async Task The_dashboard_status_says_this_runner_holds_the_claim_while_a_normal_job_runs()
+    {
+        using var kit = NewKit();
+        bool? holdsClaimWhileRunning = null;
+
+        await RunStubAsync(kit, () =>
+        {
+            holdsClaimWhileRunning = kit.Status.Snapshot().Running?.HoldsClaim;
+
+            return Task.FromResult(JobOutcome.Ok());
+        });
+
+        Assert.True(holdsClaimWhileRunning);
+        Assert.Null(kit.Status.Snapshot().Running);
+    }
+
+    /// <summary>A routine job that looks at the dashboard status before and after it claims.</summary>
+    private sealed class ClaimingRoutineJob(RunnerStatus status) : IJob
+    {
+        public JobType Type => JobType.AnalyzeIssue;
+
+        public JobInfo Info => new(Workflows.Analyze, "Routine", TimeSpan.FromMinutes(1), Routine: true);
+
+        public (bool? Before, bool? After) HoldsClaim { get; private set; }
+
+        public async Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken)
+        {
+            var before = status.Snapshot().Running?.HoldsClaim;
+            await jobRun.ClaimAsync(cancellationToken);
+            var after = status.Snapshot().Running?.HoldsClaim;
+            HoldsClaim = (before, after);
+
+            return JobOutcome.Ok();
+        }
+    }
+
+    [Fact]
+    public async Task A_routine_job_holds_the_claim_in_the_dashboard_status_only_after_it_claimed()
+    {
+        using var kit = NewKit();
+        var job = new ClaimingRoutineJob(kit.Status);
+        var (worker, queue, _) = kit.CreateWorker(job);
+        queue.Enqueue(kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        Assert.Equal((false, true), job.HoldsClaim);
     }
 
     [Fact]

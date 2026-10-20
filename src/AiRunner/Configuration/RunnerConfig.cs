@@ -20,6 +20,7 @@ public sealed class RunnerConfig
     public int LogRetentionDays { get; set; } = 30;
     public GitConfig Git { get; set; } = new();
     public AttachmentsConfig Attachments { get; set; } = new();
+    public DashboardConfig Dashboard { get; set; } = new();
     public List<ProjectConfig> Projects { get; set; } = [];
 
     /// <summary>Folder of repos.yml; the shared agents/, skills/ and templates/ live here.</summary>
@@ -31,9 +32,16 @@ public sealed class RunnerConfig
         return Path.GetFullPath(combinedPath);
     }
 
+    /// <summary>logs/jobs/: one folder per job run. The one place the writer (JobLog) and the dashboard's viewer agree on.</summary>
+    [YamlIgnore] public string JobLogsFolder => Path.Combine(ResolvePath(Paths.Logs), "jobs");
+
     /// <summary>The project a repo belongs to (any of its components' repos), or null.</summary>
     public ProjectConfig? FindProject(string repo) =>
         Projects.FirstOrDefault(project => project.HasRepo(repo));
+
+    /// <summary>The project with this name (as in repos.yml, case-sensitive), or null.</summary>
+    public ProjectConfig? ProjectNamed(string name) =>
+        Projects.FirstOrDefault(project => project.Name == name);
 
     /// <summary>Every distinct repo of every project, in file order.</summary>
     public IEnumerable<string> AllRepos() =>
@@ -119,6 +127,16 @@ public sealed class AttachmentsConfig
     /// <summary>Never downloaded: nobody should open an executable from a ticket.</summary>
     public List<string> SkipExtensions { get; set; } =
         [".exe", ".dll", ".msi", ".bat", ".cmd", ".ps1", ".sh", ".com", ".scr", ".jar", ".vbs"];
+}
+
+/// <summary>
+/// The local read-only dashboard (global only, never per project). Off by default so a runner never opens a port
+/// its owner did not ask for; it listens on 127.0.0.1 only.
+/// </summary>
+public sealed class DashboardConfig
+{
+    public bool Enabled { get; set; }
+    public int Port { get; set; } = 5180;
 }
 
 public sealed class PathsConfig

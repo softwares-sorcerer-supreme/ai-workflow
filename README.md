@@ -121,11 +121,25 @@ Put a short `PROJECT.md` (default name, set with `context:`) in the `issues_in` 
 
 | Level | Keys |
 | --- | --- |
-| Global only | `git_bucket`, `poll_interval_seconds`, `runner_name`, `copilot`, `paths`, `log_retention_days`, `attachments`, `git` |
+| Global only | `git_bucket`, `poll_interval_seconds`, `runner_name`, `copilot`, `paths`, `log_retention_days`, `attachments`, `git`, `dashboard` |
 | `defaults:`, overridable per project | `trigger_label`, `trigger_keyword`, `workflows`, `models`, `limits`, `implement`, `review`, `never_edit`, `auto_start_first_sub_issue`, `claim_enabled` |
 | Per component | `repo`, `path`, `code` (default true), `commands` |
 
 `commands` is never in `defaults` (a global command would assume a stack). A component's `commands` override the project's key by key. Objects merge key by key; lists replace the default list. Limits, models and `never_edit` are per project, not per component.
+
+### Dashboard
+
+A local, read-only status page of this runner (health strip now; jobs, issues and cost come next). Off by default:
+
+```yaml
+dashboard:
+  enabled: true
+  port: 5180      # http://localhost:5180/, listens on 127.0.0.1 only
+```
+
+Build the UI once with `./build-dashboard.ps1` (needs Node, see `src/AiRunner.Dashboard/package.json`), then start the
+runner in its normal loop. `--once`, `--dry-run` and the other modes never start it. If the port is taken the runner logs
+one warning and keeps working without the dashboard.
 
 ### Several runners (claims)
 

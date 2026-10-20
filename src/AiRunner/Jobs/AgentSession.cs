@@ -198,6 +198,8 @@ public sealed class AgentSession(
 
         async Task<JobFailedException?> RunAgentAsync(string prompt, int round)
         {
+            run.ReportRound(round);
+
             JobFailedException? failure = null;
             try
             {

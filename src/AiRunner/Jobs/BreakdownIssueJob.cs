@@ -56,7 +56,7 @@ public sealed class BreakdownIssueJob(
             await gitBucketClient.AddCommentAsync(
                 request.Repo, issue.Number, $"I did not create sub-issues: {rejectionReason}", cancellationToken);
             await gitBucketClient.RemoveLabelAsync(request.Repo, issue.Number, Labels.Breakdown, cancellationToken);
-            return new JobOutcome("rejected", rejectionReason);
+            return new JobOutcome("rejected", rejectionReason, CopilotCalls: 0);
         }
 
         // A breakdown that cannot be read is a problem of the analysis, not of this job: say so and drop the label,
@@ -141,7 +141,7 @@ public sealed class BreakdownIssueJob(
         var labelChange = new LabelChange(Add: [Labels.Parent], Remove: [Labels.Breakdown]);
         await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
 
-        return JobOutcome.Ok($"{created.Count} sub-issues");
+        return JobOutcome.Ok($"{created.Count} sub-issues", copilotCalls: 0);
     }
 
     private async Task<JobOutcome> RejectUnreadableAsync(
@@ -157,7 +157,7 @@ public sealed class BreakdownIssueJob(
             project.IssuesRepo, issue.Number, $"I did not create sub-issues: {reason}", cancellationToken);
         await gitBucketClient.RemoveLabelAsync(project.IssuesRepo, issue.Number, Labels.Breakdown, cancellationToken);
 
-        return new JobOutcome("rejected", reason);
+        return new JobOutcome("rejected", reason, CopilotCalls: 0);
     }
 
     /// <summary>The feature branch from the default branch of one repo; kept if it exists (a retry, or a second component in the repo).</summary>

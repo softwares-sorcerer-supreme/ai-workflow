@@ -23,6 +23,11 @@ public sealed class FakeCopilot : ICopilotRunner
     public Task<bool> CanAttachFilesAsync(string workDir, CancellationToken cancellationToken) =>
         Task.FromResult(CanAttachFiles);
 
+    /// <summary>What "copilot --version" prints; null = the CLI could not be started.</summary>
+    public string? Version { get; set; } = "1.0.0";
+
+    public Task<string?> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult(Version);
+
     public Task<ProcessResult> RunAsync(CopilotRequest request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
@@ -275,6 +280,9 @@ public sealed class FakeTime : TimeProvider
 
     public override DateTimeOffset GetUtcNow() => _now;
 
+    /// <summary>Fixed, so a "day" in a test does not depend on the machine running it.</summary>
+    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
     public void Advance(TimeSpan span) => _now += span;
 }
 
@@ -321,7 +329,11 @@ public sealed class JobTestKit : IDisposable
         var runFolder = Path.Combine(_tempFolder, "run");
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
+        Status = new RunnerStatus("test-runner", "repos.yml", Time);
     }
+
+    /// <summary>The in-memory health the poller and the worker write, on the kit's clock.</summary>
+    public RunnerStatus Status { get; }
 
     /// <summary>The one project of the kit: one component in james/demo, which also holds the issues.</summary>
     public ProjectConfig Project { get; }
@@ -346,7 +358,13 @@ public sealed class JobTestKit : IDisposable
     }
 
     /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
-    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs)
+    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs) =>
+        CreateWorker(State, jobs);
+
+    /// <summary>Same, but the worker writes through <paramref name="workerState"/> (the queue keeps the real store).</summary>
+    public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(
+        IStateStore workerState,
+        params IJob[] jobs)
     {
         var logsFolder = Path.Combine(_tempFolder, "logs");
         var logs = Directory.CreateDirectory(logsFolder).FullName;
@@ -363,15 +381,31 @@ public sealed class JobTestKit : IDisposable
             new JobFactory(jobs),
             new JobLog(config, NullLogger<JobLog>.Instance),
             new CostLog(config, State, NullLogger<CostLog>.Instance),
-            State,
+            workerState,
             GitBucket,
             new ClaimService(config, GitBucket, Time),
+            Status,
             NullLogger<JobWorker>.Instance);
 
         return (worker, queue, logs);
     }
 
-    /// <summary>The clock of the claims; a test moves it to age a claim.</summary>
+    /// <summary>A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given.</summary>
+    public Poller NewPoller(JobQueue queue, ISnapshotStore? snapshotStore = null)
+    {
+        var recorder = new SnapshotRecorder(
+            GitBucket,
+            snapshotStore ?? State,
+            Config,
+            Time,
+            NullLogger<SnapshotRecorder>.Instance);
+
+        var logger = NullLogger<Poller>.Instance;
+
+        return new Poller(Config, GitBucket, Loader, State, queue, Identity, Status, recorder, logger);
+    }
+
+    /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>
     public FakeTime Time { get; } = new();
 
     public void Dispose()

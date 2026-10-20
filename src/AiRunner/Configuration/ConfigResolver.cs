@@ -57,6 +57,7 @@ internal static partial class ConfigResolver
             LogRetentionDays = file.LogRetentionDays,
             Attachments = file.Attachments,
             Git = file.Git,
+            Dashboard = file.Dashboard,
         };
 
         foreach (var (name, projectFile) in file.Projects)
@@ -204,6 +205,12 @@ internal static partial class ConfigResolver
 
     private static void Validate(RunnerConfig config)
     {
+        var port = config.Dashboard.Port;
+        if (port is < 1 or > 65535)
+        {
+            throw new InvalidOperationException($"dashboard.port {port} is not a port. Use 1 to 65535.");
+        }
+
         var projectNames = new HashSet<string>(StringComparer.Ordinal);
         var repoOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 

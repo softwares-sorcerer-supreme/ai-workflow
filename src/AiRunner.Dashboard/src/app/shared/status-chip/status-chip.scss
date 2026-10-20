@@ -1,0 +1,39 @@
+@use '../tones';
+
+:host {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  max-width: 100%;
+  padding: 2px var(--app-space-2);
+  border-radius: 999px;
+  // The role carries the line height too.
+  font: var(--mat-sys-label-medium);
+  white-space: nowrap;
+  vertical-align: middle;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-dot);
+}
+
+mat-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
+}
+
+@include tones.host-variants(chip);

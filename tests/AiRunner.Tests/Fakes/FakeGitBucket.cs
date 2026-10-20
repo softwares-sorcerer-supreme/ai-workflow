@@ -34,6 +34,9 @@ public sealed class FakeGitBucket : IGitBucketClient
     public Dictionary<string, FakeAttachment> Attachments { get; } = [];
     public List<string> Downloads { get; } = [];
 
+    /// <summary>When set, listing issues fails with this message (VPN down, token rejected).</summary>
+    public string? IssueListError { get; set; }
+
     // ---- arrange helpers ----
 
     public GbIssue AddIssue(int number, string title, string? body = null, params string[] labels)
@@ -159,6 +162,11 @@ public sealed class FakeGitBucket : IGitBucketClient
         CancellationToken cancellationToken)
     {
         RepoCalls.Add(("issues", repo));
+        if (IssueListError is not null)
+        {
+            throw new HttpRequestException(IssueListError);
+        }
+
         var matchingIssues = Issues.Values
             .Where(issue => issue.IsOpen()
                 && (label is null || issue.HasLabel(label))
@@ -306,6 +314,7 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken)
     {
+        RepoCalls.Add(("pull-read", repo));
         var pull = Pulls.Single(existingPull => existingPull.Number == number);
 
         return Task.FromResult(pull);

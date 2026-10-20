@@ -1,0 +1,3 @@
+# The dashboard UI is an Angular app with a generated API client; rules stay in C#
+
+The dashboard front end is an Angular app in `src/AiRunner.Dashboard/` instead of plain HTML, because many more maintenance screens and control features are planned. Its TypeScript client is generated from the runner's OpenAPI document and committed, so an API change shows in the diff and breaks the Angular build instead of failing at runtime. Angular only displays: stage, waiting-on and cost totals are computed in `Core`, so the planner stays the single source of truth and the rules stay covered by the .NET tests. `dotnet build` and `dotnet test` never need Node; building the UI is a separate step.
