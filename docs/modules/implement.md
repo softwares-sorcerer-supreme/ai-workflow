@@ -49,7 +49,7 @@ flowchart LR
 | --- | --- |
 | `Jobs/ImplementIssueJob.cs` | Whole workflow: gate checks, branch choice, continue-from-saved-work, run session, size limits, PR, labels. |
 | `Jobs/AgentSession.cs` | Setup, agent round 1, checks, fix rounds, `.git/config` guard, `SaveWorkAsync` (commit + push). |
-| `Core/ImplementGate.cs` | `Decide(...)` -> `Done` / `Fix` / `OutOfRounds`; `TimeForAnotherRound`. |
+| `Core/ImplementGate.cs` | `Decide(...)` -> `Done` / `Fix` / `OutOfRounds` / `NoProgress`; `Fingerprint`; `TimeForAnotherRound`. |
 | `Core/PrBodyParser.cs` | Lists problems in `PR_BODY.md` (headings, criteria count, unchecked criteria without reason). |
 | `Core/ShellPermissions.cs` | Turns `dotnet build X.sln` into `shell(dotnet:*)`. Launchers (`cmd`, `powershell`, `bash`...) keep the exact command. `git` yields nothing. |
 | `Core/ContextBuilder.cs` | `PlanFromSpec`, `PlanFromSubIssue`, `ForFix` (writes `fix.md`). |
@@ -151,6 +151,7 @@ flowchart TD
 | yes | 0 | - | `Done` |
 | any | any | no (last Copilot call failed, too little time, or `fixRoundsUsed >= max`) | `OutOfRounds` |
 | yes | > 0 | yes, but a fix round was already used | `OutOfRounds` (only **one** round for a PR_BODY-only problem) |
+| no | any | yes, a fix round was used and the round ended like the one before (same `Fingerprint`) | `NoProgress` (the PR opens like `OutOfRounds`; the round line says "no progress") |
 | no, or yes with 0 rounds used | > 0 or failing | yes | `Fix` |
 
 `TimeForAnotherRound(left, perCall)` is `left >= perCall * 2`: a round needs Copilot plus checks, each up to the per-call timeout (`ImplementGate.cs:34`).

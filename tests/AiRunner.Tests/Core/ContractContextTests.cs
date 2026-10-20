@@ -9,7 +9,8 @@ public class ContractContextTests
 
     private static GbIssue SubIssue()
     {
-        var body = "Parent: #12\nComponent: demo\n\n### Scope\nDo it.";
+        var body = "Parent: #12\nComponent: demo\n\n### Scope\nDo it.\n\n" +
+                   "### Shared contract (exact names, used by every sub-issue)\nentity Export";
 
         return new GbIssue(21, "#12.1 Task", body, new GbUser("alice"), [], DateTimeOffset.UtcNow, null, "open");
     }
@@ -36,12 +37,23 @@ public class ContractContextTests
     }
 
     [Fact]
+    public void With_a_parent_spec_the_bodys_own_shared_contract_is_left_out()
+    {
+        var plan = ContextBuilder.PlanFromSubIssue(SubIssue(), 12, ParentSpec);
+
+        Assert.DoesNotContain("used by every sub-issue", plan);
+        Assert.DoesNotContain("entity Export", plan);
+        Assert.Contains("Do it.", plan);
+    }
+
+    [Fact]
     public void A_parent_without_a_spec_says_so_and_still_gives_the_binding_paragraph()
     {
         var plan = ContextBuilder.PlanFromSubIssue(SubIssue(), 12, null);
 
         Assert.Contains("None: the parent issue has no SPEC (analysed before this version)", plan);
         Assert.Contains("are binding for every sub-issue", plan);
+        Assert.Contains("entity Export", plan);
     }
 
     [Fact]

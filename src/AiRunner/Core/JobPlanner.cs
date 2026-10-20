@@ -275,15 +275,39 @@ public static class JobPlanner
             return PlanDecision.Skip("out of review scope (review.scope: scoped)");
         }
 
+        var reviewRequest = new JobRequest(JobType.ReviewPullRequest, repo, pull.Number, pull.Head.Sha);
+
+        // A person asks for one more full review with the label; it does not count toward max_reviews.
+        if (IsFullReviewAsked(pull, input.FullReviewSha))
+        {
+            return PlanDecision.Run(reviewRequest, $"full review asked for with the label {Labels.ReviewFull}");
+        }
+
         if (string.Equals(reviewedSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
         {
             return PlanDecision.Skip("head already reviewed");
         }
 
-        return PlanDecision.Run(
-            new JobRequest(JobType.ReviewPullRequest, repo, pull.Number, pull.Head.Sha),
-            reviewedSha is null ? "new PR" : "new head commit");
+        // The count is local state. Without it (ai-runner.db deleted) a PR at the limit gets one more review, which
+        // carries the count on from its comment tag and stores it, so the next head stops here again.
+        var maxReviews = settings.Limits.MaxReviews;
+        if (input.ReviewCount >= maxReviews)
+        {
+            return PlanDecision.Skip(
+                $"review limit {maxReviews} reached (limits.max_reviews); " +
+                $"the label {Labels.ReviewFull} asks for one more");
+        }
+
+        return PlanDecision.Run(reviewRequest, reviewedSha is null ? "new PR" : "new head commit");
     }
+
+    /// <summary>
+    /// The PR carries the label ai-review-full and its head has not had that full review yet (the review job removes
+    /// the label, and the head it stored keeps a label that could not be removed from asking again).
+    /// </summary>
+    public static bool IsFullReviewAsked(GbPull pull, string? fullReviewSha) =>
+        pull.LabelNames().Contains(Labels.ReviewFull) &&
+        !string.Equals(fullReviewSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A human opts a PR in with the trigger label; PRs this runner opened itself are always in.</summary>
     private static bool InScope(GbPull pull, string botLogin, string triggerLabel) =>

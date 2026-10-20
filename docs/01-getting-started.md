@@ -84,6 +84,7 @@ Names are camelCase in YAML (`CamelCaseNamingConvention`, `RunnerConfig.cs:48`).
 | `limits.maxChangedFiles` / `maxDiffLines` | "Still simple?" limits for implement | 15 / 800 |
 | `limits.maxAnalysisRounds` | Analysis replies per issue | 5 |
 | `limits.maxReviewFixes` | Review-fix replies per PR | 5 |
+| `limits.max_reviews` | Automatic AI reviews per PR (first full, later ones only the new commits); the label `ai-review-full` asks for one more | 3 |
 | `implement.maxFixRounds` | Extra Copilot rounds after the runner's own checks fail. Also used by `fix`. | 2 |
 | `review.scope` | `scoped` (labelled + runner-opened PRs) or `all` | `scoped` |
 | `review.skipPaths` | Globs; a PR that changes only these is not reviewed | `[]` |

@@ -46,9 +46,8 @@ defaults:
   # analyze = Workflow 1, breakdown = 1b, implement = 2, review = 3, fix = 3b (the keyword on a PR: Copilot fixes it and
   # pushes a commit when build/test pass; needs commands.build or commands.test of the component)
   workflows: [analyze, review, breakdown, implement, fix]
-  models:
-    analyze: claude-opus-5.5       # strongest reasoning for issue analysis
-    breakdown: claude-opus-5.5     # plan dependencies and component boundaries
+  models:                          # only workflows that run Copilot; the breakdown table comes from the analysis
+    analyze: claude-opus-5.5       # strongest reasoning for issue analysis (and its breakdown)
     implement: claude-sonnet-5.5   # capable coding at a lower cost than Opus
     review: claude-sonnet-5.5      # inspect changes and identify risks
     fix: claude-sonnet-5.5         # apply targeted review fixes
@@ -56,10 +55,13 @@ defaults:
     max_changed_files: 20
     max_diff_lines: 2000
     max_analysis_rounds: 7
-    max_review_fixes: 7     # review fixes per PR; each is 1+ premium requests (fix rounds as in implement)
+    max_review_fixes: 7     # review fixes per PR; each is 1+ Copilot runs (fix rounds as in implement)
+    max_reviews: 3          # automatic reviews per PR (the first is full, later ones only the new commits);
+                            # the label ai-review-full asks for one more full review outside this limit
   implement:
     max_fix_rounds: 5       # after the agent stops, the runner re-runs build/test/lint and checks PR_BODY.md; on a problem it starts
-                            # up to this many extra Copilot runs with fix.md (1 premium request each). 0 = WIP PR at once
+                            # up to this many extra Copilot runs with fix.md. 0 = WIP PR at once; a round that ends with
+                            # the same failing checks as the one before stops the rounds early (no progress)
                             # the review fix (workflow fix) uses the same number of fix rounds
   review:
     scope: scoped           # scoped (default) = PRs labelled with trigger_label + PRs this runner opened from ai/* or feat/issue-*; all = every open PR

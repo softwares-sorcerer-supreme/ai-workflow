@@ -12,9 +12,7 @@ public static class MarkdownSections
     public static string? Get(string markdown, string heading)
     {
         var lines = SplitLines(markdown);
-        var headingIndex = Array.FindIndex(lines, line =>
-            line.TrimStart().StartsWith("### ", StringComparison.Ordinal) &&
-            line.TrimStart()[4..].Trim().StartsWith(heading, StringComparison.OrdinalIgnoreCase));
+        var headingIndex = Array.FindIndex(lines, line => IsHeading(line, heading));
 
         if (headingIndex < 0)
         {
@@ -23,11 +21,40 @@ public static class MarkdownSections
 
         var body = lines
             .Skip(headingIndex + 1)
-            .TakeWhile(line => !line.TrimStart().StartsWith("### ", StringComparison.Ordinal) &&
-                               !line.TrimStart().StartsWith("## ", StringComparison.Ordinal));
+            .TakeWhile(line => !IsSectionEnd(line));
 
         return string.Join("\n", body).Trim();
     }
+
+    /// <summary>
+    /// The text without the section "### {heading}" (heading line and body, up to the next "### " or "## "). Matches
+    /// the heading like <see cref="Get"/>; without such a section the text comes back unchanged.
+    /// </summary>
+    public static string Without(string markdown, string heading)
+    {
+        var lines = SplitLines(markdown);
+        var headingIndex = Array.FindIndex(lines, line => IsHeading(line, heading));
+
+        if (headingIndex < 0)
+        {
+            return markdown;
+        }
+
+        var sectionEnd = Array.FindIndex(lines, headingIndex + 1, IsSectionEnd);
+        var kept = sectionEnd < 0
+            ? lines.Take(headingIndex)
+            : lines.Take(headingIndex).Concat(lines.Skip(sectionEnd));
+
+        return string.Join("\n", kept).TrimEnd();
+    }
+
+    private static bool IsHeading(string line, string heading) =>
+        line.TrimStart().StartsWith("### ", StringComparison.Ordinal) &&
+        line.TrimStart()[4..].Trim().StartsWith(heading, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSectionEnd(string line) =>
+        line.TrimStart().StartsWith("### ", StringComparison.Ordinal) ||
+        line.TrimStart().StartsWith("## ", StringComparison.Ordinal);
 
     private static readonly Regex AnyHeading = new(@"^[ \t]*#{2,4}[ \t]+", RegexOptions.Multiline);
 

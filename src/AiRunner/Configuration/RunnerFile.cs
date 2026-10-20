@@ -50,6 +50,7 @@ internal sealed class LimitsFile
     public int? MaxDiffLines { get; set; }
     public int? MaxAnalysisRounds { get; set; }
     public int? MaxReviewFixes { get; set; }
+    public int? MaxReviews { get; set; }
 }
 
 internal sealed class ImplementFile

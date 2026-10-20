@@ -168,6 +168,7 @@ internal static partial class ConfigResolver
                 settings.Limits.MaxDiffLines = limits.MaxDiffLines ?? settings.Limits.MaxDiffLines;
                 settings.Limits.MaxAnalysisRounds = limits.MaxAnalysisRounds ?? settings.Limits.MaxAnalysisRounds;
                 settings.Limits.MaxReviewFixes = limits.MaxReviewFixes ?? settings.Limits.MaxReviewFixes;
+                settings.Limits.MaxReviews = limits.MaxReviews ?? settings.Limits.MaxReviews;
             }
 
             settings.Implement.MaxFixRounds = layer.Implement?.MaxFixRounds ?? settings.Implement.MaxFixRounds;
@@ -260,11 +261,19 @@ internal static partial class ConfigResolver
                 $"Use: {string.Join(", ", Workflows.All)}");
         }
 
-        foreach (var unknownModel in settings.Models.Keys.Where(name => !Workflows.All.Contains(name)))
+        foreach (var unknownModel in settings.Models.Keys.Where(name => !Workflows.WithModel.Contains(name)))
         {
             throw new InvalidOperationException(
-                $"Project '{project.Name}': models.{unknownModel} is not a workflow. " +
-                $"Use: {string.Join(", ", Workflows.All)}");
+                $"Project '{project.Name}': models.{unknownModel} is not a workflow that runs Copilot " +
+                "(the breakdown table comes from the analysis, so models.analyze picks its model). " +
+                $"Use: {string.Join(", ", Workflows.WithModel)}");
+        }
+
+        if (settings.Limits.MaxReviews < 1)
+        {
+            throw new InvalidOperationException(
+                $"Project '{project.Name}': limits.max_reviews must be 1 or more " +
+                "(to stop reviews, leave review out of workflows).");
         }
 
         if (string.IsNullOrWhiteSpace(settings.TriggerLabel) || string.IsNullOrWhiteSpace(settings.TriggerKeyword))

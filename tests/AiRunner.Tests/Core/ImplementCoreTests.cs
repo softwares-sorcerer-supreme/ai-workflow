@@ -149,6 +149,43 @@ public class ImplementGateTests
     }
 
     [Theory]
+    [InlineData(false, 0, 1, 5, ImplementStep.NoProgress)]   // checks fail the same way as the round before
+    [InlineData(true, 2, 1, 5, ImplementStep.OutOfRounds)]   // checks pass: the one PR_BODY.md round rule says it
+    [InlineData(false, 0, 0, 5, ImplementStep.Fix)]          // round 1 has no round before it
+    [InlineData(false, 0, 5, 5, ImplementStep.OutOfRounds)]  // out of rounds wins
+    public void A_round_that_ends_like_the_one_before_stops_the_rounds(
+        bool checksOk,
+        int prBodyProblems,
+        int fixRoundsUsed,
+        int maxFixRounds,
+        ImplementStep expected)
+    {
+        var progress = new ImplementProgress(checksOk, prBodyProblems, fixRoundsUsed, maxFixRounds, CanRunAgain: true)
+        {
+            IsSameAsLastRound = true,
+        };
+
+        Assert.Equal(expected, ImplementGate.Decide(progress));
+    }
+
+    [Fact]
+    public void A_fingerprint_ignores_times_and_durations_but_not_what_failed()
+    {
+        static string Of(string output) =>
+            ImplementGate.Fingerprint([new CheckFailure("make test", "failed (exit 1)", output)], []);
+
+        var first = Of("2026-10-20T06:18:46Z Failed: 3, Passed: 9, Duration: 2.5 s\nElapsed 00:00:12.34 (450 ms)");
+        var sameRun = Of("2026-10-20T07:01:02Z Failed: 3, Passed: 9, Duration: 3 s\nElapsed 00:00:15.01 (90 ms)");
+        var fewerFailures = Of("2026-10-20T07:01:02Z Failed: 2, Passed: 10, Duration: 3 s\nElapsed 00:00:15 (9 ms)");
+
+        Assert.Equal(first, sameRun);
+        Assert.NotEqual(first, fewerFailures);
+        Assert.NotEqual(
+            ImplementGate.Fingerprint([], ["PR_BODY.md is missing."]),
+            ImplementGate.Fingerprint([], []));
+    }
+
+    [Theory]
     [InlineData(100, 45, true)]
     [InlineData(90, 45, true)]
     [InlineData(89, 45, false)]

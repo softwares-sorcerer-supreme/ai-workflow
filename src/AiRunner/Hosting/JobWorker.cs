@@ -6,8 +6,14 @@ using AiRunner.Jobs;
 
 namespace AiRunner.Hosting;
 
-/// <summary>A job that ended, for the cost row: what ran, for how long, and how it ended.</summary>
-public sealed record FinishedJob(long JobId, JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome);
+/// <summary>
+/// A job that ended, for the cost row: what ran, for how long and how it ended; its run folder holds the usage files
+/// of what Copilot billed.
+/// </summary>
+public sealed record FinishedJob(long JobId, JobRequest Request, JobInfo Info, TimeSpan Elapsed, JobOutcome Outcome)
+{
+    public required JobRun Run { get; init; }
+}
 
 /// <summary>A job that failed and must be reported on its issue or PR.</summary>
 /// <param name="LogFolder">Name of the job's log folder, or null when it has none.</param>
@@ -139,8 +145,11 @@ public sealed class JobWorker(
             var outcome = await job.RunAsync(request, run, timeoutSource.Token);
             if (outcome.Quiet)
             {
-                // e.g. sequencing checks every poll: nothing worth keeping.
+                // e.g. sequencing checks every poll: nothing worth keeping (Record keeps a cost row only if Copilot
+                // billed it).
                 logger.LogDebug("{Request}: {Result} ({Detail})", request, outcome.Result, outcome.Detail);
+                var quiet = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, outcome) { Run = run };
+                Record(quiet);
                 stateStore.DeleteJob(stored.Id);
                 FileSystem.DeleteDirectory(run.Dir);
                 return;
@@ -148,7 +157,7 @@ public sealed class JobWorker(
 
             stateStore.SetJobStatus(stored.Id, JobStatus.Done);
             run.Info($"{request}: {outcome.Result} {outcome.Detail} in {stopwatch.Elapsed.TotalSeconds:F0}s");
-            var finished = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, outcome);
+            var finished = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, outcome) { Run = run };
             Record(finished);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -184,7 +193,7 @@ public sealed class JobWorker(
             }
 
             var failedOutcome = new JobOutcome("failed", message);
-            var failedJob = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, failedOutcome);
+            var failedJob = new FinishedJob(stored.Id, request, job.Info, stopwatch.Elapsed, failedOutcome) { Run = run };
             Record(failedJob);
 
             var failure = new JobFailure(job, request, message, logFolder);
@@ -268,9 +277,19 @@ public sealed class JobWorker(
         }
     }
 
+    /// <summary>
+    /// The cost row and the job result. Copilot bills every run, so a failed job's usage files count like a good
+    /// one's; a quiet job leaves a row only when it ran Copilot (none does today).
+    /// </summary>
     private void Record(FinishedJob finished)
     {
         var (jobId, request, info, elapsed, outcome) = finished;
+        var usage = finished.Run.ReadUsage();
+        if (outcome.Quiet && usage is null)
+        {
+            return;
+        }
+
         var entry = new CostEntry(
             DateTimeOffset.UtcNow,
             request.Repo,
@@ -279,8 +298,8 @@ public sealed class JobWorker(
             elapsed.TotalSeconds,
             outcome.Result,
             outcome.Detail,
-            outcome.CopilotCalls);
-
+            outcome.CopilotCalls,
+            usage);
         costLog.Record(entry);
 
         var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);

@@ -266,6 +266,7 @@ public sealed class AgentSession(
         var rounds = new List<string>();
         string? fixFailure = null;
         string? diffBeforeFix = null;
+        string? previousFingerprint = null;
         List<CheckRun> checks = [];
         string? outputText;
         IReadOnlyList<string> problems;
@@ -290,6 +291,11 @@ public sealed class AgentSession(
                        $"{ChecksSummary(checks)}; " +
                        $"{task.OutputFile} {(problems.Count == 0 ? "complete" : $"{problems.Count} problem(s)")}");
 
+            var failures = checks
+                .Where(check => !check.Result.Ok)
+                .Select(check => new CheckFailure(check.Command, Status(check.Result), check.Result.Tail(3000)))
+                .ToList();
+            var fingerprint = ImplementGate.Fingerprint(failures, problems);
             var timeLeft = ImplementGate.TimeForAnotherRound(run.TimeLeft, timeout);
             var checksOk = checks.All(check => check.Result.Ok);
             var progress = new ImplementProgress(
@@ -297,7 +303,12 @@ public sealed class AgentSession(
                 PrBodyProblems: problems.Count,
                 FixRoundsUsed: round - 1,
                 MaxFixRounds: settings.Implement.MaxFixRounds,
-                CanRunAgain: fixFailure is null && timeLeft);
+                CanRunAgain: fixFailure is null && timeLeft)
+            {
+                IsSameAsLastRound = fingerprint == previousFingerprint,
+            };
+            previousFingerprint = fingerprint;
+
             var step = ImplementGate.Decide(progress);
             if (step != ImplementStep.Fix)
             {
@@ -306,13 +317,17 @@ public sealed class AgentSession(
                     run.Info($"round {round}: too little job time left for another fix round");
                 }
 
+                if (step == ImplementStep.NoProgress)
+                {
+                    // The checks fail exactly as in the round before: another round would likely repeat it.
+                    rounds[^1] += $"; no progress since round {round - 1} (same failing checks), stopped";
+                    run.Info($"round {round}: no progress since round {round - 1}, no more fix rounds");
+                }
+
                 break;
             }
 
             var next = round + 1;
-            var failures = checks.Where(check => !check.Result.Ok)
-                .Select(check => new CheckFailure(check.Command, Status(check.Result), check.Result.Tail(3000)))
-                .ToList();
             var fixInput = new FixRoundInput(
                 Round: next,
                 Failures: failures,

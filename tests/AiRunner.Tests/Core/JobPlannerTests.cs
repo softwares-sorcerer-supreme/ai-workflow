@@ -218,6 +218,31 @@ public class JobPlannerTests
     }
 
     [Fact]
+    public void Reviews_stop_at_max_reviews_and_the_label_asks_for_one_more_full_review()
+    {
+        var pull = Pull();
+        var labelled = Pull(labels: Labels.ReviewFull);
+        var atLimit = new PullPlanInput(AllPrs, TestProjects.Repo, pull, "sha0", BotLogin: "bot")
+        {
+            ReviewCount = AllPrs.Settings.Limits.MaxReviews,
+        };
+        var labelledAtLimit = atLimit with { Pull = labelled };
+        var labelledAndDone = labelledAtLimit with { FullReviewSha = "sha1" };
+
+        var limited = JobPlanner.PlanPull(atLimit);
+        var asked = JobPlanner.PlanPull(labelledAtLimit);
+        var askedSameHead = JobPlanner.PlanPull(labelledAtLimit with { ReviewedSha = "sha1" });
+        var done = JobPlanner.PlanPull(labelledAndDone);
+
+        Assert.Null(limited.Job);
+        Assert.Contains("review limit 3 reached (limits.max_reviews)", limited.Reason);
+        Assert.Equal(JobType.ReviewPullRequest, asked.Job?.Type);
+        Assert.Contains(Labels.ReviewFull, asked.Reason);
+        Assert.NotNull(askedSameHead.Job);
+        Assert.Null(done.Job);
+    }
+
+    [Fact]
     public void Draft_and_skip_ai_are_skipped()
     {
         var draftPull = Pull(draft: true);
@@ -448,6 +473,37 @@ public class ContextBuilderTests
         Assert.True(
             text.IndexOf("## hai [bot]", StringComparison.Ordinal) <
             text.IndexOf("## alice", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Issue_context_keeps_only_the_newest_analysis_and_spec_in_full()
+    {
+        var issue = new GbIssue(7, "Export", "Please export CSV", new GbUser("alice"), [], DateTimeOffset.UtcNow, null);
+        var at = DateTimeOffset.UtcNow;
+
+        GbComment Block(int id, string text, string marker) =>
+            new(id, BotComments.Marker + "\n" + Markers.Wrap(text, marker), new GbUser("hai"), at.AddMinutes(id));
+
+        var comments = new[]
+        {
+            Block(1, "round one text", Markers.Analysis),
+            Block(2, "old spec text", Markers.Spec),
+            new GbComment(3, "Q1: CSV @ai", new GbUser("alice"), at.AddMinutes(3)),
+            Block(4, "round two text", Markers.Analysis),
+            Block(5, "new spec text", Markers.Spec),
+            new GbComment(6, BotComments.Marker + "\nCopilot started", new GbUser("hai"), at.AddMinutes(6)),
+        };
+
+        var text = ContextBuilder.ForIssue(issue, comments, round: 3);
+
+        Assert.DoesNotContain("round one text", text);
+        Assert.DoesNotContain("old spec text", text);
+        Assert.Contains("(AI analysis round 1: replaced by the newest analysis further down)", text);
+        Assert.Contains("(SPEC: replaced by a newer SPEC further down)", text);
+        Assert.Contains("round two text", text);
+        Assert.Contains("new spec text", text);
+        Assert.Contains("Q1: CSV @ai", text);
+        Assert.Contains("Copilot started", text);
     }
 
     [Theory]

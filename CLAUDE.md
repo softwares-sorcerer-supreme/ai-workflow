@@ -22,6 +22,12 @@ component's repo and links the issue with `Issue: owner/repo#n` (never `Closes`)
 (`SequenceSubIssuesJob`, `FinishIssueJob`). The spec's four delivery steps are built (step 4: claims, README layouts and migration note, `onboarding/PROJECT.md`).
 PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
 `ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR.
+Each new head gets one review, up to `limits.max_reviews` (default 3, fix commits count too): the first reads the whole PR,
+a later one only `reviewedSha..head` when that commit is an ancestor (else full again), cut to the PR's files (file list and
+`diff.patch`, `Core/DiffFiles`, so a merge of the base branch is left out), and re-checks the previous findings
+(`### Previous findings`, `P<n>` fixed / still open). The label `ai-review-full` asks for one more full review outside the
+limit; the job removes it and stores `full_sha` first. The history lives in `review_state` (`reviewed_sha`, `review_count`,
+`full_sha`) and in a runner tag after the REVIEW block (`Core/ReviewHistory`, `<!-- ai-runner:review sha=.. n=.. -->`).
 Review fix (workflow `fix`, `FixReviewJob`): a new `@ai` comment on a PR in that same scope (whatever `review.scope` says) makes
 Copilot change the PR's branch; it is planned before the review, and the pushed commit is then reviewed as usual.
 
@@ -40,7 +46,8 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
 
 - Config: `Configuration/ConfigResolver` reads `repos.yml` strictly into the raw `RunnerFile` types and merges them into
   `ProjectConfig` / `ComponentConfig` / `ProjectSettings` (a component's `instructions` list, default `[AGENTS.md]`, is checked there: no `..`, no absolute path); `RunnerConfig.FindProject(repo)` is the lookup. Nothing outside
-  `Configuration/` sees the raw types. A job that needs "the" code component but is not told which uses
+  `Configuration/` sees the raw types. `models:` takes only workflows that run Copilot (`Workflows.WithModel`; `models.breakdown`
+  is an error: the breakdown table comes from the analysis). A job that needs "the" code component but is not told which uses
   `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
 - Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test`, `--close-test` or the loop yourself: they spend Copilot premium requests
@@ -134,7 +141,9 @@ Key mechanics that span several files:
   the checks and `PrBodyParser`; `ImplementGate` decides on a fix round (`fix.md` from `ContextBuilder.ForFix` + `diff.patch`, max
   `implement.maxFixRounds`, each a premium request; at most 1 when only PR_BODY.md is wrong; none when job time is short or a fix
   round's Copilot call failed, which still opens the PR; job time comes from `JobRun.TimeLeft`, set by `JobWorker`). A fix round
-  that changed no code keeps the previous checks. Only a round-1 Copilot failure fails the job. Logs per round:
+  that changed no code keeps the previous checks. While checks fail, a round that ends like the one before (`ImplementGate.Fingerprint`: same
+  failing checks with the same output, times and durations blanked, same output-file problems) stops the rounds
+  (`ImplementStep.NoProgress`, the round line says "no progress"). Only a round-1 Copilot failure fails the job. Logs per round:
   `round-N-copilot-*`, `round-N-transcript.md` (`--share`), `round-N-check-M.txt`, `fix-N.md` (input of round N).
   The loop lives in `Jobs/AgentSession`, and `FixReviewJob` reuses all of it: same agent (`implement-issue`, its "Review fix"
   section), same PR_BODY.md and `PrBodyParser`; only plan.md differs (the review + new comments, `ContextBuilder.PlanForReviewFix`;
@@ -158,11 +167,12 @@ Key mechanics that span several files:
   `| Step | Component | File | Pattern from | Change |` (`SpecParser`; `Pattern from` = the existing file to copy, `-` only when none exists), the SPEC contract tables `### API changes` (7 cells: Method, Path, Query / paging,
   Request, Response, Errors, Auth) and `### UI changes` (5 cells: Route, Page / component, Copy from, Shared components, States), each a table or `None`
   (`SpecParser.Check`; the **contract**, binding for every sub-issue: `ContextBuilder.PlanFromSubIssue` copies the parent's whole SPEC into the
-  plan of a sub-issue, and `JobSupport.LinkedIssueAsync` does the same for its PR), the 6-column breakdown table
+  plan of a sub-issue and then leaves out the body's own `Shared contract` summary, and `JobSupport.LinkedIssueAsync` does the same for its PR), the 6-column breakdown table
   `| # | Component | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
   `AnalysisParser`, `SpecParser` and `BreakdownParser` take the project's code component names; a name outside them fails the job.
   The analysis `### Questions` section is free text for the runner (no parser reads it): three plain-line groups (Behaviour, Technical, Other),
-  one global `Q<n>` numbering, no cap. UI work is guided by the `ui-checklist` skill and the `## UI conventions` section of a repo's AGENTS.md
+  one global `Q<n>` numbering, no cap; the analysis context.md shows only the newest ANALYSIS and SPEC in full, older ones are
+  one-line notes (`ContextBuilder.ForIssue`), so open questions must be carried into each new analysis. UI work is guided by the `ui-checklist` skill and the `## UI conventions` section of a repo's AGENTS.md
   (a `convention` finding in the review); no runner logic depends on them.
   Changing a template means changing its parser, the agent file in `agents/`, and `tests/AiRunner.Tests/Samples.cs` together.
 
@@ -184,9 +194,13 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   `SubIssueSequencer.SlotPulls` / `FinalPull`, the same helpers `FinishIssueJob` and the sequencer use.
 
 - **Cost.** `JobOutcome.CopilotCalls` (analyze/review 1, implement/fix `Rounds.Count`, breakdown and routine jobs 0, a failed job
-  null) is written by `JobWorker` to `cost_log.copilot_calls`, `jobs.copilot_calls` and the last column of `cost.csv`; old rows are
+  null) is written by `JobWorker` to `cost_log.copilot_calls`, `jobs.copilot_calls` and `cost.csv`; old rows are
   null and show as "-". `Core/CostReport` groups by local day, project or issue (a sub-issue rolls up into its parent, a review/fix job
   into the issue its PR links); `GET /api/cost` only serves it.
+  Copilot bills AI credits by tokens: `JobSupport.RunCopilotAsync` asks every run for `<logName>-usage.json` in the job's log folder
+  (`--usage-output-file`, only when `copilot --help` lists it), and `JobWorker` adds up all of them (`JobRun.ReadUsage`,
+  `Core/CopilotUsage`; failed jobs too) into `cost_log` / `cost.csv` columns `nano_aiu`, `input_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `output_tokens` (null without usage). Per-model and per-agent numbers stay in the JSON files only.
 
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a

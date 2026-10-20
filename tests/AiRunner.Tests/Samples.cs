@@ -163,7 +163,11 @@ public static class Samples
         (spec is null ? "" : Markers.Wrap(spec, Markers.Spec) + "\n") +
         "Done.\n";
 
-    public static string Review(string verdict = "needs changes", string severity = "bug") => $"""
+    /// <param name="previous">Body of `### Previous findings`: None on a full review, a table on an incremental one.</param>
+    public static string Review(
+        string verdict = "needs changes",
+        string severity = "bug",
+        string previous = "None") => $"""
         ## AI review - commit abc1234
 
         **Verdict:** {verdict}
@@ -176,6 +180,9 @@ public static class Samples
         | --- | --- | --- | --- | --- |
         | 1 | {severity} | `a.cs:4` | Null check missing | Add a guard |
         | 2 | style | `a.cs:9` | Long method | Split it |
+
+        ### Previous findings
+        {previous}
 
         ### Spec check
         None

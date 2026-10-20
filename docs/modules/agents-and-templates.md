@@ -84,7 +84,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | `templates/analysis.md` | `grill-issue` | `AnalysisParser`, `BreakdownParser` | `**Status:**` in {`questions-open`, `ready`}; `**Complexity:**` in {`simple`, `complex`}; breakdown table has 5 columns, rows 1..N, `Depends on` earlier rows only, `Shared contract:` line |
 | `templates/spec.md` | `grill-issue` (when ready) | none; only the markers are required (`RequireBlock`) | block exists |
-| `templates/review.md` | `pr-review` | `ReviewParser` | `Verdict` in 3 words; every findings row has Severity in {`bug`, `risk`, `style`} |
+| `templates/review.md` | `pr-review` | `ReviewParser` | `Verdict` in 3 words; every findings row has Severity in {`bug`, `risk`, `convention`, `style`}; `### Previous findings` is required (`None`, or rows with Status in {`fixed`, `still open`}) |
 | `templates/pr-body.md` | `implement-issue` | `PrBodyParser` | 4 headings; criteria lines `- [x]`/`- [ ]`; count equals plan.md criteria; unchecked need ` - reason` |
 | `templates/review-reply.md` | `fix-review` | `ReviewReplyParser` | 3 headings; at least one `- ` line under `Replies` |
 
@@ -101,8 +101,8 @@ Two different failure styles:
 
 | File | Built by | Content |
 | --- | --- | --- |
-| `context.md` | `ContextBuilder.ForIssue` / `ForPull` | Issue or PR with all comments, marked as data |
-| `plan.md` | `PlanFromSpec`, `PlanFromSubIssue`, `PlanForReviewFix` | The task description (SPEC or sub-issue scope + shared contract) |
+| `context.md` | `ContextBuilder.ForIssue` / `ForPull` + `ReviewScope` | Issue or PR with all comments, marked as data (an issue shows only its newest ANALYSIS and SPEC in full; a review says full or incremental and gets the previous review) |
+| `plan.md` | `PlanFromSpec`, `PlanFromSubIssue`, `PlanForReviewFix` | The task description (SPEC, or sub-issue scope + the parent SPEC; the body's own shared contract only when the parent has no SPEC) |
 | `review-fix.md` | `ContextBuilder.ForReviewFix` | Latest AI review, last fix reply, comments since that reply |
 | `fix.md` | `ContextBuilder.ForFix` | Failing check output (tail) and output-file problems |
 | `diff.patch` | `GitClient.DiffAsync` or `StageAndDiffAsync` | PR diff (review) or changes so far (fix round) |

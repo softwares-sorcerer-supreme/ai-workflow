@@ -48,8 +48,12 @@ public sealed class JobLoader(
     public async Task<PullSnapshot> PlanPullAsync(PullLocation location, GbPull pull, CancellationToken cancellationToken)
     {
         var (project, repo) = location;
-        var reviewed = stateStore.GetReview(repo, pull.Number)?.HeadSha;
-        var planInput = new PullPlanInput(project, repo, pull, reviewed, identity.Login);
+        var review = stateStore.GetReview(repo, pull.Number);
+        var planInput = new PullPlanInput(project, repo, pull, review?.HeadSha, identity.Login)
+        {
+            ReviewCount = review?.ReviewCount ?? 0,
+            FullReviewSha = review?.FullReviewSha,
+        };
         var decision = JobPlanner.PlanPull(planInput);
 
         if (!decision.NeedsComments)

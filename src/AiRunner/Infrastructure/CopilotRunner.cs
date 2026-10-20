@@ -11,6 +11,10 @@ public sealed record CopilotRequest(string WorkDir, string Prompt, string? Agent
     public string? TranscriptFile { get; init; }
     /// <summary>Images and PDFs attached to the prompt (copilot --attachment). Only set when the CLI supports the flag.</summary>
     public IReadOnlyList<string> Attachments { get; init; } = [];
+    /// <summary>
+    /// Where the CLI writes the tokens and credits of the run (--usage-output-file). Only used when the CLI has the flag.
+    /// </summary>
+    public string? UsageFile { get; init; }
 }
 
 public interface ICopilotRunner
@@ -34,12 +38,22 @@ public sealed class CopilotRunner(
     IProcessRunner processRunner,
     ILogger<CopilotRunner> logger) : ICopilotRunner
 {
-    private bool? _canAttachFiles;
+    private string? _helpText;
 
-    /// <summary>"copilot --help" is free (no premium request) and is asked once per run of the runner.</summary>
     public async Task<bool> CanAttachFilesAsync(string workDir, CancellationToken cancellationToken)
     {
-        if (_canAttachFiles is { } known)
+        var help = await HelpTextAsync(workDir, cancellationToken);
+
+        return help.Contains("--attachment", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// "copilot --help" is free (no credits) and is asked once per run of the runner. A CLI that cannot answer gives
+    /// an empty text, so no optional flag is used.
+    /// </summary>
+    private async Task<string> HelpTextAsync(string workDir, CancellationToken cancellationToken)
+    {
+        if (_helpText is { } known)
         {
             return known;
         }
@@ -48,10 +62,10 @@ public sealed class CopilotRunner(
         var help = await processRunner.RunAsync(
             new ProcessSpec(config.Copilot.Command, ["--help"], workDir, helpTimeout),
             cancellationToken);
-        var hasFlag = help.Ok && help.StdOut.Contains("--attachment", StringComparison.Ordinal);
-        _canAttachFiles = hasFlag;
+        var helpText = help.Ok ? help.StdOut : "";
+        _helpText = helpText;
 
-        return hasFlag;
+        return helpText;
     }
 
     /// <summary>"copilot --version" is free (no premium request); the dashboard asks it once at start.</summary>
@@ -102,6 +116,16 @@ public sealed class CopilotRunner(
             args.AddRange(["--attachment", attachment]);
         }
 
+        // An older CLI stops on a flag it does not know, so the usage file is asked for only when --help lists it.
+        if (request.UsageFile is not null)
+        {
+            var help = await HelpTextAsync(request.WorkDir, cancellationToken);
+            if (help.Contains("--usage-output-file", StringComparison.Ordinal))
+            {
+                args.AddRange(["--usage-output-file", request.UsageFile]);
+            }
+        }
+
         args.AddRange(config.Copilot.ExtraArgs);
 
         logger.LogInformation(
@@ -124,7 +148,7 @@ public sealed class CopilotRunner(
     }
 
     /// <summary>
-    /// True when the output looks like the seat ran out of premium requests. The words are a
+    /// True when the output looks like the seat ran out of premium requests (or AI credits). The words are a
     /// guess from the CLI messages; when in doubt the job still fails, only the message differs.
     /// </summary>
     public static bool LooksLikeQuotaError(ProcessResult result)

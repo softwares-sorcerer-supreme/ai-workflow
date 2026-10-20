@@ -16,6 +16,13 @@
 
 (Severity: bug = wrong behaviour; risk = security, performance, data loss, missing error handling; convention = the change differs from the existing code around it in naming, file or folder layout, structure, error handling, logging, dependency injection, data access or test style; style = other naming or duplication points. A bug, risk or convention finding means the Verdict is needs changes. Max 10 rows; more style points are summarised in one line under the table. No findings = write None instead of the table.)
 
+### Previous findings
+(Only when context.md says this is an incremental review: every finding of the previous AI review in context.md, once, with its old number as P<n>. Status is fixed or still open. Otherwise None.)
+| # | Status | Where | Problem |
+| --- | --- | --- | --- |
+| P1 | fixed | `path/to/file:42` | <the old problem, one line> |
+| P2 | still open | `path/to/file:80` | ... |
+
 ### Spec check
 (Only for branches ai/issue-*; otherwise None.)
 - [ ] Follows the technical plan in the SPEC, and each file follows its `Pattern from` file

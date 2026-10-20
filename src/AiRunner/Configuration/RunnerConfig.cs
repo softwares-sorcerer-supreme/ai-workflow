@@ -110,6 +110,9 @@ public static class Workflows
     public const string Fix = "fix";
 
     public static readonly string[] All = [Analyze, Breakdown, Implement, Review, Fix];
+
+    /// <summary>The workflows that run Copilot, so the only keys models: accepts (the breakdown only reads the analysis).</summary>
+    public static readonly string[] WithModel = [Analyze, Implement, Review, Fix];
 }
 
 public sealed class GitBucketConfig
