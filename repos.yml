@@ -31,7 +31,7 @@ attachments:                # files people attach to issues, comments and PRs (l
   skip_extensions: [.exe, .dll, .msi, .bat, .cmd, .ps1, .sh, .com, .scr, .jar, .vbs]   # never downloaded
 
 dashboard:                  # local read-only status page; build it once with ./build-dashboard.ps1
-  enabled: false            # only the polling loop serves it (never --once or --dry-run)
+  enabled: true            # only the polling loop serves it (never --once or --dry-run)
   port: 5180                # http://localhost:5180/, 127.0.0.1 only
 
 git:                        # author of the commits the runner makes in Workflow 2
