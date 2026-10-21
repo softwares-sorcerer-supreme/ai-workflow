@@ -28,7 +28,7 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
     /// The runtime controls, shared with the runner's poller and worker; the default controls nothing (the OpenAPI
     /// export runs no runner). This is the web app's only way to act: it holds no token and no code-host client.
     /// </summary>
-    public RunnerCommands Commands { get; init; } = new(Status);
+    public RunnerCommands Commands { get; init; } = new();
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -68,7 +68,8 @@ public static class DashboardApp
 {
     private const string IndexFile = "index.html";
 
-    private static readonly string[] AllowedHosts = ["localhost", "127.0.0.1"];
+    /// <summary>The Host names the host filter accepts; the write guard builds the allowed origins from them.</summary>
+    internal static readonly string[] AllowedHosts = ["localhost", "127.0.0.1"];
 
     public static WebApplicationBuilder CreateBuilder(DashboardAppOptions options)
     {
@@ -111,6 +112,7 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Commands);
         builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();
+        builder.Services.AddSingleton<HealthReader>();
         builder.Services.AddSingleton<OverviewReader>();
         builder.Services.AddSingleton<IssueBoardReader>();
         builder.Services.AddSingleton<IssueReader>();
@@ -125,7 +127,6 @@ public static class DashboardApp
         var indexFile = Path.Combine(options.WebRoot, IndexFile);
         var isUiBuilt = File.Exists(indexFile);
 
-        app.Use(RejectOtherMethodsAsync);
         app.UseHostFiltering();
 
         // Static files run before routing: once a fallback endpoint is chosen, the static file middleware steps aside.
@@ -141,8 +142,8 @@ public static class DashboardApp
         app.UseRouting();
 
         // After routing (the endpoint is known), before the endpoint binds its parameters.
-        var port = options.Config.Dashboard.Port;
-        app.Use((context, next) => GuardWritesAsync(context, next, port));
+        var guard = new WriteGuard(options.Config.Dashboard.Port);
+        app.Use((context, next) => GuardWritesAsync(context, next, guard));
 
         app.MapOpenApi();
         app.MapDashboardApi();
@@ -162,27 +163,10 @@ public static class DashboardApp
     }
 
     /// <summary>
-    /// Only GET and the methods the write routes use (POST today) get past this; anything else is a 405 at once.
-    /// A write route with another method adds it here.
+    /// The one method rule: a non-GET request must have reached a write route (else 405: an unmapped method, an
+    /// unknown /api route or a UI route) and must pass the write guard (else 403).
     /// </summary>
-    private static async Task RejectOtherMethodsAsync(HttpContext context, RequestDelegate next)
-    {
-        var method = context.Request.Method;
-        var isKnown = HttpMethods.IsGet(method) || HttpMethods.IsPost(method);
-        if (!isKnown)
-        {
-            RejectMethod(context);
-            return;
-        }
-
-        await next(context);
-    }
-
-    /// <summary>
-    /// A non-GET request must have reached a write route (else 405: an unmapped method, an unknown /api route or a
-    /// UI route) and must pass the write guard (else 403).
-    /// </summary>
-    private static async Task GuardWritesAsync(HttpContext context, RequestDelegate next, int port)
+    private static async Task GuardWritesAsync(HttpContext context, RequestDelegate next, WriteGuard guard)
     {
         if (HttpMethods.IsGet(context.Request.Method))
         {
@@ -193,11 +177,12 @@ public static class DashboardApp
         var endpoint = context.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<WriteRoute>() is null)
         {
-            RejectMethod(context);
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            context.Response.Headers.Allow = HttpMethods.Get;
             return;
         }
 
-        var refusal = WriteGuard.WhyRefused(context.Request, port);
+        var refusal = guard.WhyRefused(context.Request);
         if (refusal is not null)
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -206,12 +191,6 @@ public static class DashboardApp
         }
 
         await next(context);
-    }
-
-    private static void RejectMethod(HttpContext context)
-    {
-        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-        context.Response.Headers.Allow = HttpMethods.Get;
     }
 
     private const string NotBuiltPage = """

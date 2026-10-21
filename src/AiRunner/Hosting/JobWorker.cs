@@ -101,9 +101,9 @@ public sealed class JobWorker(
         run.Deadline = DateTimeOffset.UtcNow + timeout;
         timeoutSource.CancelAfter(timeout);
 
-        // Declared after the source, so it is disposed first: a cancel from the dashboard never meets a disposed source.
-        // It is also released as soon as the job's own run is over (below): a cancel after that has nothing to stop.
-        using var runningHandle = commands.Track(stored.Id, timeoutSource);
+        // The dashboard may cancel from here until the run is over (claim and job), through the timeout source.
+        commands.RunStarted(stored.Id, timeoutSource);
+        var isCancelled = false;
 
         // Claims (claim_enabled): a normal job claims its issue or PR up front, a routine one just before its first
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
@@ -131,38 +131,38 @@ public sealed class JobWorker(
 
         try
         {
-            if (claims.IsEnabled(request.Repo))
-            {
-                if (job.Info.Routine)
-                {
-                    run.Claimer = async token =>
-                    {
-                        isClaimHeld = isClaimHeld || await TryClaimAsync(token);
-
-                        return isClaimHeld;
-                    };
-                }
-                else
-                {
-                    isClaimHeld = await TryClaimAsync(timeoutSource.Token);
-                    if (!isClaimHeld)
-                    {
-                        logger.LogDebug("{Request}: claimed by another runner", request);
-                        stateStore.DeleteJob(stored.Id);
-                        FileSystem.DeleteDirectory(run.Dir);
-                        return;
-                    }
-                }
-            }
-
             JobOutcome outcome;
             try
             {
+                if (claims.IsEnabled(request.Repo))
+                {
+                    if (job.Info.Routine)
+                    {
+                        run.Claimer = async token =>
+                        {
+                            isClaimHeld = isClaimHeld || await TryClaimAsync(token);
+
+                            return isClaimHeld;
+                        };
+                    }
+                    else
+                    {
+                        isClaimHeld = await TryClaimAsync(timeoutSource.Token);
+                        if (!isClaimHeld)
+                        {
+                            logger.LogDebug("{Request}: claimed by another runner", request);
+                            stateStore.DeleteJob(stored.Id);
+                            FileSystem.DeleteDirectory(run.Dir);
+                            return;
+                        }
+                    }
+                }
+
                 outcome = await job.RunAsync(request, run, timeoutSource.Token);
             }
             finally
             {
-                runningHandle.Dispose();
+                isCancelled = commands.RunEnded(stored.Id);
             }
 
             if (outcome.Quiet)
@@ -193,7 +193,7 @@ public sealed class JobWorker(
             {
                 JobFailedException => exception.Message,
                 // A cancel from the dashboard cancels the same source, so it takes the timeout path.
-                OperationCanceledException when timeoutSource.IsCancellationRequested && runningHandle.IsCancelled =>
+                OperationCanceledException when timeoutSource.IsCancellationRequested && isCancelled =>
                     CancelledMessage,
                 OperationCanceledException when timeoutSource.IsCancellationRequested =>
                     $"The job did not finish within {job.Info.Timeout.TotalMinutes:F0} minutes.",

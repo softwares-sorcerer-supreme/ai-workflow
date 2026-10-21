@@ -56,10 +56,10 @@ public sealed class RuntimeControlTests : IDisposable
 
         var drain = worker.DrainAsync(default);
         await job.Started.WaitAsync(TestTimeout);
-        var result = _kit.Commands.Cancel(queued.Id);
+        var isCancelled = _kit.Commands.TryCancel(queued.Id);
         await drain.WaitAsync(TestTimeout);
 
-        Assert.Equal(CancelResult.Cancelled, result);
+        Assert.True(isCancelled);
         Assert.Contains(Labels.Failed, _kit.CodeHost.LabelsOf(7));
         var failureComment = _kit.CodeHost.CommentsOf(7)
             .Single(comment => (comment.Body ?? "").Contains("Issue analysis failed", StringComparison.Ordinal));
@@ -90,7 +90,7 @@ public sealed class RuntimeControlTests : IDisposable
 
         var drain = worker.DrainAsync(default);
         await job.Started.WaitAsync(TestTimeout);
-        _kit.Commands.Cancel(queued.Id);
+        _kit.Commands.TryCancel(queued.Id);
         await drain.WaitAsync(TestTimeout);
 
         Assert.True(job.HasFailed);
@@ -102,14 +102,14 @@ public sealed class RuntimeControlTests : IDisposable
     public void Only_the_running_job_can_be_cancelled()
     {
         using var source = new CancellationTokenSource();
-        var handle = _kit.Commands.Track(3, source);
+        _kit.Commands.RunStarted(3, source);
 
-        Assert.Equal(CancelResult.NotRunning, _kit.Commands.Cancel(4));
+        Assert.False(_kit.Commands.TryCancel(4));
         Assert.False(source.IsCancellationRequested);
 
-        handle.Dispose();
+        Assert.False(_kit.Commands.RunEnded(3));
 
-        Assert.Equal(CancelResult.NotRunning, _kit.Commands.Cancel(3));
+        Assert.False(_kit.Commands.TryCancel(3));
         Assert.False(source.IsCancellationRequested);
     }
 
@@ -134,21 +134,14 @@ public sealed class RuntimeControlTests : IDisposable
 
         Assert.False(hasRun.Task.IsCompleted);
         Assert.Single(Pending());
-        Assert.True(_kit.Status.Snapshot().IsPaused);
+        Assert.True(_kit.Commands.IsPaused);
 
         _kit.Commands.Resume();
         await hasRun.Task.WaitAsync(TestTimeout);
 
-        Assert.False(_kit.Status.Snapshot().IsPaused);
+        Assert.False(_kit.Commands.IsPaused);
         await stop.CancelAsync();
         await worker.StopAsync(default);
-    }
-
-    private sealed class StubJob(Func<Task<JobOutcome>> run) : IJob
-    {
-        public JobType Type => JobType.AnalyzeIssue;
-        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
-        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) => run();
     }
 
     [Fact]
@@ -204,12 +197,12 @@ public sealed class RuntimeControlTests : IDisposable
     [Fact]
     public async Task A_cancel_after_the_job_has_run_is_refused_while_its_failure_is_reported()
     {
-        var job = new FailingJob();
+        var job = new StubJob(() => throw new JobFailedException("no ANALYSIS block"));
         var (worker, queue, _) = _kit.CreateWorker(job);
         var request = _kit.Request(JobType.AnalyzeIssue, 7);
         queue.Enqueue(request);
         var queued = Assert.Single(Pending());
-        CancelResult? lateCancel = null;
+        bool? lateCancel = null;
         _kit.CodeHost.OnCommentAdded = number =>
         {
             // The claim comment comes before the run (a cancel then is fine); the failure comment after it.
@@ -217,22 +210,14 @@ public sealed class RuntimeControlTests : IDisposable
                 .Any(comment => (comment.Body ?? "").Contains("no ANALYSIS block", StringComparison.Ordinal));
             if (isFailureReport)
             {
-                lateCancel ??= _kit.Commands.Cancel(queued.Id);
+                lateCancel ??= _kit.Commands.TryCancel(queued.Id);
             }
         };
 
         await worker.DrainAsync(default);
 
-        Assert.Equal(CancelResult.NotRunning, lateCancel);
+        Assert.False(lateCancel);
         Assert.Contains(_kit.CodeHost.CommentsOf(7), comment => (comment.Body ?? "").Contains("no ANALYSIS block"));
-    }
-
-    private sealed class FailingJob : IJob
-    {
-        public JobType Type => JobType.AnalyzeIssue;
-        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
-        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) =>
-            throw new JobFailedException("no ANALYSIS block");
     }
 
     [Fact]
@@ -243,8 +228,8 @@ public sealed class RuntimeControlTests : IDisposable
         _kit.Commands.WakePoller();
 
         await _kit.Commands.WaitForWakeAsync(default).WaitAsync(TestTimeout);
+        // A waiting item completes a read at once, so a read that is not complete now found none.
         var second = _kit.Commands.WaitForWakeAsync(default);
-        await Task.Delay(100);
 
         Assert.False(second.IsCompleted);
     }

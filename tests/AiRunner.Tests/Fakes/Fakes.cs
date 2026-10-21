@@ -344,7 +344,7 @@ public sealed class JobTestKit : IDisposable
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
         Status = new RunnerStatus("test-runner", "repos.yml", Time);
-        Commands = new RunnerCommands(Status);
+        Commands = new RunnerCommands();
     }
 
     /// <summary>The dashboard's runtime controls, shared by the kit's worker and poller.</summary>

@@ -199,11 +199,10 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
 
 - **Writes** are a security boundary: any page the user opens can send a request to `127.0.0.1`. Reads are GET; a write
   route is mapped in the `writes` group of `MapDashboardApi` (metadata `WriteRoute`), and any other method or route is 405.
-  `DashboardApp.GuardWritesAsync` runs `Web/WriteGuard` after routing and before parameter binding (so not as an endpoint
-  filter): header `X-AiRunner-Request: 1`, `Content-Type: application/json`, an `Origin` (when sent) equal to
-  `http://localhost:<port>` or `http://127.0.0.1:<port>`, a loopback caller (the spec's "writes only while Kestrel listens on
-  loopback", checked per request); else 403. Order: method gate (405), host filter
-  (400), routing, guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
+  `DashboardApp.GuardWritesAsync` is the one method rule (405) and runs `Web/WriteGuard` after routing and before parameter
+  binding (so not as an endpoint filter): header `X-AiRunner-Request: 1`, a JSON `Content-Type`, an `Origin` (when sent)
+  equal to `http://<AllowedHosts>:<port>`, a loopback caller (the spec's "writes only while Kestrel listens on loopback",
+  checked per request); else 403. Order: host filter (400), routing, method rule (405), guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
   The web app gets no token and no code-host client: its only way to act is `Hosting/RunnerCommands`, the same instance the
   poller and worker use (registered in both containers, like `RunnerStatus`). Every new write route gets a guard test.
 - **Runtime controls** (in memory, a restart resumes): `POST /api/runner/poll` wakes the poller (a wake during a poll gives

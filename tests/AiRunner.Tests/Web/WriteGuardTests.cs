@@ -31,7 +31,7 @@ public sealed class WriteGuardTests : IAsyncDisposable
     public WriteGuardTests()
     {
         _status = new RunnerStatus("laptop-1", "repos.yml", _time);
-        _commands = new RunnerCommands(_status);
+        _commands = new RunnerCommands();
     }
 
     public async ValueTask DisposeAsync()
@@ -298,7 +298,7 @@ public sealed class WriteGuardTests : IAsyncDisposable
     public async Task Cancelling_the_running_job_cancels_its_token()
     {
         using var source = new CancellationTokenSource();
-        using var handle = _commands.Track(12, source);
+        _commands.RunStarted(12, source);
         var client = await StartAsync();
         using var request = Write("api/jobs/12/cancel");
 
@@ -306,6 +306,6 @@ public sealed class WriteGuardTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.True(source.IsCancellationRequested);
-        Assert.True(handle.IsCancelled);
+        Assert.True(_commands.RunEnded(12));
     }
 }

@@ -13,13 +13,6 @@ public sealed class JobWorkerTests : IDisposable
 
     public void Dispose() => _kit.Dispose();
 
-    private sealed class StubJob(Func<Task<JobOutcome>> run, JobInfo? info = null) : IJob
-    {
-        public JobType Type => JobType.AnalyzeIssue;
-        public JobInfo Info => info ?? new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
-        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) => run();
-    }
-
     private async Task<string> RunAsync(Func<Task<JobOutcome>> job)
     {
         var (worker, queue, logs) = _kit.CreateWorker(new StubJob(job));

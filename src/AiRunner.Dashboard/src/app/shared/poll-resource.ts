@@ -118,10 +118,11 @@ export function pollResource<T>(
 }
 
 /**
- * Short text for a failed call. Status 0 means the browser got no answer at all: the runner is down. A 400 carries
- * the API's own sentence (`ApiError.message`), which says more than the status.
+ * Short text for a failed call. Status 0 means the browser got no answer at all: the runner is down. A 400 (or the
+ * 403/409 of a write) carries the API's own sentence (`ApiError.message`), which says more than the status. Without
+ * either, `fallback` (a write's plain sentence) is used when given, else the status or the error text.
  */
-export function describeError(failure: unknown): string {
+export function describeError(failure: unknown, fallback?: string): string {
   if (failure instanceof HttpErrorResponse) {
     if (failure.status === 0) {
       return 'The runner is not reachable.';
@@ -131,7 +132,13 @@ export function describeError(failure: unknown): string {
     if (typeof apiMessage === 'string' && apiMessage.length > 0) {
       return apiMessage;
     }
+  }
 
+  if (fallback !== undefined) {
+    return fallback;
+  }
+
+  if (failure instanceof HttpErrorResponse) {
     return `The runner answered ${failure.status} ${failure.statusText}`.trim();
   }
 

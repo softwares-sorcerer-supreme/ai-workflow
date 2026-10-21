@@ -118,8 +118,8 @@ public static class DashboardApi
 
     private static Results<Accepted<CommandResponse>, Conflict<ApiError>> CancelJob(long id, RunnerCommands commands)
     {
-        var result = commands.Cancel(id);
-        if (result == CancelResult.NotRunning)
+        var isCancelled = commands.TryCancel(id);
+        if (!isCancelled)
         {
             return TypedResults.Conflict(new ApiError($"Job {id} is not running. Pause the runner to hold queued jobs."));
         }
@@ -421,11 +421,5 @@ public static class DashboardApi
     private static readonly string[] JobStatuses =
         [JobStatus.Pending, JobStatus.Running, JobStatus.Done, JobStatus.Failed];
 
-    private static HealthResponse GetHealth(RunnerStatus status, RunnerConfig config, TimeProvider time)
-    {
-        var snapshot = status.Snapshot();
-        var now = time.GetUtcNow();
-
-        return HealthResponse.From(snapshot, config, now);
-    }
+    private static HealthResponse GetHealth(HealthReader health) => health.Read();
 }

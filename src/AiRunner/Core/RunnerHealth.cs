@@ -4,17 +4,15 @@ namespace AiRunner.Core;
 /// <param name="LastPollEndedAt">End of the last finished poll, or null before the first one.</param>
 /// <param name="FailingProjects">Projects whose latest poll failed.</param>
 /// <param name="PollRunningSince">When the poll that is running now started, or null when none is running.</param>
+/// <param name="IsPaused">The worker is paused from the dashboard (it takes no new job; polls go on).</param>
 public sealed record HealthInput(
     DateTimeOffset Now,
     DateTimeOffset StartedAt,
     DateTimeOffset? LastPollEndedAt,
     TimeSpan PollInterval,
     int FailingProjects,
-    DateTimeOffset? PollRunningSince = null)
-{
-    /// <summary>The worker is paused from the dashboard (it takes no new job; polls go on).</summary>
-    public bool IsPaused { get; init; }
-}
+    DateTimeOffset? PollRunningSince = null,
+    bool IsPaused = false);
 
 /// <summary>A stable code for the UI to style by, and the text to show.</summary>
 public sealed record HealthState(string Code, string Label);

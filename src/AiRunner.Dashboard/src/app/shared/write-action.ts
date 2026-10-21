@@ -1,7 +1,7 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, inject, signal } from '@angular/core';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { CommandResponse } from '../api/models/command-response';
+import { describeError } from './poll-resource';
 
 /** How long the server's answer to a write stays on screen. */
 export const WRITE_MESSAGE_MS = 6000;
@@ -47,7 +47,7 @@ export function writeAction(options: WriteActionOptions): WriteAction {
       message = answer.message;
       isAccepted = true;
     } catch (failure) {
-      message = writeFailureText(failure, options.failure);
+      message = describeError(failure, options.failure);
       isAccepted = false;
     } finally {
       isBusy.set(false);
@@ -60,25 +60,4 @@ export function writeAction(options: WriteActionOptions): WriteAction {
   };
 
   return { isBusy: isBusy.asReadonly(), run };
-}
-
-/**
- * The text of a failed write: the runner's own sentence (`ApiError.message`) when it sent one, "not reachable" when
- * no answer came at all, else the plain fallback. Never a status code.
- */
-export function writeFailureText(failure: unknown, fallback: string): string {
-  if (!(failure instanceof HttpErrorResponse)) {
-    return fallback;
-  }
-
-  if (failure.status === 0) {
-    return 'The runner is not reachable.';
-  }
-
-  const apiMessage = (failure.error as { message?: unknown } | null)?.message;
-  if (typeof apiMessage === 'string' && apiMessage.length > 0) {
-    return apiMessage;
-  }
-
-  return fallback;
 }

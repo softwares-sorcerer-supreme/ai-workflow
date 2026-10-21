@@ -4,6 +4,21 @@ using AiRunner.Hosting;
 
 namespace AiRunner.Web;
 
+/// <summary>
+/// Builds the health from the runner's status and the pause, which <see cref="RunnerCommands"/> owns (the worker
+/// obeys it there; the status only reports).
+/// </summary>
+public sealed class HealthReader(RunnerStatus status, RunnerCommands commands, RunnerConfig config, TimeProvider time)
+{
+    public HealthResponse Read()
+    {
+        var snapshot = status.Snapshot() with { IsPaused = commands.IsPaused };
+        var now = time.GetUtcNow();
+
+        return HealthResponse.From(snapshot, config, now);
+    }
+}
+
 /// <summary>The worker: <c>idle</c> or <c>busy</c> (the running job itself is shown from the overview).</summary>
 public sealed record WorkerHealth(string State, string StateLabel, DateTimeOffset? Since);
 
@@ -42,10 +57,8 @@ public sealed record HealthResponse(
             status.LastPollEndedAt,
             pollInterval,
             status.Errors.Count,
-            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null)
-        {
-            IsPaused = status.IsPaused,
-        };
+            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null,
+            IsPaused: status.IsPaused);
         var health = RunnerHealth.Assess(input);
 
         var worker = status.WorkerBusySince is { } busySince

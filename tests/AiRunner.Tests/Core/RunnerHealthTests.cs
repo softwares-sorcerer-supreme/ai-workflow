@@ -123,7 +123,7 @@ public class RunnerHealthTests
     {
         var now = Start + sinceStart;
         DateTimeOffset? lastPollEnded = pollEndedAfterStart is { } offset ? Start + offset : null;
-        var input = new HealthInput(now, Start, lastPollEnded, Interval, failingProjects) { IsPaused = true };
+        var input = new HealthInput(now, Start, lastPollEnded, Interval, failingProjects, IsPaused: true);
 
         return RunnerHealth.Assess(input);
     }

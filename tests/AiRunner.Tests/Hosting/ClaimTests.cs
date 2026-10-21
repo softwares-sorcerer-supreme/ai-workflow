@@ -14,20 +14,6 @@ public sealed class ClaimTests
     private const string Me = "alpha";
     private const string Other = "beta";
 
-    private sealed class StubJob(Func<Task<JobOutcome>> run, JobInfo? info = null) : IJob
-    {
-        public JobType Type => JobType.AnalyzeIssue;
-        public JobInfo Info => info ?? new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
-        public bool HasRun { get; private set; }
-
-        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken)
-        {
-            HasRun = true;
-
-            return run();
-        }
-    }
-
     private static JobTestKit NewKit(bool isClaimEnabled = true, ProjectConfig? project = null)
     {
         var kit = new JobTestKit(settings => settings.ClaimEnabled = isClaimEnabled, project);

@@ -2,7 +2,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { CommandResponse } from '../api/models/command-response';
-import { writeAction, writeFailureText } from './write-action';
+import { describeError } from './poll-resource';
+import { writeAction } from './write-action';
 
 describe('writeAction', () => {
   let messages: string[];
@@ -71,18 +72,18 @@ describe('writeAction', () => {
   });
 });
 
-describe('writeFailureText', () => {
+describe('describeError with a write fallback', () => {
   it('uses the runner message of an ApiError', () => {
     const failure = new HttpErrorResponse({
       status: 403,
       error: { message: 'This write was refused.' },
     });
 
-    expect(writeFailureText(failure, 'fallback')).toBe('This write was refused.');
+    expect(describeError(failure, 'fallback')).toBe('This write was refused.');
   });
 
   it('says the runner is not reachable when no answer came', () => {
-    expect(writeFailureText(new HttpErrorResponse({ status: 0 }), 'fallback')).toBe(
+    expect(describeError(new HttpErrorResponse({ status: 0 }), 'fallback')).toBe(
       'The runner is not reachable.',
     );
   });
@@ -94,7 +95,7 @@ describe('writeFailureText', () => {
       error: 'boom',
     });
 
-    expect(writeFailureText(failure, 'Could not do it.')).toBe('Could not do it.');
-    expect(writeFailureText(new Error('x'), 'Could not do it.')).toBe('Could not do it.');
+    expect(describeError(failure, 'Could not do it.')).toBe('Could not do it.');
+    expect(describeError(new Error('x'), 'Could not do it.')).toBe('Could not do it.');
   });
 });

@@ -27,7 +27,7 @@ public sealed record RunnerStatusSnapshot(
     IReadOnlyList<ProjectPollError> Errors,
     RunningJob? Running = null)
 {
-    /// <summary>The worker is paused from the dashboard: it takes no new job, the poller goes on.</summary>
+    /// <summary>The worker is paused from the dashboard; set from <see cref="RunnerCommands"/>, which owns it.</summary>
     public bool IsPaused { get; init; }
 
     /// <summary>A poll has started and not finished yet.</summary>
@@ -51,22 +51,12 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
     private DateTimeOffset? _lastPollEndedAt;
     private DateTimeOffset? _workerBusySince;
     private RunningJob? _running;
-    private bool _isPaused;
 
     public void SetCopilotVersion(string? version)
     {
         lock (_lock)
         {
             _copilotVersion = string.IsNullOrWhiteSpace(version) ? UnknownVersion : version.Trim();
-        }
-    }
-
-    /// <summary>Shown only; the worker reads the pause from <see cref="RunnerCommands"/>.</summary>
-    public void SetPaused(bool isPaused)
-    {
-        lock (_lock)
-        {
-            _isPaused = isPaused;
         }
     }
 
@@ -162,10 +152,7 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
                 _lastPollEndedAt,
                 _workerBusySince,
                 errors,
-                _running)
-            {
-                IsPaused = _isPaused,
-            };
+                _running);
         }
     }
 }
