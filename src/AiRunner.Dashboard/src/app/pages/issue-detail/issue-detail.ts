@@ -8,6 +8,7 @@ import { getIssue } from '../../api/fn/issues/get-issue';
 import { JobResponse } from '../../api/models/job-response';
 import { PullResponse } from '../../api/models/pull-response';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
+import { ActionButtons, ActionTarget } from '../../shared/action-buttons/action-buttons';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { issueKey, issueLink } from '../../shared/issue-link';
@@ -28,6 +29,7 @@ import { ViewState } from '../../shared/view-state/view-state';
 @Component({
   selector: 'app-issue-detail',
   imports: [
+    ActionButtons,
     AppTime,
     DataCell,
     DataTable,
@@ -65,6 +67,7 @@ export class IssueDetail {
   protected readonly subIssueColumns: readonly DataColumn[] = [
     { key: 'issue', header: 'Sub-issue' },
     { key: 'stage', header: 'Stage', width: '190px' },
+    { key: 'next', header: 'Next', width: '220px' },
     { key: 'pulls', header: 'Pull requests', hideBelow: 'sm' },
   ];
 
@@ -72,6 +75,7 @@ export class IssueDetail {
     { key: 'pull', header: 'Pull request' },
     { key: 'branches', header: 'Branches', hideBelow: 'sm' },
     { key: 'state', header: 'State', width: '120px' },
+    { key: 'actions', header: 'Actions', width: '200px' },
   ];
 
   protected readonly jobColumns: readonly DataColumn[] = [
@@ -89,6 +93,16 @@ export class IssueDetail {
   protected readonly markIcon = issueMarkIcon;
   protected readonly statusTone = jobStatusTone;
   protected readonly link = issueLink;
+  protected readonly issueTarget = (row: IssueRowResponse): ActionTarget => ({
+    kind: 'issue',
+    repo: row.repo,
+    number: row.number,
+  });
+  protected readonly pullTarget = (row: PullResponse): ActionTarget => ({
+    kind: 'pull',
+    repo: row.repo,
+    number: row.number,
+  });
 
   protected readonly trackBySubIssue = (_index: number, row: IssueRowResponse) => issueKey(row);
   protected readonly trackByPull = (_index: number, row: PullResponse) => issueKey(row);

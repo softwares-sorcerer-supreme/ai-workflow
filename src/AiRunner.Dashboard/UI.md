@@ -5,7 +5,8 @@ what is here before you create anything new. If you add a shared piece, add it t
 
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
 The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
-(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove) follow section 8.
+(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, and the actions on issues and PRs:
+Implement, Retry, Answer, Full review...) follow section 8.
 
 ## 1. Ground rules
 
@@ -167,6 +168,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `duration` pipe | every duration in seconds | points in time |
 | `pollResource` | every API read | one-off actions |
 | `writeAction` | every button that writes: busy state, the runner's message in a snack bar (section 8) | reads |
+| `app-action-buttons` | the actions the API offers for one issue or PR (`actions` of a row or a PR), one button each, with the text box for actions that need text (section 8) | buttons of the runner itself (Poll now, Pause) |
 | `confirmWrite` + `ConfirmDialog` | the confirmation before a destructive write (section 8) | harmless writes, information |
 | `writeGuardInterceptor` | adds the guard header to every non-GET request (registered once in `app.config.ts`) | anything set by hand |
 | `.app-card`, `.app-stack`, `.app-facts`, `.app-muted`, `.app-mono` | page structure and text (global CSS) | |
@@ -260,9 +262,27 @@ The label is shown as sent ("Broken down (2/5)").
 ```
 The card shows, from the row only: `#number` + muted "project · component" + GitBucket icon, the title (link to the
 detail page, at most 2 lines), "Part of #parent" for a sub-issue, the stage chip, badge and flag chips, the `waiting`
-action as a warning line, PR links, the sub-issue progress and the relative update time. It needs `provideRouter`.
+action as a warning line, the row's `actions` (`app-action-buttons`, compact; the card's `after` output fires after
+an answer, so the screen reloads), PR links, the sub-issue progress and the relative update time. It needs
+`provideRouter` (and `Api`, a `FakeApi` in tests).
 `issueKey(item)` (`shared/issue-link.ts`) gives the "owner/repo#n" key of an issue or a PR for every `track` and
 keyed state; do not build it inline.
+
+### `app-action-buttons`
+
+```html
+<app-action-buttons compact [actions]="row.actions" [target]="actionTarget(row)" (after)="issues.reload()" />
+<!-- target: { kind: 'issue' | 'pull', repo: 'owner/repo', number } -->
+```
+One `mat-stroked-button` per entry of `actions`, in the API's order, with its `label`; nothing when the list is empty.
+The API alone decides which actions exist: never filter, reorder, rename or add one, and never look at a stage, a
+label or a code to show or hide it. `needsText: false` runs at once (`runIssueAction` / `runPullAction`); `needsText:
+true` opens the text box first (section 8). One `writeAction` per group: while one call runs every button of the group
+is disabled and the clicked one shows the spinner. `after` fires after every answer: reload the screen's
+`pollResource`. `compact` (table rows, cards) makes the buttons shorter; they wrap at 360 px. The `actions` attribute
+of `app-page-header`'s slot is also this component's input, so in a page header put it inside `<div actions>`.
+Used in: Issues list (Next column, sub-issue rows too), board cards, Issue detail (page header, the Next column of
+Sub-issues, the Actions column of Pull requests).
 
 ### `app-count-toggle`
 
@@ -355,7 +375,7 @@ the focus chips (All + the API's `focuses` with counts), then:
 - **List**: the pipeline summary (one toggle button per entry of `lanes`, `aria-pressed`, a click on the selected one
   clears `lane`) and the table: Issue (chevron for parents, `aria-expanded`; collapsed unless lane, focus, stage or
   search is set; "Expand all / Collapse all" above), Stage (+ progress), Next (badge, else `waiting` as a warning
-  chip, else "-"), Flags, PR, Updated.
+  chip, else "-" when there is no action either; then the row's actions), Flags, PR, Updated.
 - **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one lane per entry of
   `lanes` with `app-issue-card`s grouped by the row's `lane` code, in the API's order; it scrolls sideways in its own
   box (lanes at least 260 px wide below a 1280 px window, at least 180 px from 1280 px up).
@@ -411,7 +431,8 @@ keep data on screen while reloading, never show the loading state again after th
 
 Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
 the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
-Check and save / Remove for the token and the web password on the Setup screen.
+Check and save / Remove for the token and the web password on the Setup screen, and the actions on issues and PRs
+(`app-action-buttons`) on the Issues list, the board cards and Issue detail.
 
 1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The
    `writeGuardInterceptor` (`shared/write-guard.interceptor.ts`) gives every request that is not a GET the header
@@ -455,7 +476,13 @@ Check and save / Remove for the token and the web password on the Setup screen.
 7. **A write that answers with the new state** (`SetupChangeResponse { message, setup }`): pass a call to `run` that
    puts the answer's state into a `linkedSignal` over the poll's value, then returns the answer, so the screen shows
    what the runner sent until the next poll replaces it (`pages/setup`). Still no guess of our own.
-8. **Secrets** (Setup screen): a `type="password"` field with `autocomplete="new-password"`, bound to a plain
+8. **A write that needs text** (an action with `needsText`: answer, ask, fix): `app-action-buttons` opens
+   `ActionTextDialog` (`shared/action-buttons/action-text-dialog.ts`, built like `confirm-dialog`): the action's label
+   as title, the target ("team/shop #42") under it, one multi-line field, Cancel and Send. Send is disabled while the
+   text is blank (after trimming) and busy while the call runs; the typed text goes unchanged as `body.text`. The box
+   closes when the runner accepted the text; on a refusal it stays open with the text, and the runner's message shows
+   in the snack bar. Cancel and Escape send nothing. No confirmation: these actions are not destructive.
+9. **Secrets** (Setup screen): a `type="password"` field with `autocomplete="new-password"`, bound to a plain
    component signal (never a service, storage or the URL), never filled from the server, emptied the moment the
    call is sent (success or failure). The runner checks the value and its refusal ("not accepted", "not reachable
    (VPN?)") is shown in the snack bar like any other write.

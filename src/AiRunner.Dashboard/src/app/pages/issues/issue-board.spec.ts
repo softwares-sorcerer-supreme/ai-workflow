@@ -1,11 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { fixedClock, sampleIssue } from '../../shared/testing';
+import { Api } from '../../api/api';
+import { FakeApi, fixedClock, sampleIssue } from '../../shared/testing';
 import { IssueBoard, BoardLane } from './issue-board';
 
 describe('IssueBoard', () => {
   async function render(lanes: BoardLane[]) {
-    TestBed.configureTestingModule({ providers: [provideRouter([]), fixedClock] });
+    TestBed.configureTestingModule({
+      providers: [provideRouter([]), fixedClock, { provide: Api, useValue: new FakeApi() }],
+    });
 
     const fixture = TestBed.createComponent(IssueBoard);
     fixture.componentRef.setInput('lanes', lanes);

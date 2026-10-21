@@ -1,7 +1,8 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
+import { ActionButtons, ActionTarget } from '../action-buttons/action-buttons';
 import { issueKey, issueLink } from '../issue-link';
 import { PullLink } from '../pull-link/pull-link';
 import { StageChip } from '../stage-chip/stage-chip';
@@ -17,12 +18,20 @@ import { issueMarkIcon, issueMarkTone } from '../tone';
  */
 @Component({
   selector: 'app-issue-card',
-  imports: [AppTime, MatIconModule, PullLink, RouterLink, StageChip, StatusChip, SubIssueProgress],
+  imports: [ActionButtons, AppTime, MatIconModule, PullLink, RouterLink, StageChip, StatusChip, SubIssueProgress],
   templateUrl: './issue-card.html',
   styleUrl: './issue-card.scss',
 })
 export class IssueCard {
   readonly issue = input.required<IssueRowResponse>();
+  /** After one of its actions was answered: the screen reloads (the card never changes itself). */
+  readonly after = output<void>();
+
+  protected readonly actionTarget = computed<ActionTarget>(() => ({
+    kind: 'issue',
+    repo: this.issue().repo,
+    number: this.issue().number,
+  }));
 
   protected readonly link = computed(() => issueLink(this.issue().repo, this.issue().number));
 

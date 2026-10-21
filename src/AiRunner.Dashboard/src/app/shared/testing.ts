@@ -134,6 +134,7 @@ export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRow
     closedAt: null,
     parent: null,
     subIssues: [],
+    actions: [],
     ...overrides,
   };
 }
@@ -150,6 +151,7 @@ export function samplePull(overrides: Partial<PullResponse> = {}): PullResponse 
     baseRef: 'main',
     htmlUrl: 'http://gitbucket.local/team/shop/pull/50',
     updatedAt: '2026-01-01T11:40:00Z',
+    actions: [],
     ...overrides,
   };
 }

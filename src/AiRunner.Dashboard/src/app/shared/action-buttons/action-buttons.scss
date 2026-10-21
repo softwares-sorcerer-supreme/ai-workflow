@@ -1,0 +1,32 @@
+@use '@angular/material' as mat;
+
+// The buttons wrap onto more lines when the row, card or header is narrow (360 px), never overflow it.
+:host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-1) var(--app-space-2);
+  min-width: 0;
+}
+
+:host:empty {
+  display: none;
+}
+
+button {
+  max-width: 100%;
+}
+
+// Table rows and cards: a shorter, tighter button with small text.
+:host(.compact) {
+  gap: var(--app-space-1);
+
+  @include mat.button-overrides(
+    (
+      outlined-container-height: 28px,
+      outlined-horizontal-padding: 12px,
+      outlined-label-text-size: var(--mat-sys-label-medium-size),
+      outlined-touch-target-display: none,
+    )
+  );
+}

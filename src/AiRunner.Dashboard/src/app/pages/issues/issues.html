@@ -146,7 +146,7 @@
             message="Issues appear here after the runner's next poll. With a filter set, try Clear filters."
           />
         } @else {
-          <app-issue-board class="board" [lanes]="boardLanes()" />
+          <app-issue-board class="board" [lanes]="boardLanes()" (after)="issues.reload()" />
         }
       } @else if (issues.isLoading()) {
         <app-view-state kind="loading" />
@@ -231,9 +231,10 @@
               <app-status-chip [label]="badge.label" [tone]="markTone(badge.code)" [icon]="markIcon(badge.code)" />
             } @else if (row.waiting; as waiting) {
               <app-status-chip [label]="waiting.label" tone="warning" icon="front_hand" [title]="waiting.label" />
-            } @else {
+            } @else if (row.actions.length === 0) {
               <span class="app-muted">-</span>
             }
+            <app-action-buttons compact [actions]="row.actions" [target]="actionTarget(row)" (after)="issues.reload()" />
           </div>
         </ng-template>
         <ng-template appCell="flags" let-row>

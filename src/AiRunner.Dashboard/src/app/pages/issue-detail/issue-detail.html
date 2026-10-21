@@ -1,5 +1,14 @@
 @if (detail.value(); as current) {
   <app-page-header [title]="current.issue.title" [subtitle]="current.issue.repo + ' #' + current.issue.number">
+    <!-- The slot attribute sits on a wrapper: "actions" is also the input of app-action-buttons. -->
+    <div actions class="header-actions">
+      <app-action-buttons
+        data-testid="issue-actions"
+        [actions]="current.issue.actions"
+        [target]="issueTarget(current.issue)"
+        (after)="detail.reload()"
+      />
+    </div>
     @if (current.issue.htmlUrl; as url) {
       <a actions mat-stroked-button [href]="url" target="_blank" rel="noopener noreferrer">
         <mat-icon aria-hidden="true">open_in_new</mat-icon>
@@ -64,6 +73,21 @@
           <ng-template appCell="stage" let-row>
             <app-stage-chip [code]="row.stage" [label]="row.stageLabel" />
           </ng-template>
+          <ng-template appCell="next" let-row>
+            <div class="next">
+              @if (row.waiting; as waiting) {
+                <app-status-chip [label]="waiting.label" tone="warning" icon="front_hand" [title]="waiting.label" />
+              } @else if (row.actions.length === 0) {
+                <span class="app-muted">-</span>
+              }
+              <app-action-buttons
+                compact
+                [actions]="row.actions"
+                [target]="issueTarget(row)"
+                (after)="detail.reload()"
+              />
+            </div>
+          </ng-template>
           <ng-template appCell="pulls" let-row>
             <div class="pulls">
               @for (pull of row.pulls; track issueKey(pull)) {
@@ -99,6 +123,12 @@
           <span class="app-mono">{{ row.headRef }} -> {{ row.baseRef }}</span>
         </ng-template>
         <ng-template appCell="state" let-row>{{ row.stateLabel }}</ng-template>
+        <ng-template appCell="actions" let-row>
+          @if (row.actions.length === 0) {
+            <span class="app-muted">-</span>
+          }
+          <app-action-buttons compact [actions]="row.actions" [target]="pullTarget(row)" (after)="detail.reload()" />
+        </ng-template>
       </app-data-table>
     </section>
 

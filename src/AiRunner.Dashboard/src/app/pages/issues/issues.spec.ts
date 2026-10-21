@@ -6,6 +6,7 @@ import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Api } from '../../api/api';
 import { GetIssues$Params, getIssues } from '../../api/fn/issues/get-issues';
+import { runIssueAction } from '../../api/fn/issues/run-issue-action';
 import { IssueListResponse } from '../../api/models/issue-list-response';
 import { FakeApi, fixedClock, sampleIssue, samplePull, settle } from '../../shared/testing';
 import { Issues, SEARCH_DEBOUNCE_MS } from './issues';
@@ -397,6 +398,41 @@ describe('Issues', () => {
       expect(nextOf(2).textContent).not.toContain('Should not show');
 
       expect(nextOf(3).textContent?.trim()).toBe('-');
+    });
+
+    it('shows the actions of each row in Next and reloads the list after one ran', async () => {
+      const { api, element, fixture } = await render('/issues', () =>
+        list({
+          items: [
+            sampleIssue({
+              number: 7,
+              waiting: { code: 'add-ai-implement', label: 'Add the ai-implement label' },
+              actions: [
+                { code: 'implement', label: 'Implement', needsText: false },
+                { code: 'ask', label: 'Ask a question', needsText: true },
+              ],
+            }),
+            sampleIssue({ number: 8 }),
+          ],
+        }),
+      );
+      api.answer(runIssueAction, () => ({ message: 'Added ai-implement to #7.' }));
+      const nextOf = (index: number) => rowsOf(element)[index].querySelector('.next') as HTMLElement;
+
+      const buttons = Array.from(nextOf(0).querySelectorAll<HTMLButtonElement>('app-action-buttons button'));
+      expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Implement', 'Ask a question']);
+      expect(nextOf(0).textContent).toContain('Add the ai-implement label');
+      expect(nextOf(1).querySelectorAll('app-action-buttons button').length).toBe(0);
+      expect(nextOf(1).textContent?.trim()).toBe('-');
+
+      const listCallsBefore = api.callsOf(getIssues).length;
+      buttons[0].click();
+      await settle(fixture);
+
+      expect(api.callsOf(runIssueAction)).toEqual([
+        { owner: 'team', repo: 'shop', number: 7, code: 'implement', body: { text: null } },
+      ]);
+      expect(api.callsOf(getIssues).length).toBeGreaterThan(listCallsBefore);
     });
 
     it('shows the stage, the parent progress, flags and PR links with their tone', async () => {
