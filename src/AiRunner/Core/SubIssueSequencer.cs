@@ -10,8 +10,8 @@ public enum SequenceStep
 public sealed record SequenceDecision(
     SequenceStep Step,
     string Reason,
-    GbIssue? Next = null,
-    GbIssue? Previous = null)
+    HostIssue? Next = null,
+    HostIssue? Previous = null)
 {
     /// <summary>
     /// OpenFinalPrs: the repos that still need their final PR (can be empty when only the list comment is missing).
@@ -20,7 +20,7 @@ public sealed record SequenceDecision(
 }
 
 /// <summary>A sub-issue and the repo its PR is made in: the repo of its component.</summary>
-public sealed record SubIssueRef(GbIssue Issue, string Repo)
+public sealed record SubIssueRef(HostIssue Issue, string Repo)
 {
     /// <summary>The repos of the sub-issues, each once, in build order.</summary>
     public static IReadOnlyList<string> ReposOf(IEnumerable<SubIssueRef> subIssues) =>
@@ -31,10 +31,10 @@ public sealed record SubIssueRef(GbIssue Issue, string Repo)
 }
 
 /// <summary>A sub-issue that is still open although its PR is merged.</summary>
-public sealed record MergedSubIssue(SubIssueRef SubIssue, GbPull Pull);
+public sealed record MergedSubIssue(SubIssueRef SubIssue, HostPull Pull);
 
 /// <summary>A sub-issue marked ai:implementing whose PR was closed without a merge.</summary>
-public sealed record AbandonedSubIssue(SubIssueRef SubIssue, GbPull Pull);
+public sealed record AbandonedSubIssue(SubIssueRef SubIssue, HostPull Pull);
 
 /// <summary>
 /// What the sequencer needs: the sub-issues in build order and the open and closed PRs of each repo they use.
@@ -43,7 +43,7 @@ public sealed record AbandonedSubIssue(SubIssueRef SubIssue, GbPull Pull);
 public sealed record SequenceInput(
     int Parent,
     IReadOnlyList<SubIssueRef> SubIssues,
-    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> PullsByRepo)
+    IReadOnlyDictionary<string, IReadOnlyList<HostPull>> PullsByRepo)
 {
     /// <summary>The parent already has the comment that lists the final PRs.</summary>
     public bool HasFinalList { get; init; }
@@ -51,7 +51,7 @@ public sealed record SequenceInput(
     /// <summary>The repos that have sub-issues, each once.</summary>
     public IReadOnlyList<string> Repos => SubIssueRef.ReposOf(SubIssues);
 
-    public IReadOnlyList<GbPull> PullsOf(string repo) =>
+    public IReadOnlyList<HostPull> PullsOf(string repo) =>
         PullsByRepo.TryGetValue(repo, out var pulls) ? pulls : [];
 }
 
@@ -190,10 +190,10 @@ public static class SubIssueSequencer
     /// The final PR of each repo that has sub-issues (<see cref="FinalPull"/>), null where none counts yet. The
     /// sequencer closes the parent and the dashboard shows it merged by the same rule: <see cref="AllMerged"/>.
     /// </summary>
-    public static IReadOnlyDictionary<string, GbPull?> FinalPulls(
+    public static IReadOnlyDictionary<string, HostPull?> FinalPulls(
         int parent,
         IReadOnlyList<string> repos,
-        Func<string, IReadOnlyList<GbPull>> pullsOf)
+        Func<string, IReadOnlyList<HostPull>> pullsOf)
     {
         var feature = Branches.Feature(parent);
 
@@ -204,28 +204,28 @@ public static class SubIssueSequencer
     }
 
     /// <summary>Every repo has its final PR and every one is merged (false when there is no repo).</summary>
-    public static bool AllMerged(IReadOnlyDictionary<string, GbPull?> finalPulls) =>
+    public static bool AllMerged(IReadOnlyDictionary<string, HostPull?> finalPulls) =>
         finalPulls.Count > 0 && finalPulls.Values.All(pull => pull is not null && pull.IsMerged());
 
     /// <summary>
     /// The PRs of a sub-issue slot: its branch ai/issue-{parent}-{order} into the feature branch. A PR from that
     /// branch into another base does not count. The dashboard's stage uses the same rule.
     /// </summary>
-    public static IReadOnlyList<GbPull> SlotPulls(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
+    public static IReadOnlyList<HostPull> SlotPulls(SubIssueSlot slot, IEnumerable<HostPull> pulls) =>
         pulls
             .Where(pull => pull.Head.Ref == Branches.SubIssue(slot.Parent, slot.Order) &&
                            pull.Base.Ref == Branches.Feature(slot.Parent))
             .ToList();
 
     /// <summary>The merged PR of a sub-issue slot (its branch into the feature branch), or null.</summary>
-    public static GbPull? MergedPull(SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
+    public static HostPull? MergedPull(SubIssueSlot slot, IEnumerable<HostPull> pulls) =>
         SlotPulls(slot, pulls).FirstOrDefault(pull => pull.IsMerged());
 
     /// <summary>
     /// The final PR of a repo: head is the feature branch, merged or still open (a merged one wins). A PR that was
     /// closed without a merge does not count, so the runner opens a new one instead of waiting for it forever.
     /// </summary>
-    public static GbPull? FinalPull(IEnumerable<GbPull> pulls, string feature)
+    public static HostPull? FinalPull(IEnumerable<HostPull> pulls, string feature)
     {
         var candidates = pulls.Where(pull => pull.Head.Ref == feature).ToList();
 

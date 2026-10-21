@@ -1,6 +1,6 @@
 namespace AiRunner.Core;
 
-/// <summary>A new issue to create. Labels may be ignored by some GitBucket versions on create.</summary>
+/// <summary>A new issue to create. A host may ignore its labels (CodeHostCapabilities.KeepsLabelsOnCreate).</summary>
 public sealed record NewIssue(string Title, string Body, IEnumerable<string> Labels);
 
 /// <summary>A new repo label.</summary>

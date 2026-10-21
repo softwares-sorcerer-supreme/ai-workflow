@@ -262,7 +262,7 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
             }
             catch (InvalidOperationException)
             {
-                // Not every GitBucket version has refs/pull/*.
+                // A host may not have the ref (not every GitBucket version has refs/pull/*).
             }
         }
 

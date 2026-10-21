@@ -3,6 +3,7 @@ using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -31,7 +32,7 @@ public sealed class JobWorker(
     JobLog jobLog,
     ICostLog costLog,
     IStateStore stateStore,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     ClaimService claims,
     RunnerStatus status,
     ILogger<JobWorker> logger) : BackgroundService
@@ -257,11 +258,11 @@ public sealed class JobWorker(
         try
         {
             job.OnFailed(request);
-            await gitBucketClient.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
+            await codeHost.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
 
             if (!job.Info.OnPullRequest)
             {
-                await gitBucketClient.AddLabelsAsync(
+                await codeHost.AddLabelsAsync(
                     request.Repo,
                     request.Number,
                     [Labels.Failed],

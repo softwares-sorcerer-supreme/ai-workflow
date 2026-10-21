@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -20,7 +21,7 @@ public sealed record ClaimTarget(string Repo, int Number)
 /// </summary>
 public sealed class ClaimService(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     TimeProvider timeProvider)
 {
     /// <summary>Whether the project of this repo shares its items between runners.</summary>
@@ -33,7 +34,7 @@ public sealed class ClaimService(
         var runnerName = config.EffectiveRunnerName();
         var now = timeProvider.GetUtcNow();
 
-        var comments = await gitBucketClient.ListCommentsAsync(repo, number, cancellationToken);
+        var comments = await codeHost.ListCommentsAsync(repo, number, cancellationToken);
         var decision = Claims.Decide(comments, runnerName, now);
         if (decision.Action == ClaimAction.Skip)
         {
@@ -44,19 +45,19 @@ public sealed class ClaimService(
         long writtenId;
         if (decision.Action == ClaimAction.Create)
         {
-            var created = await gitBucketClient.AddCommentAsync(repo, number, text, cancellationToken);
+            var created = await codeHost.AddCommentAsync(repo, number, text, cancellationToken);
             writtenId = created.Id;
         }
         else
         {
             writtenId = decision.Existing!.CommentId;
-            await gitBucketClient.UpdateCommentAsync(repo, writtenId, text, cancellationToken);
+            await codeHost.UpdateCommentAsync(repo, writtenId, text, cancellationToken);
         }
 
-        var afterWrite = await gitBucketClient.ListCommentsAsync(repo, number, cancellationToken);
+        var afterWrite = await codeHost.ListCommentsAsync(repo, number, cancellationToken);
         if (Claims.IsHeldBy(afterWrite, runnerName))
         {
-            await gitBucketClient.AddLabelsAsync(repo, number, [Labels.Claimed], cancellationToken);
+            await codeHost.AddLabelsAsync(repo, number, [Labels.Claimed], cancellationToken);
 
             return true;
         }
@@ -66,7 +67,7 @@ public sealed class ClaimService(
         if (decision.Action == ClaimAction.Create && oldest is not null && oldest.CommentId != writtenId)
         {
             var withdrawn = Claims.Text(runnerName, ClaimState.Withdrawn, now);
-            await gitBucketClient.UpdateCommentAsync(repo, writtenId, withdrawn, cancellationToken);
+            await codeHost.UpdateCommentAsync(repo, writtenId, withdrawn, cancellationToken);
         }
 
         return false;
@@ -78,14 +79,14 @@ public sealed class ClaimService(
         var (repo, number) = target;
         var runnerName = config.EffectiveRunnerName();
 
-        var comments = await gitBucketClient.ListCommentsAsync(repo, number, cancellationToken);
+        var comments = await codeHost.ListCommentsAsync(repo, number, cancellationToken);
         var held = Claims.HeldComment(comments, runnerName);
         if (held is not null)
         {
             var released = Claims.Text(runnerName, ClaimState.Released, timeProvider.GetUtcNow());
-            await gitBucketClient.UpdateCommentAsync(repo, held.CommentId, released, cancellationToken);
+            await codeHost.UpdateCommentAsync(repo, held.CommentId, released, cancellationToken);
         }
 
-        await gitBucketClient.RemoveLabelAsync(repo, number, Labels.Claimed, cancellationToken);
+        await codeHost.RemoveLabelAsync(repo, number, Labels.Claimed, cancellationToken);
     }
 }

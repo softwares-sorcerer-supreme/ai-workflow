@@ -36,6 +36,10 @@ _Avoid_: handled-up-to, last handled
 The newest `@ai` comment the runner's own database says was handled; it covers a job that failed before it could reply.
 _Avoid_: last-handled comment
 
+**Code host**:
+The server that holds the issues, pull requests and repos the runner works on. GitBucket today; the runner reaches it only through one provider, so it can be replaced.
+_Avoid_: GitBucket (for the role), forge, server
+
 **Project**:
 A group of components that are worked on together; its issues live in one place (`issues_in`). Every job checks out all components of one project.
 _Avoid_: workspace, product

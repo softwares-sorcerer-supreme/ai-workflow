@@ -62,7 +62,7 @@ Add the token to .NET user secrets; do not put credentials in `repos.yml`:
 dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner
 ```
 
-Configure `git_bucket.base_url` and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root; the sample `repos.yml` lints its frontend with a type check plus a formatting check, and a real ESLint setup would be the better lint once the repo has one). The old flat `repos:` list still works: each entry becomes a project with one component.
+Configure the code host (`code_host: { kind: gitbucket, base_url: ... }`; the old `git_bucket:` block still works) and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root; the sample `repos.yml` lints its frontend with a type check plus a formatting check, and a real ESLint setup would be the better lint once the repo has one). The old flat `repos:` list still works: each entry becomes a project with one component.
 
 Each component lists the files that hold the rules for the agent in `instructions` (paths relative to the component folder, default `[AGENTS.md]`; no `..`, no absolute path). They are the **instructions** of the repository, not part of the runner:
 
@@ -121,7 +121,7 @@ Put a short `PROJECT.md` (default name, set with `context:`) in the `issues_in` 
 
 | Level | Keys |
 | --- | --- |
-| Global only | `git_bucket`, `poll_interval_seconds`, `runner_name`, `copilot`, `paths`, `log_retention_days`, `attachments`, `git`, `dashboard` |
+| Global only | `code_host` (old name `git_bucket`), `poll_interval_seconds`, `runner_name`, `copilot`, `paths`, `log_retention_days`, `attachments`, `git`, `dashboard` |
 | `defaults:`, overridable per project | `trigger_label`, `trigger_keyword`, `workflows`, `models`, `limits`, `implement`, `review`, `never_edit`, `auto_start_first_sub_issue`, `claim_enabled` |
 | Per component | `repo`, `path`, `code` (default true), `commands` |
 
@@ -186,7 +186,7 @@ dotnet run --project src/AiRunner -- --once
 dotnet run --project src/AiRunner
 ```
 
-Other diagnostic modes are `--copilot-test` (check the Copilot child process), `--attachment-test <url>` (check a GitBucket `/_attached/` download) and `--close-test owner/repo#n` (close one issue through the web form; needs `git_bucket.web_password`). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
+Other diagnostic modes are `--copilot-test` (check the Copilot child process), `--attachment-test <url>` (check a GitBucket `/_attached/` download) and `--close-test owner/repo#n` (close one issue through the web form; needs `code_host.web_password`). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
 
 The runner locates `repos.yml` in the current directory or a parent directory. Use `--config <path>` to select another file. On a non-dry run, it installs the checked-out `agents/` and `skills/` definitions into `~/.copilot/`.
 

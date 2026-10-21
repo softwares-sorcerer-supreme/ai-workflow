@@ -12,7 +12,8 @@ public sealed record AttachmentRef(string Url, string Id, string Name, bool IsIm
 /// <summary>
 /// Finds attachments in the markdown of an issue, comment or PR. GitBucket's JSON has no attachment list,
 /// so the links in the text are all there is. Only links on the GitBucket host count: the runner sends its
-/// token there and nowhere else.
+/// token there and nowhere else. Pure parsing, so it lives in Core; only the GitBucket provider calls it
+/// (ICodeHost.FindAttachments).
 /// </summary>
 public static class AttachmentLinks
 {

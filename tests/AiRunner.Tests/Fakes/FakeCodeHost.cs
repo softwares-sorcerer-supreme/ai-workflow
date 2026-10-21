@@ -1,21 +1,22 @@
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Fakes;
 
 /// <summary>A file the fake serves for an _attached URL.</summary>
 public sealed record FakeAttachment(byte[] Content, string? Name, string? ContentType);
 
-/// <summary>In-memory GitBucket: issues, comments, labels and PRs, with the same bot-marker behaviour.</summary>
-public sealed class FakeGitBucket : IGitBucketClient
+/// <summary>In-memory code host: issues, comments, labels and PRs, with GitBucket's bot-marker behaviour.</summary>
+public sealed class FakeCodeHost : ICodeHost
 {
     private long _nextCommentId = 1000;
     private int _nextNumber = 100;
 
     public string DefaultBranch { get; set; } = "main";
     public string Login { get; set; } = "bot";
-    public Dictionary<int, GbIssue> Issues { get; } = [];
-    public Dictionary<int, List<GbComment>> Comments { get; } = [];
-    public List<GbPull> Pulls { get; } = [];
+    public Dictionary<int, HostIssue> Issues { get; } = [];
+    public Dictionary<int, List<HostComment>> Comments { get; } = [];
+    public List<HostPull> Pulls { get; } = [];
 
     /// <summary>The repo of a PR, by number. A PR without an entry is in every repo (old tests with one repo).</summary>
     public Dictionary<int, string> PullRepos { get; } = [];
@@ -40,16 +41,28 @@ public sealed class FakeGitBucket : IGitBucketClient
     /// <summary>When set, closing an issue fails with this message (web sign-in refused, no write access).</summary>
     public string? CloseError { get; set; }
 
+    /// <summary>Plays a GitBucket version that ignores the labels of a new issue.</summary>
+    public bool DropsLabelsOnCreate { get; set; }
+
+    /// <summary>The number of every GetIssueAsync call, in order.</summary>
+    public List<int> IssueReads { get; } = [];
+
+    /// <summary>GitBucket's by default, so the jobs behave as they do against it.</summary>
+    public CodeHostCapabilities Capabilities { get; set; } = new(KeepsLabelsOnCreate: false);
+
+    /// <summary>GitBucket's _attached links on the kit's base URL.</summary>
+    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) => AttachmentLinks.Find(text, JobTestKit.BaseUrl);
+
     // ---- arrange helpers ----
 
-    public GbIssue AddIssue(int number, string title, string? body = null, params string[] labels)
+    public HostIssue AddIssue(int number, string title, string? body = null, params string[] labels)
     {
-        var labelList = labels.Select(label => new GbLabel(label)).ToList();
-        var issue = new GbIssue(
+        var labelList = labels.Select(label => new HostLabel(label)).ToList();
+        var issue = new HostIssue(
             number,
             title,
             body,
-            new GbUser("alice"),
+            new HostUser("alice"),
             labelList,
             DateTimeOffset.UtcNow,
             null,
@@ -60,11 +73,11 @@ public sealed class FakeGitBucket : IGitBucketClient
         return issue;
     }
 
-    public GbComment AddHumanComment(int number, string body, string user = "alice") => AddRaw(number, body, user);
+    public HostComment AddHumanComment(int number, string body, string user = "alice") => AddRaw(number, body, user);
 
-    public GbComment AddBotComment(int number, string body) => AddRaw(number, BotComments.Marker + "\n" + body, Login);
+    public HostComment AddBotComment(int number, string body) => AddRaw(number, BotComments.Marker + "\n" + body, Login);
 
-    public GbPull AddPull(
+    public HostPull AddPull(
         int number,
         string head,
         string baseRef,
@@ -76,15 +89,15 @@ public sealed class FakeGitBucket : IGitBucketClient
         string? repo = null,
         params string[] labels)
     {
-        var labelList = labels.Select(label => new GbLabel(label)).ToList();
-        var pull = new GbPull(
+        var labelList = labels.Select(label => new HostLabel(label)).ToList();
+        var pull = new HostPull(
             number,
             title,
-            new GbRef(head, sha),
-            new GbRef(baseRef, "base000"),
+            new HostRef(head, sha),
+            new HostRef(baseRef, "base000"),
             DateTimeOffset.UtcNow,
             body,
-            new GbUser("alice"),
+            new HostUser("alice"),
             state,
             merged,
             merged ? DateTimeOffset.UtcNow : null,
@@ -101,11 +114,11 @@ public sealed class FakeGitBucket : IGitBucketClient
 
     public HashSet<string> LabelsOf(int number) => Issues[number].LabelNames();
 
-    public IReadOnlyList<GbComment> CommentsOf(int number) => Comments.GetValueOrDefault(number) ?? [];
+    public IReadOnlyList<HostComment> CommentsOf(int number) => Comments.GetValueOrDefault(number) ?? [];
 
-    private GbComment AddRaw(int number, string body, string user)
+    private HostComment AddRaw(int number, string body, string user)
     {
-        var comment = new GbComment(++_nextCommentId, body, new GbUser(user), DateTimeOffset.UtcNow);
+        var comment = new HostComment(++_nextCommentId, body, new HostUser(user), DateTimeOffset.UtcNow);
         Comments.TryAdd(number, []);
         Comments[number].Add(comment);
 
@@ -115,13 +128,13 @@ public sealed class FakeGitBucket : IGitBucketClient
     private void SetLabels(int number, IEnumerable<string> labels) =>
         Issues[number] = Issues[number] with
         {
-            Labels = labels.Distinct().Select(label => new GbLabel(label)).ToList()
+            Labels = labels.Distinct().Select(label => new HostLabel(label)).ToList()
         };
 
     public void AddAttachment(string url, byte[] content, string? name = null, string? contentType = null) =>
         Attachments[url] = new FakeAttachment(content, name, contentType);
 
-    // ---- IGitBucketClient ----
+    // ---- ICodeHost ----
 
     public Task<DownloadedAttachment> DownloadAttachmentAsync(
         AttachmentDownload download,
@@ -148,17 +161,17 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult(new DownloadedAttachment(path, attachment.Name, attachment.ContentType, attachment.Content.Length));
     }
 
-    public Task<GbUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new GbUser(Login));
+    public Task<HostUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new HostUser(Login));
 
-    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken)
+    public Task<HostRepo> GetRepoAsync(string repo, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("repo", repo));
 
-        return Task.FromResult(new GbRepo(DefaultBranch));
+        return Task.FromResult(new HostRepo(DefaultBranch));
     }
 
-    public Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(
+    public Task<IReadOnlyList<HostIssue>> ListOpenIssuesAsync(
         string repo,
         string? label,
         string? assignee,
@@ -176,10 +189,10 @@ public sealed class FakeGitBucket : IGitBucketClient
                 && (assignee is null || issue.IsAssignedTo(assignee)))
             .ToList();
 
-        return Task.FromResult<IReadOnlyList<GbIssue>>(matchingIssues);
+        return Task.FromResult<IReadOnlyList<HostIssue>>(matchingIssues);
     }
 
-    public Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
+    public Task<IReadOnlyList<HostIssue>> ListClosedIssuesAsync(
         string repo,
         string label,
         CancellationToken cancellationToken)
@@ -189,19 +202,20 @@ public sealed class FakeGitBucket : IGitBucketClient
             .Where(issue => !issue.IsOpen() && issue.HasLabel(label))
             .ToList();
 
-        return Task.FromResult<IReadOnlyList<GbIssue>>(matchingIssues);
+        return Task.FromResult<IReadOnlyList<HostIssue>>(matchingIssues);
     }
 
     public int CommentListCalls { get; private set; }
 
-    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken)
+    public Task<HostIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("issue-read", repo));
+        IssueReads.Add(number);
 
         return Task.FromResult(Issues[number]);
     }
 
-    public Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<HostComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)
     {
         CommentListCalls++;
         RepoCalls.Add(("comments-read", repo));
@@ -209,20 +223,20 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult(comments);
     }
 
-    public Task<GbIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
+    public Task<HostIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("create-issue", repo));
         while (Issues.ContainsKey(++_nextNumber))
         {
         }
 
-        var labels = issue.Labels.ToArray();
+        var labels = DropsLabelsOnCreate ? [] : issue.Labels.ToArray();
         var created = AddIssue(_nextNumber, issue.Title, issue.Body, labels);
 
         return Task.FromResult(created);
     }
 
-    public Task<GbComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken)
+    public Task<HostComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("comment", repo));
         var markedBody = body.Contains(BotComments.Marker) ? body : BotComments.Marker + "\n" + body;
@@ -232,7 +246,7 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult(comment);
     }
 
-    public Task<GbComment> UpdateCommentAsync(
+    public Task<HostComment> UpdateCommentAsync(
         string repo,
         long commentId,
         string body,
@@ -255,7 +269,7 @@ public sealed class FakeGitBucket : IGitBucketClient
             return Task.FromResult(list[index]);
         }
 
-        throw new GitBucketException(System.Net.HttpStatusCode.NotFound, "comment not found");
+        throw new CodeHostException(System.Net.HttpStatusCode.NotFound, "comment not found");
     }
 
     public Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken)
@@ -263,7 +277,7 @@ public sealed class FakeGitBucket : IGitBucketClient
         RepoCalls.Add(("close-issue", repo));
         if (CloseError is not null)
         {
-            throw new GitBucketException(System.Net.HttpStatusCode.Unauthorized, CloseError);
+            throw new CodeHostException(System.Net.HttpStatusCode.Unauthorized, CloseError);
         }
 
         Issues[number] = Issues[number] with
@@ -312,7 +326,7 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult(true);
     }
 
-    public Task<IReadOnlyList<GbPull>> ListPullsAsync(string repo, string state, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<HostPull>> ListPullsAsync(string repo, string state, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("pulls", repo));
         var matchingPulls = Pulls
@@ -321,10 +335,10 @@ public sealed class FakeGitBucket : IGitBucketClient
                            string.Equals(pullRepo, repo, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        return Task.FromResult<IReadOnlyList<GbPull>>(matchingPulls);
+        return Task.FromResult<IReadOnlyList<HostPull>>(matchingPulls);
     }
 
-    public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken)
+    public Task<HostPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("pull-read", repo));
         var pull = Pulls.Single(existingPull => existingPull.Number == number);
@@ -332,17 +346,17 @@ public sealed class FakeGitBucket : IGitBucketClient
         return Task.FromResult(pull);
     }
 
-    public Task<GbPull> CreatePullAsync(string repo, NewPull newPull, CancellationToken cancellationToken)
+    public Task<HostPull> CreatePullAsync(string repo, NewPull newPull, CancellationToken cancellationToken)
     {
         RepoCalls.Add(("create-pull", repo));
         var highestPullNumber = Pulls.Select(existingPull => existingPull.Number).DefaultIfEmpty(0).Max();
         var number = Math.Max(_nextNumber, highestPullNumber) + 1;
         _nextNumber = number;
 
-        var head = new GbRef(newPull.Head, "new0000");
-        var baseRef = new GbRef(newPull.BaseBranch, "base000");
-        var author = new GbUser(Login);
-        var pull = new GbPull(
+        var head = new HostRef(newPull.Head, "new0000");
+        var baseRef = new HostRef(newPull.BaseBranch, "base000");
+        var author = new HostUser(Login);
+        var pull = new HostPull(
             number,
             newPull.Title,
             head,

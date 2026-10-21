@@ -2,14 +2,15 @@ using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
 /// <summary>What one poll listed for a project: its open issues in scope and the open PRs of each code repo.</summary>
 public sealed record ProjectPoll(
     ProjectConfig Project,
-    IReadOnlyList<GbIssue> OpenIssues,
-    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> OpenPulls)
+    IReadOnlyList<HostIssue> OpenIssues,
+    IReadOnlyDictionary<string, IReadOnlyList<HostPull>> OpenPulls)
 {
     public HashSet<int> OpenIssueNumbers() =>
         OpenIssues
@@ -28,7 +29,7 @@ public sealed record ProjectPoll(
 /// or the queue, and it never throws: a snapshot error is logged and the poll goes on.
 /// </summary>
 public sealed class SnapshotRecorder(
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     ISnapshotStore store,
     RunnerConfig config,
     TimeProvider time,
@@ -39,7 +40,7 @@ public sealed class SnapshotRecorder(
     /// <summary>The slow refresh is due on the first poll and on every 10th one (poll numbers start at 1).</summary>
     public static bool IsRefreshDue(int pollNumber) => pollNumber == 1 || pollNumber % SlowRefreshEvery == 0;
 
-    public void RecordIssues(ProjectConfig project, IReadOnlyList<GbIssue> issues)
+    public void RecordIssues(ProjectConfig project, IReadOnlyList<HostIssue> issues)
     {
         try
         {
@@ -56,7 +57,7 @@ public sealed class SnapshotRecorder(
         }
     }
 
-    public void RecordPulls(PullLocation location, IReadOnlyList<GbPull> pulls)
+    public void RecordPulls(PullLocation location, IReadOnlyList<HostPull> pulls)
     {
         try
         {
@@ -99,7 +100,7 @@ public sealed class SnapshotRecorder(
             var vanishedIssues = VanishedNumbers(openIssueRows, issuesRepo, poll.OpenIssueNumbers());
             var closedIssues = await ReadClosedAsync(
                 vanishedIssues,
-                number => gitBucketClient.GetIssueAsync(issuesRepo, number, cancellationToken),
+                number => codeHost.GetIssueAsync(issuesRepo, number, cancellationToken),
                 issue => issue.IsOpen(),
                 cancellationToken);
 
@@ -114,7 +115,7 @@ public sealed class SnapshotRecorder(
                 var vanishedPulls = VanishedNumbers(openPullRows, repo, poll.OpenPullNumbers(repo));
                 var closedPulls = await ReadClosedAsync(
                     vanishedPulls,
-                    number => gitBucketClient.GetPullAsync(repo, number, cancellationToken),
+                    number => codeHost.GetPullAsync(repo, number, cancellationToken),
                     pull => pull.IsOpen(),
                     cancellationToken);
 
@@ -211,7 +212,7 @@ public sealed class SnapshotRecorder(
         var repo = project.IssuesRepo;
         var now = time.GetUtcNow();
 
-        var closedIssues = await gitBucketClient.ListClosedIssuesAsync(
+        var closedIssues = await codeHost.ListClosedIssuesAsync(
             repo,
             project.Settings.TriggerLabel,
             cancellationToken);
@@ -244,7 +245,7 @@ public sealed class SnapshotRecorder(
         IReadOnlySet<string> issueKeys,
         CancellationToken cancellationToken)
     {
-        var closedPulls = await gitBucketClient.ListPullsAsync(repo, "closed", cancellationToken);
+        var closedPulls = await codeHost.ListPullsAsync(repo, "closed", cancellationToken);
 
         var now = time.GetUtcNow();
         var source = new PullSource(poll.Project, repo, now);

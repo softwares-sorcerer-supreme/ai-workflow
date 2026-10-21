@@ -60,9 +60,6 @@ public static class Branches
     public static string LocalName(string remoteRef) =>
         remoteRef.StartsWith(RemotePrefix, StringComparison.Ordinal) ? remoteRef[RemotePrefix.Length..] : remoteRef;
 
-    /// <summary>Refspec for a PR's head commit (refs/pull/N/head); not every GitBucket version has it.</summary>
-    public static string PullHead(int number) => $"+refs/pull/{number}/head:refs/remotes/pr/{number}";
-
     public static string Feature(int parent) => $"{FeaturePrefix}{parent}";
     public static string Issue(int number) => $"ai/issue-{number}";
     public static string SubIssue(int parent, int order) => $"ai/issue-{parent}-{order}";
@@ -90,7 +87,7 @@ public static class Branches
     /// feat/issue-N into the default branch), else null. The other repos of the project are read at that branch,
     /// because that is where the work of the sibling sub-issues is.
     /// </summary>
-    public static string? FeatureBranchOf(GbPull pull)
+    public static string? FeatureBranchOf(HostPull pull)
     {
         if (IsFeature(pull.Base.Ref))
         {

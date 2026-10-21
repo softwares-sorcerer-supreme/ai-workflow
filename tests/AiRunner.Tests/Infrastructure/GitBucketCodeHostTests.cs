@@ -2,13 +2,14 @@ using System.Net;
 using System.Text;
 using AiRunner.Infrastructure;
 using AiRunner.Tests.Fakes;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
-/// <summary>GitBucketClient against canned JSON: paging, field mapping, what is sent.</summary>
-public class GitBucketClientTests
+/// <summary>GitBucketCodeHost against canned JSON: paging, field mapping, what is sent.</summary>
+public class GitBucketCodeHostTests
 {
-    private static (GitBucketClient Client, StubHttpHandler Handler) Create(Func<HttpRequestMessage, string> respond)
+    private static (GitBucketCodeHost Client, StubHttpHandler Handler) Create(Func<HttpRequestMessage, string> respond)
     {
         var handler = new StubHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -18,7 +19,7 @@ public class GitBucketClientTests
 
         var web = new GitBucketWeb(new HttpClient(handler), "");
 
-        return (new GitBucketClient(httpClient, new HttpClient(handler), web), handler);
+        return (new GitBucketCodeHost(httpClient, new HttpClient(handler), web, "http://gb"), handler);
     }
 
     private static int Page(HttpRequestMessage request)
@@ -55,9 +56,9 @@ public class GitBucketClientTests
     {
         var (client, _) = Create(_ => "\"not an object\"");
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(() => client.GetPullAsync("o/r", 1, default));
+        var exception = await Assert.ThrowsAsync<CodeHostException>(() => client.GetPullAsync("o/r", 1, default));
 
-        Assert.Contains("GbPull", exception.Message);
+        Assert.Contains("HostPull", exception.Message);
         Assert.Contains("not an object", exception.Message);
     }
 
@@ -111,7 +112,7 @@ public class GitBucketClientTests
         var (client, handler) = Create(request => request.Method == HttpMethod.Post ? reply : "[]");
         var newPull = new NewPull("t", "h", "main", "body");
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(
+        var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CreatePullAsync("o/r", newPull, default));
 
         Assert.Contains("POST repos/o/r/pulls", exception.Message);
@@ -265,7 +266,7 @@ public class GitBucketClientTests
         }
     }
 
-    private static (GitBucketClient Client, StubHttpHandler Handler) CreateForClose(
+    private static (GitBucketCodeHost Client, StubHttpHandler Handler) CreateForClose(
         CloseServer server,
         string password = "secret")
     {
@@ -275,12 +276,12 @@ public class GitBucketClientTests
         var webClient = new HttpClient(handler) { BaseAddress = new Uri($"http://gb{server.Root}/") };
         var web = new GitBucketWeb(webClient, password);
 
-        return (new GitBucketClient(apiClient, new HttpClient(handler), web), handler);
+        return (new GitBucketCodeHost(apiClient, new HttpClient(handler), web, $"http://gb{server.Root}"), handler);
     }
 
     /// <summary>The first close signs in; then the issue reopens and the session ends before the next close.</summary>
     private static async Task CloseOnceThenEndTheSessionAsync(
-        GitBucketClient client,
+        GitBucketCodeHost client,
         CloseServer server,
         SessionEnd sessionEnd)
     {
@@ -362,7 +363,7 @@ public class GitBucketClientTests
         var server = new CloseServer();
         var (client, handler) = CreateForClose(server);
         await CloseOnceThenEndTheSessionAsync(client, server, SessionEnd.OnceQuietly);
-        await Assert.ThrowsAsync<GitBucketException>(() => client.CloseIssueAsync("o/issues", 7, default));
+        await Assert.ThrowsAsync<CodeHostException>(() => client.CloseIssueAsync("o/issues", 7, default));
         handler.Urls.Clear();
 
         await client.CloseIssueAsync("o/issues", 7, default);
@@ -376,7 +377,7 @@ public class GitBucketClientTests
     {
         var (client, handler) = CreateForClose(new CloseServer(), password: "wrong");
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(
+        var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
         Assert.Contains("git_bucket.web_password", exception.Message);
@@ -388,7 +389,7 @@ public class GitBucketClientTests
     {
         var (client, _) = CreateForClose(new CloseServer { IsCloseIgnored = true });
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(
+        var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
         Assert.Contains("still open", exception.Message);
@@ -400,7 +401,7 @@ public class GitBucketClientTests
     {
         var (client, _) = CreateForClose(new CloseServer { SessionEnd = SessionEnd.Always });
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(
+        var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
         Assert.Contains("still asks to sign in", exception.Message);
@@ -412,7 +413,7 @@ public class GitBucketClientTests
     {
         var (client, handler) = CreateForClose(new CloseServer(), password: "");
 
-        var exception = await Assert.ThrowsAsync<GitBucketException>(
+        var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
         Assert.Contains("set git_bucket.web_password in repos.yml", exception.Message);

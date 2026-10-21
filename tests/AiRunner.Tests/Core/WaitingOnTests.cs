@@ -10,8 +10,8 @@ public sealed class WaitingOnTests
     private static readonly CodeLabel QueuedBadge = new(IssueMarks.Queued, "Queued");
     private static readonly CodeLabel RunningBadge = new(IssueMarks.Running, "Running");
 
-    private static GbPull Pull(int number, bool isOpen = true) =>
-        new(number, "t", new GbRef("ai/issue-7", "s"), new GbRef("main", "b"), Now, State: isOpen ? "open" : "closed");
+    private static HostPull Pull(int number, bool isOpen = true) =>
+        new(number, "t", new HostRef("ai/issue-7", "s"), new HostRef("main", "b"), Now, State: isOpen ? "open" : "closed");
 
     private static IssueSnapshot Issue(bool isOpen = true, params string[] labels) =>
         SnapshotRules.IssueRow(TestProjects.SeparateIssuesRepo(), Samples.Issue(7, labels) with
@@ -23,7 +23,7 @@ public sealed class WaitingOnTests
         string code,
         CodeLabel? flag = null,
         CodeLabel? badge = null,
-        params GbPull[] pulls)
+        params HostPull[] pulls)
     {
         var label = IssueStage.Stages.First(stage => stage.Code == code);
         IReadOnlyList<CodeLabel> flags = flag is null ? [] : [flag];

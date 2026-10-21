@@ -631,12 +631,12 @@ public class SubIssueBodyTests
     {
         var open = Samples.Issue(20);
 
-        GbPull CreatePull(string head, string @base, bool merged) =>
+        HostPull CreatePull(string head, string @base, bool merged) =>
             new(
                 1,
                 "t",
-                new GbRef(head, "s"),
-                new GbRef(@base, "b"),
+                new HostRef(head, "s"),
+                new HostRef(@base, "b"),
                 DateTimeOffset.UtcNow,
                 Merged: merged,
                 State: "closed");

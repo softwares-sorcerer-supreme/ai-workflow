@@ -238,11 +238,11 @@ public class FixContextTests
     [Fact]
     public void Review_fix_plan_has_the_review_the_human_comments_and_the_linked_plan()
     {
-        var pull = new GbPull(
+        var pull = new HostPull(
             3,
             "Add export",
-            new GbRef("ai/issue-12", "sha1"),
-            new GbRef("main", "sha0"),
+            new HostRef("ai/issue-12", "sha1"),
+            new HostRef("main", "sha0"),
             DateTimeOffset.UtcNow);
 
         var humanComment = Samples.Human(11, "@ai 1: fix, 2: skip because it is on purpose");
@@ -271,7 +271,7 @@ public class FixContextTests
     [Fact]
     public void Review_fix_plan_without_a_linked_plan_says_none()
     {
-        var pull = new GbPull(3, "x", new GbRef("a", "s"), new GbRef("main", "t"), DateTimeOffset.UtcNow);
+        var pull = new HostPull(3, "x", new HostRef("a", "s"), new HostRef("main", "t"), DateTimeOffset.UtcNow);
         var input = new ReviewFixPlanInput(
             Pull: pull,
             Review: null,

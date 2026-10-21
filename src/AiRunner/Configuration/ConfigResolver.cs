@@ -45,11 +45,13 @@ internal static partial class ConfigResolver
         }
     }
 
-    public static RunnerConfig Resolve(RunnerFile file)
+    /// <summary>The config, and beside it the web password, which must stay out of it (<see cref="ConfigFile"/>).</summary>
+    public static ConfigFile Resolve(RunnerFile file)
     {
+        var codeHost = CodeHostBlock(file);
         var config = new RunnerConfig
         {
-            GitBucket = new GitBucketConfig { BaseUrl = file.GitBucket.BaseUrl },
+            CodeHost = new CodeHostConfig { Kind = codeHost.Kind!, BaseUrl = codeHost.BaseUrl },
             PollIntervalSeconds = file.PollIntervalSeconds,
             RunnerName = file.RunnerName,
             Copilot = file.Copilot,
@@ -74,7 +76,54 @@ internal static partial class ConfigResolver
 
         Validate(config);
 
-        return config;
+        return new ConfigFile(config, codeHost.WebPassword);
+    }
+
+    /// <summary>
+    /// The code_host block, or the old git_bucket block read as kind gitbucket. With neither, a gitbucket block with
+    /// no URL: <see cref="RunnerConfig.LoadFile"/> asks for the URL, while a snippet in a test still parses.
+    /// </summary>
+    private static CodeHostFile CodeHostBlock(RunnerFile file)
+    {
+        if (file.CodeHost is not null && file.GitBucket is not null)
+        {
+            throw new InvalidOperationException(
+                "repos.yml has both 'code_host' and 'git_bucket'. Keep 'code_host' ('git_bucket' is its old name).");
+        }
+
+        if (file.GitBucket is { } oldBlock)
+        {
+            return new CodeHostFile
+            {
+                Kind = CodeHostKinds.GitBucket,
+                BaseUrl = oldBlock.BaseUrl,
+                WebPassword = oldBlock.WebPassword,
+            };
+        }
+
+        if (file.CodeHost is null)
+        {
+            return new CodeHostFile { Kind = CodeHostKinds.GitBucket };
+        }
+
+        var kind = file.CodeHost.Kind?.Trim() ?? "";
+        var knownKinds = string.Join(", ", CodeHostKinds.All);
+        if (kind.Length == 0)
+        {
+            throw new InvalidOperationException($"code_host.kind is missing. Use: {knownKinds}");
+        }
+
+        if (!CodeHostKinds.All.Contains(kind, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException($"code_host.kind '{kind}' is unknown. Use: {knownKinds}");
+        }
+
+        return new CodeHostFile
+        {
+            Kind = kind,
+            BaseUrl = file.CodeHost.BaseUrl,
+            WebPassword = file.CodeHost.WebPassword,
+        };
     }
 
     private static ProjectConfig BuildProject(string name, ProjectFile file, SettingsFile defaults)

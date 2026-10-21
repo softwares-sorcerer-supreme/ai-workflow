@@ -9,7 +9,7 @@ public sealed class JobWorkerTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
 
-    public JobWorkerTests() => _kit.GitBucket.AddIssue(7, "Export", null, "ai");
+    public JobWorkerTests() => _kit.CodeHost.AddIssue(7, "Export", null, "ai");
 
     public void Dispose() => _kit.Dispose();
 
@@ -81,8 +81,8 @@ public sealed class JobWorkerTests : IDisposable
         queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
         await worker.DrainAsync(default);
 
-        Assert.Empty(_kit.GitBucket.CommentsOf(7));
-        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Empty(_kit.CodeHost.CommentsOf(7));
+        Assert.DoesNotContain(Labels.Failed, _kit.CodeHost.LabelsOf(7));
         Assert.Single(_kit.State.ListJobs(JobStatus.Done));
         Assert.Single(_kit.State.ListCost());
     }
@@ -96,8 +96,8 @@ public sealed class JobWorkerTests : IDisposable
         queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
         await worker.DrainAsync(default);
 
-        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(7));
-        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
+        Assert.Contains(Labels.Failed, _kit.CodeHost.LabelsOf(7));
+        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.CodeHost.CommentsOf(7).Single().Body);
     }
 
     [Fact]
@@ -105,8 +105,8 @@ public sealed class JobWorkerTests : IDisposable
     {
         var logs = await RunAsync(() => throw new JobFailedException("no ANALYSIS block"));
 
-        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(7));
-        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.GitBucket.CommentsOf(7).Single().Body);
+        Assert.Contains(Labels.Failed, _kit.CodeHost.LabelsOf(7));
+        Assert.Contains("Issue analysis failed: no ANALYSIS block", _kit.CodeHost.CommentsOf(7).Single().Body);
         var costFile = Path.Combine(logs, "cost.csv");
         Assert.Contains("failed", File.ReadAllText(costFile));
         Assert.Single(_kit.State.ListJobs(JobStatus.Failed));
@@ -209,11 +209,11 @@ public sealed class JobWorkerTests : IDisposable
         queue.Enqueue(analyzeRequest);
         await worker.DrainAsync(default);
 
-        var body = _kit.GitBucket.CommentsOf(7).Single().Body;
+        var body = _kit.CodeHost.CommentsOf(7).Single().Body;
         Assert.Contains("AI review fix failed: push rejected", body);
         Assert.Contains("Write @ai again.", body);
         Assert.DoesNotContain("next commit", body);
-        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.DoesNotContain(Labels.Failed, _kit.CodeHost.LabelsOf(7));
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public sealed class JobWorkerTests : IDisposable
         queue.Enqueue(analyzeRequest);
         await worker.DrainAsync(default);
 
-        Assert.Contains("Write @bot again.", _kit.GitBucket.CommentsOf(7).Single().Body);
+        Assert.Contains("Write @bot again.", _kit.CodeHost.CommentsOf(7).Single().Body);
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public sealed class JobWorkerTests : IDisposable
     {
         await RunAsync(() => throw new TaskCanceledException("HttpClient.Timeout"));
 
-        Assert.Contains("GitBucket timed out", _kit.GitBucket.CommentsOf(7).Single().Body);
+        Assert.Contains("GitBucket timed out", _kit.CodeHost.CommentsOf(7).Single().Body);
     }
 
     [Fact]
@@ -258,8 +258,8 @@ public sealed class JobWorkerTests : IDisposable
             await worker.DrainAsync(default);
         }
 
-        Assert.Empty(_kit.GitBucket.CommentsOf(7));
-        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(7));
+        Assert.Empty(_kit.CodeHost.CommentsOf(7));
+        Assert.DoesNotContain(Labels.Failed, _kit.CodeHost.LabelsOf(7));
         Assert.Single(_kit.State.ListJobs(JobStatus.Done));
     }
 

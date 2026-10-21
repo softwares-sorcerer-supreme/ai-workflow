@@ -9,7 +9,7 @@ namespace AiRunner.Configuration;
 /// </summary>
 public sealed class RunnerConfig
 {
-    public GitBucketConfig GitBucket { get; set; } = new();
+    public CodeHostConfig CodeHost { get; set; } = new();
     public int PollIntervalSeconds { get; set; } = 90;
 
     /// <summary>Names this runner in claims. Empty = the machine user name.</summary>
@@ -70,9 +70,10 @@ public sealed class RunnerConfig
         var fullPath = Path.GetFullPath(path);
         configFile.Config.RootDir = Path.GetDirectoryName(fullPath)!;
 
-        if (string.IsNullOrWhiteSpace(configFile.Config.GitBucket.BaseUrl))
+        if (string.IsNullOrWhiteSpace(configFile.Config.CodeHost.BaseUrl))
         {
-            throw new InvalidOperationException("git_bucket.base_url is missing in " + path);
+            throw new InvalidOperationException(
+                $"code_host.base_url (or the old git_bucket.base_url) is missing in {path}");
         }
 
         return configFile;
@@ -84,9 +85,8 @@ public sealed class RunnerConfig
     public static ConfigFile ParseFile(string yaml)
     {
         var file = ConfigResolver.Deserialize(yaml);
-        var config = ConfigResolver.Resolve(file);
 
-        return new ConfigFile(config, file.GitBucket.WebPassword);
+        return ConfigResolver.Resolve(file);
     }
 }
 
@@ -95,7 +95,8 @@ public sealed class RunnerConfig
 /// because the config is handed to the dashboard and no secret may reach the dashboard (docs/adr/0001).
 /// </summary>
 /// <param name="WebPassword">
-/// git_bucket.web_password: the sign-in password of the token's user, for closing issues through the web page
+/// code_host.web_password (or git_bucket.web_password): the sign-in password of the token's user, for closing
+/// issues through the web page
 /// (/api/v3 cannot). Empty = not set. Never put it in an API response or a log.
 /// </param>
 public sealed record ConfigFile(RunnerConfig Config, string WebPassword);
@@ -115,9 +116,20 @@ public static class Workflows
     public static readonly string[] WithModel = [Analyze, Implement, Review, Fix];
 }
 
-public sealed class GitBucketConfig
+/// <summary>The code_host block without the web password. Kind and URL take effect at the next start.</summary>
+public sealed class CodeHostConfig
 {
+    /// <summary>One of <see cref="CodeHostKinds.All"/>; it picks the provider (Infrastructure/CodeHost).</summary>
+    public string Kind { get; set; } = CodeHostKinds.GitBucket;
     public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>The code hosts the runner has a provider for (code_host.kind).</summary>
+public static class CodeHostKinds
+{
+    public const string GitBucket = "gitbucket";
+
+    public static readonly string[] All = [GitBucket];
 }
 
 public sealed class CopilotConfig

@@ -2,6 +2,7 @@ using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -19,7 +20,7 @@ namespace AiRunner.Hosting;
 /// </summary>
 public sealed class Poller(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IStateStore stateStore,
     JobQueue queue,
@@ -62,8 +63,8 @@ public sealed class Poller(
         {
             // The first error of this poll is what the dashboard shows for the project.
             string? failure = null;
-            IReadOnlyList<GbIssue> openIssues = [];
-            var openPulls = new Dictionary<string, IReadOnlyList<GbPull>>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<HostIssue> openIssues = [];
+            var openPulls = new Dictionary<string, IReadOnlyList<HostPull>>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
@@ -120,7 +121,7 @@ public sealed class Poller(
     }
 
     /// <summary>Plans every open issue in scope; returns them for the snapshot.</summary>
-    private async Task<IReadOnlyList<GbIssue>> PollIssuesAsync(
+    private async Task<IReadOnlyList<HostIssue>> PollIssuesAsync(
         ProjectConfig project,
         CancellationToken cancellationToken)
     {
@@ -128,12 +129,12 @@ public sealed class Poller(
         var repo = project.IssuesRepo;
 
         // Scope guard: only issues with the trigger label or assigned to the runner's user.
-        var labelled = await gitBucketClient.ListOpenIssuesAsync(
+        var labelled = await codeHost.ListOpenIssuesAsync(
             repo,
             project.Settings.TriggerLabel,
             null,
             cancellationToken);
-        var assignedToRunner = await gitBucketClient.ListOpenIssuesAsync(
+        var assignedToRunner = await codeHost.ListOpenIssuesAsync(
             repo,
             null,
             identity.Login,
@@ -168,7 +169,7 @@ public sealed class Poller(
             var decision = JobPlanner.PlanIssue(planInput);
             if (decision.NeedsComments && isChanged)
             {
-                var comments = await gitBucketClient.ListCommentsAsync(repo, issue.Number, cancellationToken);
+                var comments = await codeHost.ListCommentsAsync(repo, issue.Number, cancellationToken);
                 var lastHandledComment = stateStore.GetLastHandledComment(repo, issue.Number);
                 var planInputWithComments = planInput with
                 {
@@ -190,7 +191,9 @@ public sealed class Poller(
     }
 
     /// <summary>Plans the open PRs of one repo when review or fix is on; returns them for the snapshot.</summary>
-    private async Task<IReadOnlyList<GbPull>> PollPullsAsync(PullLocation location, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<HostPull>> PollPullsAsync(
+        PullLocation location,
+        CancellationToken cancellationToken)
     {
         var (project, repo) = location;
         var settings = project.Settings;
@@ -202,7 +205,7 @@ public sealed class Poller(
             return [];
         }
 
-        var pulls = await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken);
+        var pulls = await codeHost.ListPullsAsync(repo, "open", cancellationToken);
 
         if (!DryRun)
         {

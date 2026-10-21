@@ -3,24 +3,24 @@ namespace AiRunner.Tests;
 /// <summary>Filled templates, as an agent would write them, and small GitBucket objects for Core tests.</summary>
 public static class Samples
 {
-    public static GbIssue Issue(int number, params string[] labels)
+    public static HostIssue Issue(int number, params string[] labels)
     {
-        var issueLabels = labels.Select(label => new GbLabel(label)).ToList();
+        var issueLabels = labels.Select(label => new HostLabel(label)).ToList();
         return new(
             number,
             $"Issue {number}",
             null,
-            new GbUser("alice"),
+            new HostUser("alice"),
             issueLabels,
             DateTimeOffset.UtcNow,
             null,
             "open");
     }
 
-    public static GbComment Human(long id, string body) => new(id, body, new GbUser("alice"), DateTimeOffset.UtcNow);
+    public static HostComment Human(long id, string body) => new(id, body, new HostUser("alice"), DateTimeOffset.UtcNow);
 
-    public static GbComment Bot(long id, string body) =>
-        new(id, BotComments.Marker + "\n" + body, new GbUser("bot"), DateTimeOffset.UtcNow);
+    public static HostComment Bot(long id, string body) =>
+        new(id, BotComments.Marker + "\n" + body, new HostUser("bot"), DateTimeOffset.UtcNow);
 
     /// <summary>The component of the one-component project of <c>JobTestKit</c>.</summary>
     public const string DefaultComponent = "demo";

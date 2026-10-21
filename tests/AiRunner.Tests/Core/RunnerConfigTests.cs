@@ -675,16 +675,65 @@ public class RunnerConfigTests
             """);
 
         Assert.Equal("secret", withPassword.WebPassword);
-        Assert.Equal("http://gitbucket", withPassword.Config.GitBucket.BaseUrl);
+        Assert.Equal("http://gitbucket", withPassword.Config.CodeHost.BaseUrl);
         Assert.Equal("", withoutPassword.WebPassword);
+    }
+
+    [Fact]
+    public void The_code_host_block_names_the_kind_the_url_and_the_web_password()
+    {
+        var configFile = RunnerConfig.ParseFile("""
+            code_host:
+              kind: gitbucket
+              base_url: http://gitbucket
+              web_password: secret
+            """);
+
+        Assert.Equal("gitbucket", configFile.Config.CodeHost.Kind);
+        Assert.Equal("http://gitbucket", configFile.Config.CodeHost.BaseUrl);
+        Assert.Equal("secret", configFile.WebPassword);
+    }
+
+    [Fact]
+    public void The_old_git_bucket_block_means_kind_gitbucket()
+    {
+        var config = RunnerConfig.Parse("""
+            git_bucket:
+              base_url: http://gitbucket
+            """);
+
+        Assert.Equal("gitbucket", config.CodeHost.Kind);
+    }
+
+    [Fact]
+    public void Both_code_host_blocks_at_once_stop_the_start()
+    {
+        var exception = Fails("""
+            code_host: { kind: gitbucket, base_url: http://a }
+            git_bucket: { base_url: http://b }
+            """);
+
+        Assert.Contains("both 'code_host' and 'git_bucket'", exception.Message);
+        Assert.Contains("Keep 'code_host'", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("code_host: { kind: gitlab, base_url: http://a }", "'gitlab' is unknown")]
+    [InlineData("code_host: { base_url: http://a }", "code_host.kind is missing")]
+    public void A_code_host_kind_the_runner_does_not_know_stops_the_start(string yaml, string expected)
+    {
+        var exception = Fails(yaml);
+
+        Assert.Contains(expected, exception.Message);
+        Assert.Contains("Use: gitbucket", exception.Message);
     }
 
     [Fact]
     public void The_config_the_dashboard_gets_has_no_place_for_the_web_password()
     {
-        var gitBucketSettings = typeof(GitBucketConfig).GetProperties().Select(property => property.Name);
+        var codeHostSettings = typeof(CodeHostConfig).GetProperties().Select(property => property.Name);
 
-        Assert.Equal(["BaseUrl"], gitBucketSettings);
+        Assert.Equal(["Kind", "BaseUrl"], codeHostSettings);
     }
 
     [Fact]

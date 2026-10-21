@@ -20,7 +20,7 @@ cd <repo root>
 dotnet user-secrets set GitBucket:Token <ai-bot token> --project src/AiRunner
 # only if git over HTTP needs a different password than the token:
 dotnet user-secrets set GitBucket:GitPassword <password> --project src/AiRunner
-# 2. The bot account's sign-in password goes in repos.yml (git_bucket.web_password), not in user secrets:
+# 2. The bot account's sign-in password goes in repos.yml (code_host.web_password), not in user secrets:
 #    GitBucket's API cannot close an issue, so the runner uses the web page.
 
 # 3. Edit repos.yml (server URL, repos, commands, limits). See the table below.
@@ -97,7 +97,7 @@ Names are camelCase in YAML (`CamelCaseNamingConvention`, `RunnerConfig.cs:48`).
 | `GitBucket:Token` (user secrets) | GitBucket API token and default git password | **yes** (except `--copilot-test`) |
 | `GITBUCKET_TOKEN` (env) | Same token, used when the secret is not set (`Program.cs:27-30`) | alternative |
 | `GitBucket:GitPassword` (user secrets) | Password for git over HTTP, if not the token | no |
-| `git_bucket.web_password` (repos.yml only) | Sign-in password of the token's user. `/api/v3` has no route to close an issue, so the runner signs in on the web page and posts its close form. Without it, closing an issue after a merge fails the job. It is kept out of the config the dashboard gets (`ConfigFile`). Check it with `--close-test owner/repo#n` (closes that issue). | for closing issues |
+| `code_host.web_password` (repos.yml only; `git_bucket.web_password` in old files) | Sign-in password of the token's user. `/api/v3` has no route to close an issue, so the runner signs in on the web page and posts its close form. Without it, closing an issue after a merge fails the job. It is kept out of the config the dashboard gets (`ConfigFile`). Check it with `--close-test owner/repo#n` (closes that issue). | for closing issues |
 | `COPILOT_GITHUB_TOKEN` (env) | Explicit seat token for Copilot. It is the only token variable **kept** for child processes. | no |
 
 `ProcessRunner` removes `GITBUCKET_TOKEN`, `GitBucket__Token`, `GitBucket__GitPassword`, `GH_TOKEN`, `GITHUB_TOKEN`, `AIRUNNER_GITHUB_TOKEN` from every child process (`Infrastructure/ProcessRunner.cs:51`).

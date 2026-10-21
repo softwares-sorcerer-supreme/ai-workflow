@@ -97,7 +97,7 @@ public static class SubIssueBody
     }
 
     /// <summary>True when the issue is the sub-issue number "order" of "parent" (read from its body, not its title).</summary>
-    public static bool IsFor(GbIssue issue, int parent, int order)
+    public static bool IsFor(HostIssue issue, int parent, int order)
     {
         try
         {
@@ -113,7 +113,7 @@ public static class SubIssueBody
     /// A sub-issue is done when its PR (branch ai/issue-{parent}-{order}) is merged into the
     /// feature branch, or when a human closed it (e.g. a developer built it another way).
     /// </summary>
-    public static bool IsDone(GbIssue sub, SubIssueSlot slot, IEnumerable<GbPull> pulls) =>
+    public static bool IsDone(HostIssue sub, SubIssueSlot slot, IEnumerable<HostPull> pulls) =>
         !sub.IsOpen() || SubIssueSequencer.MergedPull(slot, pulls) is not null;
 
     // ---- the list of sub-issues, kept as a hidden line in the parent comment ----
@@ -124,14 +124,14 @@ public static class SubIssueBody
     public const string FinalPrsMarker = "<!-- FINAL_PRS -->";
 
     /// <summary>True when the parent already has the comment that lists its final PRs.</summary>
-    public static bool HasFinalList(IEnumerable<GbComment> comments) =>
+    public static bool HasFinalList(IEnumerable<HostComment> comments) =>
         comments.Any(comment => BotComments.IsBot(comment) &&
                                 comment.Body!.Contains(FinalPrsMarker, StringComparison.Ordinal));
 
     public static string ListMarker(IEnumerable<int> numbers) => $"{ListPrefix} {string.Join(",", numbers)} -->";
 
     /// <summary>Sub-issue numbers in order, from the newest bot comment that has the hidden list.</summary>
-    public static IReadOnlyList<int>? FindList(IEnumerable<GbComment> comments)
+    public static IReadOnlyList<int>? FindList(IEnumerable<HostComment> comments)
     {
         var botComments = comments.Where(BotComments.IsBot).OrderByDescending(comment => comment.Id);
 

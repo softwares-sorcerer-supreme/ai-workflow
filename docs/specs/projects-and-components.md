@@ -119,7 +119,7 @@ The whole file uses snake_case. The loader rejects any unknown key with the line
 Target shape (this is the contract; values are examples):
 
 ```yaml
-git_bucket: { base_url: http://host:3000 }
+code_host: { kind: gitbucket, base_url: http://host:3000 }   # old name: git_bucket: (no kind)
 poll_interval_seconds: 90
 runner_name: ""                    # global; empty = machine user name; used by claims
 copilot: { command: copilot, analyze_timeout_minutes: 15, review_timeout_minutes: 15, implement_timeout_minutes: 45, extra_args: [] }
@@ -161,7 +161,7 @@ repos:                             # old flat format, still supported
 
 Rules:
 
-- Three levels. **Global only:** `git_bucket`, `poll_interval_seconds`, `runner_name`, `copilot`, `paths`,
+- Three levels. **Global only:** `code_host` (old name `git_bucket`), `poll_interval_seconds`, `runner_name`, `copilot`, `paths`,
   `log_retention_days`, `attachments`, `git`. **Defaults, overridable per project:** the `defaults` keys above.
   **Per component:** `repo`, `path`, `code` (default true), `commands`.
 - `commands` is never in `defaults` (a global command would assume a stack). Component `commands` override
@@ -354,7 +354,7 @@ Rules:
 
 - Good tests check external behaviour: what is written to GitBucket (issues, comments, labels, branches, PRs), what is
   on disk in the workspace, and what a parser returns or rejects. They do not check private helpers or call order.
-- **Main seam: jobs through `JobTestKit`** (`FakeGitBucket`, fake Copilot, fakes for process/git). A shared test fixture
+- **Main seam: jobs through `JobTestKit`** (`FakeCodeHost`, fake Copilot, fakes for process/git). A shared test fixture
   provides three layouts: multi-repo, separate issues repo, monorepo. Every layout-dependent behaviour runs as a
   `[Theory]` over all three, with the same assertions:
   - analysis passes and fails on the components rules;
@@ -374,7 +374,7 @@ Rules:
   content; scope guard really undoes changes outside the component path, `never_edit` matches and sibling-repo changes.
 - **Pure Core tests via the filled templates in `Samples.cs`**: Components affected, SPEC Component column, 6-column
   breakdown table, sub-issue body Component/Parent lines, linked-issue parsing, `never_edit` matcher cases.
-- Prior art: `JobTestKit` and `FakeGitBucket` in the test fakes, `Samples`, `GitWorkspaceTests`,
+- Prior art: `JobTestKit` and `FakeCodeHost` in the test fakes, `Samples`, `GitWorkspaceTests`,
   `RunnerConfigTests` and `JobPlannerTests`, and the code-rule test for the 3-parameter limit. All existing tests must
   stay green (update them where the config shape changes).
 - Tests need no network and must not run Copilot or touch the real GitBucket.

@@ -216,6 +216,8 @@ public sealed class FakeGit : IGitClient
 
     public string ConfigFingerprint(string directory) =>
         _lastFingerprint = Fingerprints.Count > 0 ? Fingerprints.Dequeue() : _lastFingerprint;
+
+    public string PullHeadRefspec(int number) => $"+refs/pull/{number}/head:refs/remotes/pr/{number}";
 }
 
 /// <summary>A temp folder instead of a clone.</summary>
@@ -307,7 +309,7 @@ public sealed class JobTestKit : IDisposable
     public const string BaseUrl = "http://gb.test";
 
     public RunnerConfig Config { get; }
-    public FakeGitBucket GitBucket { get; } = new();
+    public FakeCodeHost CodeHost { get; } = new();
     public FakeCopilot Copilot { get; } = new();
     public FakeGit Git { get; } = new();
     public FakeWorkspace Workspace { get; } = new();
@@ -333,7 +335,7 @@ public sealed class JobTestKit : IDisposable
 
         Config = new RunnerConfig
         {
-            GitBucket = new GitBucketConfig { BaseUrl = BaseUrl },
+            CodeHost = new CodeHostConfig { BaseUrl = BaseUrl },
             Projects = [Project],
         };
         Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
@@ -358,9 +360,9 @@ public sealed class JobTestKit : IDisposable
 
     public AgentSession Session => new(Config, Workspace, Git, Copilot, Processes);
 
-    public JobLoader Loader => new(Config, GitBucket, State, Identity);
+    public JobLoader Loader => new(Config, CodeHost, State, Identity);
 
-    public AttachmentFetcher Attachments => new(Config, GitBucket, Copilot);
+    public AttachmentFetcher Attachments => new(Config, CodeHost, Copilot);
 
     /// <summary>A request for an issue job (in the issues repo) or a PR job (in the first code repo).</summary>
     public JobRequest Request(JobType type, int number, string? payload = null)
@@ -371,7 +373,7 @@ public sealed class JobTestKit : IDisposable
         return new JobRequest(type, repo, number, payload);
     }
 
-    /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
+    /// <summary>A worker and its queue over this kit's state and code host, logging into a temp folder.</summary>
     public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs) =>
         CreateWorker(State, jobs);
 
@@ -396,8 +398,8 @@ public sealed class JobTestKit : IDisposable
             new JobLog(config, NullLogger<JobLog>.Instance),
             new CostLog(config, State, NullLogger<CostLog>.Instance),
             workerState,
-            GitBucket,
-            new ClaimService(config, GitBucket, Time),
+            CodeHost,
+            new ClaimService(config, CodeHost, Time),
             Status,
             NullLogger<JobWorker>.Instance);
 
@@ -408,7 +410,7 @@ public sealed class JobTestKit : IDisposable
     public Poller NewPoller(JobQueue queue, ISnapshotStore? snapshotStore = null)
     {
         var recorder = new SnapshotRecorder(
-            GitBucket,
+            CodeHost,
             snapshotStore ?? State,
             Config,
             Time,
@@ -416,7 +418,7 @@ public sealed class JobTestKit : IDisposable
 
         var logger = NullLogger<Poller>.Instance;
 
-        return new Poller(Config, GitBucket, Loader, State, queue, Identity, Status, recorder, logger);
+        return new Poller(Config, CodeHost, Loader, State, queue, Identity, Status, recorder, logger);
     }
 
     /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>

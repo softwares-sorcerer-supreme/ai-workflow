@@ -8,9 +8,9 @@ public sealed class SnapshotRulesTests
 
     private readonly ProjectConfig _project = TestProjects.SeparateIssuesRepo();
 
-    private IssueSnapshot Row(GbIssue issue) => SnapshotRules.IssueRow(_project, issue, Now);
+    private IssueSnapshot Row(HostIssue issue) => SnapshotRules.IssueRow(_project, issue, Now);
 
-    private static GbIssue UpdatedDaysAgo(GbIssue issue, int days) =>
+    private static HostIssue UpdatedDaysAgo(HostIssue issue, int days) =>
         issue with
         {
             UpdatedAt = Now.AddDays(-days),
@@ -22,11 +22,11 @@ public sealed class SnapshotRulesTests
     /// <summary>A closed PR in the backend repo that links issue #7 of the issues repo.</summary>
     private PullSnapshot PullRow(string head)
     {
-        var pull = new GbPull(
+        var pull = new HostPull(
             5,
             "t",
-            new GbRef(head, "s"),
-            new GbRef("main", "b"),
+            new HostRef(head, "s"),
+            new HostRef("main", "b"),
             Now,
             "Issue: org/mbh-issues#7",
             State: "closed");
@@ -41,7 +41,7 @@ public sealed class SnapshotRulesTests
         var issue = Samples.Issue(21, Labels.SubIssue, "ai") with
         {
             Body = body,
-            Assignee = new GbUser("bot"),
+            Assignee = new HostUser("bot"),
             HtmlUrl = "http://gb/org/mbh-issues/issues/21"
         };
 

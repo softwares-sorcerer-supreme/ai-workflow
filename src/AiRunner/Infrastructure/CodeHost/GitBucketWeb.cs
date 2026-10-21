@@ -1,11 +1,11 @@
 using System.Net;
 
-namespace AiRunner.Infrastructure;
+namespace AiRunner.Infrastructure.CodeHost;
 
 /// <summary>
 /// The web pages of GitBucket, for what /api/v3 cannot do: it has no "edit an issue" route, so an issue cannot be
 /// closed through it. Web routes ignore the API token, so this signs in with the password and keeps the session
-/// cookie. The sign-in and its quirks live here only; <see cref="GitBucketClient"/> just posts a form.
+/// cookie. The sign-in and its quirks live here only; <see cref="GitBucketCodeHost"/> just posts a form.
 /// Build it with <see cref="Create"/>; tests pass their own client.
 /// </summary>
 /// <param name="password">git_bucket.web_password from repos.yml. Empty = not set: posting a form then fails.</param>
@@ -53,7 +53,7 @@ public sealed class GitBucketWeb(HttpClient client, string password)
     {
         if (string.IsNullOrEmpty(password))
         {
-            throw new GitBucketException(
+            throw new CodeHostException(
                 HttpStatusCode.Unauthorized,
                 "GitBucket /api/v3 cannot close an issue, so the runner uses the web page, which needs the password " +
                 "of the token's user: set git_bucket.web_password in repos.yml.");
@@ -91,7 +91,7 @@ public sealed class GitBucketWeb(HttpClient client, string password)
         // A wrong password is a redirect back to /signin; a right one is a redirect anywhere else.
         if (!answer.IsRedirect || answer.IsSignInPage)
         {
-            throw new GitBucketException(
+            throw new CodeHostException(
                 HttpStatusCode.Unauthorized,
                 $"POST signin -> {(int)answer.Status}: GitBucket did not accept the web sign-in of {login}. " +
                 "Check git_bucket.web_password in repos.yml (the password that account uses on the sign-in page).");

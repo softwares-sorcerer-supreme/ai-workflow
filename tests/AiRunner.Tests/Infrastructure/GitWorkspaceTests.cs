@@ -2,12 +2,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 using AiRunner.Tests.Fakes;
 using AiRunner.Jobs;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
 /// <summary>
 /// Real git and real shell, against a local bare repo: baseUrl "file:///..." makes
-/// GitClient.RemoteUrl point at {root}/git/{owner}/{name}.git instead of GitBucket.
+/// GitBucketGitRemote.UrlOf point at {root}/git/{owner}/{name}.git instead of GitBucket.
 /// </summary>
 public sealed class GitWorkspaceTests : IDisposable
 {
@@ -35,7 +36,8 @@ public sealed class GitWorkspaceTests : IDisposable
         var templateFile = Path.Combine(_root, "templates", "analysis.md");
         File.WriteAllText(templateFile, "template");
 
-        _gitClient = new GitClient(_config, new RunnerIdentity { Login = "bot", GitSecret = "x" }, _processRunner);
+        var identity = new RunnerIdentity { Login = "bot", GitSecret = "x" };
+        _gitClient = new GitClient(_config, new GitBucketGitRemote(_config, identity), _processRunner);
         _workspace = new Workspace(_config, _gitClient, NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main

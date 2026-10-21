@@ -1,5 +1,5 @@
-using System.Text;
 using AiRunner.Configuration;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Infrastructure;
 
@@ -71,19 +71,21 @@ public interface IGitClient
 
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string directory);
+
+    /// <summary>The code host's refspec for a PR's head commit, for the workspace's extra fetch.</summary>
+    string PullHeadRefspec(int number);
 }
 
 /// <summary>
 /// Runs git through IProcessRunner. Credentials and hardening go in GIT_CONFIG_* environment
 /// variables of each git call: the token is never written into .git/config and never shows in
 /// the process list. Hooks and fsmonitor are off, so nothing the agent writes into the clone
-/// (.git/hooks, a config entry) runs when the runner calls git.
+/// (.git/hooks, a config entry) runs when the runner calls git. The clone URL and the auth header
+/// come from the code host's <see cref="IGitRemote"/>.
 /// </summary>
-public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IProcessRunner processRunner) : IGitClient
+public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRunner processRunner) : IGitClient
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
-
-    private string RemoteUrl(string repo) => $"{config.GitBucket.BaseUrl.TrimEnd('/')}/git/{repo}.git";
 
     public async Task CloneOrFetchAsync(string repo, string directory, CancellationToken cancellationToken)
     {
@@ -102,7 +104,7 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
         var parentFolder = Path.GetDirectoryName(directory)!;
         Directory.CreateDirectory(parentFolder);
-        var remoteUrl = RemoteUrl(repo);
+        var remoteUrl = remote.UrlOf(repo);
         await GitAsync(
             parentFolder,
             cancellationToken,
@@ -358,6 +360,8 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
             .Select(entry => entry.Trim('\r', '\n'))
             .Where(entry => entry.Length > 0);
 
+    public string PullHeadRefspec(int number) => remote.PullHeadRefspec(number);
+
     public string ConfigFingerprint(string directory)
     {
         var file = Path.Combine(directory, ".git", "config");
@@ -399,12 +403,11 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
     private Task<ProcessResult> RunAsync(string directory, CancellationToken cancellationToken, params string[] args)
     {
-        var credentialBytes = Encoding.UTF8.GetBytes($"{identity.Login}:{identity.GitSecret}");
-        var basicCredentials = Convert.ToBase64String(credentialBytes);
+        var authorizationHeader = remote.AuthorizationHeader();
         var workFolder = config.ResolvePath(config.Paths.Work);
         (string Key, string Value)[] settings =
         [
-            ("http.extraHeader", $"Authorization: Basic {basicCredentials}"),
+            ("http.extraHeader", authorizationHeader),
             ("credential.helper", ""),                                // never ask Windows Credential Manager
             ("core.hooksPath", Path.Combine(workFolder, ".no-hooks")), // does not exist
             ("core.fsmonitor", "false"),

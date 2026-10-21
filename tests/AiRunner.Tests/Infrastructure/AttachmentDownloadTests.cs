@@ -2,10 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using AiRunner.Infrastructure;
 using AiRunner.Tests.Fakes;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
-/// <summary>GitBucketClient.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.</summary>
+/// <summary>GitBucketCodeHost.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.</summary>
 public sealed class AttachmentDownloadTests : IDisposable
 {
     private const string Url = "http://gb/james/demo/_attached/abc123";
@@ -40,7 +41,7 @@ public sealed class AttachmentDownloadTests : IDisposable
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
     }
 
-    private static (GitBucketClient Client, StubHttpHandler Handler) Create(
+    private static (GitBucketCodeHost Client, StubHttpHandler Handler) Create(
         Func<HttpRequestMessage, HttpResponseMessage> respond,
         string apiUrl = "http://gb/api/v3/")
     {
@@ -50,7 +51,7 @@ public sealed class AttachmentDownloadTests : IDisposable
         var downloadClient = new HttpClient(handler);
         var web = new GitBucketWeb(new HttpClient(apiHandler), "");
 
-        return (new GitBucketClient(apiClient, downloadClient, web), handler);
+        return (new GitBucketCodeHost(apiClient, downloadClient, web, "http://gb"), handler);
     }
 
     private AttachmentDownload Download(long maxBytes = 1000, string url = Url) =>

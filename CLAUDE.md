@@ -54,6 +54,8 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
   and VPN; leave these to the user.
 - `repos.yml` is found in the current folder or a parent (or `--config <path>`); `paths` in it are relative to its folder.
+  The code host is the global `code_host: { kind: gitbucket, base_url, web_password }` block; the old `git_bucket:` block
+  (no `kind`) still means `gitbucket`; both at once, a missing or an unknown `kind` stop the start (`ConfigResolver`).
 
 ## Architecture: Poll -> Plan -> Queue -> Job
 
@@ -62,8 +64,15 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 - `Core/` — pure logic only: no I/O, no DI, no async. All decisions (`JobPlanner`, `SubIssueSequencer`) and all text parsing
   (`AnalysisParser`, `BreakdownParser`, `ReviewParser`, `SubIssueBody`, `Markers`, `MarkdownSections`) and naming (`Labels`, `Branches`,
   `BotComments`) go here. May depend only on the `Configuration/` POCOs.
-- `Infrastructure/` — every side effect behind a small interface (`IGitBucketClient`, `ICopilotRunner`, `IGitClient`, `IProcessRunner`,
-  `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a GitBucket/CLI quirk is fixed in exactly one class.
+- `Infrastructure/` — every side effect behind a small interface (`ICodeHost`, `ICopilotRunner`, `IGitClient`, `IProcessRunner`,
+  `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a code-host/CLI quirk is fixed in exactly one class.
+  `Infrastructure/CodeHost/` is the code-host provider (ADR 0004): `ICodeHost` (issues, comments, labels, PRs, close,
+  attachments, `FindAttachments`), `IGitRemote` (clone URL, git auth header, PR head refspec; `GitClient` reads it) and
+  `CodeHostCapabilities` (what a job must know about the host, named after the job's need: `KeepsLabelsOnCreate`).
+  `CodeHostRegistration` picks the provider from `code_host.kind`; GitBucket (`GitBucketCodeHost`, `GitBucketWeb`,
+  `GitBucketGitRemote`) is the only one, and no class outside the folder knows its API. Failures are `CodeHostException`.
+  The host-neutral models are `Core/CodeHostModels.cs` (`HostIssue`, `HostPull`, `HostComment`, `HostUser`, `HostLabel`,
+  `HostRef`, `HostRepo`); tests use `FakeCodeHost` (`JobTestKit.CodeHost`).
 - `Jobs/` — one `IJob` per workflow step. A job orchestrates: load fresh data, ask Core, call Infrastructure. Expected failures throw `JobFailedException`.
 - `Hosting/` — `Poller` (GitBucket -> `JobPlanner` -> `JobQueue`), `JobQueue` (SQLite-backed, one pending job per key), `JobWorker`
   (one job at a time, timeout, failure comment + `ai:failed`, cost row), `RunnerStatus` (in-memory health the poller and worker
@@ -86,7 +95,7 @@ Key mechanics that span several files:
 - **Attachments.** Files people link from human text (`/_attached/<id>` on the GitBucket host; the JSON has no attachment list) are
   downloaded by `Jobs/AttachmentFetcher` right after `IWorkspace.PrepareAsync` (the next prepare removes them) into
   `<project root>/.ai-workflow/attachments/`, and `AttachmentReport` appends an "Attachments" section to context.md / plan.md. Analyze, review,
-  implement and review fix all use it; bot comments are skipped. `GitBucketClient.DownloadAttachmentAsync` is the only code that
+  implement and review fix all use it; bot comments are skipped. `GitBucketCodeHost.DownloadAttachmentAsync` is the only code that
   knows the quirks: a second `HttpClient` that never follows redirects (a redirect to the login page = "token not accepted"), the
   token goes only to the GitBucket host, the size cap is enforced while streaming. Images and PDFs also go to Copilot with
   `--attachment` (round 1 only) when `ICopilotRunner.CanAttachFilesAsync` finds the flag in `copilot --help`; older CLIs only get the
@@ -217,11 +226,11 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
 
 ## GitBucket and security constraints
 
-- GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketClient`); keep templates ASCII.
+- GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketCodeHost`); keep templates ASCII.
 - `since` on issue lists is ignored; comment `DELETE` fails (use `PATCH`, never delete); `/pulls/{n}/files` does not exist (use `git diff` on the clone).
   Lists are paged with `per_page=100&page=n` until a page brings nothing new.
-  `/api/v3` cannot edit an issue (`PATCH issues/{n}` = 404), so `GitBucketClient.CloseIssueAsync` signs in on the web side as the token's
-  user (`git_bucket.web_password`, repos.yml only; `RunnerConfig.LoadFile` returns it in `ConfigFile` beside the config,
+  `/api/v3` cannot edit an issue (`PATCH issues/{n}` = 404), so `GitBucketCodeHost.CloseIssueAsync` signs in on the web side as the token's
+  user (`code_host.web_password`, repos.yml only; `RunnerConfig.LoadFile` returns it in `ConfigFile` beside the config,
   never inside it, so it cannot reach the dashboard; `GitBucketWeb` owns the cookie session and the sign-in), posts the issue page's form
   `{repo}/issue_comments/state` (`issueId`, `action=close`) and reads the issue back from the API (still open = exception,
   and the next close signs in again). Writes after a close go after it (`JobSupport.CloseDoneAsync`, the parent close),
@@ -261,7 +270,7 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   - Short `=>` members and lambdas are fine; use a block body when the expression spans several lines or needs a local.
   - Renaming covers locals, parameters, lambda parameters, private fields and constructor parameters only. Never rename JSON/YAML/SQLite/CLI-bound
     members, template text or markers just for style.
-- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`, `Web/` on a `TestServer`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeGitBucket`)
+- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`, `Web/` on a `TestServer`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeCodeHost`)
   and build data with `Samples.Issue/Human/Bot` and the filled templates in `Samples.cs`.
 - `SQLitePCLRaw.lib.e_sqlite3` is pinned in the csproj to fix NU1903; don't drop it.
 

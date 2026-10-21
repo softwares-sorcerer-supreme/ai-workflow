@@ -1,6 +1,7 @@
 # ai-runner config. Tokens are NOT here: use user secrets (see README). Only web_password may be here.
 # All keys are snake_case. An unknown or misspelled key stops the start, with a hint.
-git_bucket:
+code_host:                  # the old name 'git_bucket:' (without kind) still works; not both
+  kind: gitbucket           # the only provider so far
   base_url: http://10.221.10.34:3000
   web_password: ""          # sign-in password of the token's user: closes issues via the web page (the API cannot)
 

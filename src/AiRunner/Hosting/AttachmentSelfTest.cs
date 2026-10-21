@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -11,12 +12,12 @@ namespace AiRunner.Hosting;
 /// </summary>
 public sealed class AttachmentSelfTest(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     ILogger<AttachmentSelfTest> logger)
 {
     public async Task RunAsync(string url, CancellationToken cancellationToken)
     {
-        var baseUrl = config.GitBucket.BaseUrl.TrimEnd('/');
+        var baseUrl = config.CodeHost.BaseUrl.TrimEnd('/');
         var absoluteUrl = url.StartsWith('/') ? baseUrl + url : url;
         var directory = Directory.CreateTempSubdirectory("ai-runner-attachment-").FullName;
         logger.LogInformation("Downloading {Url} into {Directory}", absoluteUrl, directory);
@@ -24,7 +25,7 @@ public sealed class AttachmentSelfTest(
         var download = new AttachmentDownload(absoluteUrl, directory, "test", config.Attachments.MaxFileBytes);
         try
         {
-            var downloaded = await gitBucketClient.DownloadAttachmentAsync(download, cancellationToken);
+            var downloaded = await codeHost.DownloadAttachmentAsync(download, cancellationToken);
             var size = AttachmentReport.Size(downloaded.Bytes);
             var extension = Path.GetExtension(downloaded.Path);
             var kind = AttachmentPolicy.Classify(extension, downloaded.ContentType);
@@ -37,7 +38,7 @@ public sealed class AttachmentSelfTest(
                 kind);
         }
         catch (Exception exception) when (
-            exception is AttachmentDownloadException or HttpRequestException or GitBucketException)
+            exception is AttachmentDownloadException or HttpRequestException or CodeHostException)
         {
             logger.LogError("FAILED: {Reason}", exception.Message);
         }

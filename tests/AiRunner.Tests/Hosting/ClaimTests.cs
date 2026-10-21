@@ -32,7 +32,7 @@ public sealed class ClaimTests
     {
         var kit = new JobTestKit(settings => settings.ClaimEnabled = isClaimEnabled, project);
         kit.Config.RunnerName = Me;
-        kit.GitBucket.AddIssue(7, "Do it", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Do it", "body", "ai");
 
         return kit;
     }
@@ -49,11 +49,11 @@ public sealed class ClaimTests
 
     private static void ClaimBy(JobTestKit kit, string runner, ClaimState state = ClaimState.Claimed)
     {
-        kit.GitBucket.AddBotComment(7, Claims.Text(runner, state, kit.Time.GetUtcNow()));
-        kit.GitBucket.AddLabelsAsync(kit.Project.IssuesRepo, 7, [Labels.Claimed], default).GetAwaiter().GetResult();
+        kit.CodeHost.AddBotComment(7, Claims.Text(runner, state, kit.Time.GetUtcNow()));
+        kit.CodeHost.AddLabelsAsync(kit.Project.IssuesRepo, 7, [Labels.Claimed], default).GetAwaiter().GetResult();
     }
 
-    private static IEnumerable<ClaimInfo> ClaimsOn(JobTestKit kit) => Claims.All(kit.GitBucket.CommentsOf(7));
+    private static IEnumerable<ClaimInfo> ClaimsOn(JobTestKit kit) => Claims.All(kit.CodeHost.CommentsOf(7));
 
     // ---- the worker ----
 
@@ -66,7 +66,7 @@ public sealed class ClaimTests
 
         Assert.True(job.HasRun);
         Assert.Empty(ClaimsOn(kit));
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(7));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(7));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public sealed class ClaimTests
 
         await RunStubAsync(kit, () =>
         {
-            labelsWhileRunning = kit.GitBucket.LabelsOf(7);
+            labelsWhileRunning = kit.CodeHost.LabelsOf(7);
             claimWhileRunning = ClaimsOn(kit).Single();
 
             return Task.FromResult(JobOutcome.Ok());
@@ -86,7 +86,7 @@ public sealed class ClaimTests
 
         Assert.Contains(Labels.Claimed, labelsWhileRunning!);
         Assert.Equal((Me, ClaimState.Claimed), (claimWhileRunning!.Runner, claimWhileRunning.State));
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(7));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(7));
         Assert.Equal(ClaimState.Released, ClaimsOn(kit).Single().State);
     }
 
@@ -148,8 +148,8 @@ public sealed class ClaimTests
         await RunStubAsync(kit, () => throw new JobFailedException("no ANALYSIS block"));
 
         Assert.Equal(ClaimState.Released, ClaimsOn(kit).Single().State);
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(7));
-        Assert.Contains(Labels.Failed, kit.GitBucket.LabelsOf(7));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(7));
+        Assert.Contains(Labels.Failed, kit.CodeHost.LabelsOf(7));
     }
 
     [Fact]
@@ -174,8 +174,8 @@ public sealed class ClaimTests
         Assert.False(job.HasRun);
         var claim = ClaimsOn(kit).Single();
         Assert.Equal((Other, ClaimState.Claimed), (claim.Runner, claim.State));
-        Assert.DoesNotContain(Labels.Failed, kit.GitBucket.LabelsOf(7));
-        Assert.Contains(Labels.Claimed, kit.GitBucket.LabelsOf(7));   // the other runner's label is not touched
+        Assert.DoesNotContain(Labels.Failed, kit.CodeHost.LabelsOf(7));
+        Assert.Contains(Labels.Claimed, kit.CodeHost.LabelsOf(7));   // the other runner's label is not touched
     }
 
     [Fact]
@@ -209,7 +209,7 @@ public sealed class ClaimTests
     {
         using var kit = NewKit();
         ClaimBy(kit, Other);
-        kit.GitBucket.AddBotComment(7, "Analysis posted.");   // the other runner did produce a result
+        kit.CodeHost.AddBotComment(7, "Analysis posted.");   // the other runner did produce a result
         kit.Time.Advance(TimeSpan.FromHours(2));
 
         var job = await RunStubAsync(kit);
@@ -236,7 +236,7 @@ public sealed class ClaimTests
     {
         using var kit = NewKit();
         var forged = Claims.Text(Other, ClaimState.Claimed, kit.Time.GetUtcNow());
-        kit.GitBucket.AddHumanComment(7, forged);
+        kit.CodeHost.AddHumanComment(7, forged);
 
         var job = await RunStubAsync(kit);
 
@@ -249,11 +249,11 @@ public sealed class ClaimTests
         using var kit = NewKit();
 
         // Right after this runner writes its claim, the other runner's older claim comment shows up.
-        kit.GitBucket.OnCommentAdded = _ =>
+        kit.CodeHost.OnCommentAdded = _ =>
         {
             var older = Samples.Bot(5, Claims.Text(Other, ClaimState.Claimed, kit.Time.GetUtcNow()));
-            kit.GitBucket.Comments[7].Insert(0, older);
-            kit.GitBucket.OnCommentAdded = null;
+            kit.CodeHost.Comments[7].Insert(0, older);
+            kit.CodeHost.OnCommentAdded = null;
         };
 
         var job = await RunStubAsync(kit);
@@ -263,14 +263,14 @@ public sealed class ClaimTests
         Assert.Equal(2, claims.Count);
         Assert.Equal((Other, ClaimState.Claimed), (claims[0].Runner, claims[0].State));
         Assert.Equal((Me, ClaimState.Withdrawn), (claims[1].Runner, claims[1].State));
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(7));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(7));
     }
 
     // ---- routine jobs claim just before their first write ----
 
     private static async Task RunFinishAsync(JobTestKit kit)
     {
-        var finish = new FinishIssueJob(kit.GitBucket, kit.Loader);
+        var finish = new FinishIssueJob(kit.CodeHost, kit.Loader);
         var (worker, queue, _) = kit.CreateWorker(finish);
         queue.Enqueue(kit.Request(JobType.FinishIssue, 12));
         await worker.DrainAsync(default);
@@ -286,8 +286,8 @@ public sealed class ClaimTests
 
         await RunFinishAsync(kit);   // no PR yet
 
-        Assert.Empty(Claims.All(kit.GitBucket.CommentsOf(12)));
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(12));
+        Assert.Empty(Claims.All(kit.CodeHost.CommentsOf(12)));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(12));
     }
 
     [Theory]
@@ -297,14 +297,14 @@ public sealed class ClaimTests
         using var kit = NewKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, second);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
 
         await RunFinishAsync(kit);
 
-        Assert.False(kit.GitBucket.Issues[12].IsOpen());
-        var claim = Claims.All(kit.GitBucket.CommentsOf(12)).Single();
+        Assert.False(kit.CodeHost.Issues[12].IsOpen());
+        var claim = Claims.All(kit.CodeHost.CommentsOf(12)).Single();
         Assert.Equal((Me, ClaimState.Released), (claim.Runner, claim.State));
-        Assert.DoesNotContain(Labels.Claimed, kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Claimed, kit.CodeHost.LabelsOf(12));
     }
 
     [Theory]
@@ -314,13 +314,13 @@ public sealed class ClaimTests
         using var kit = NewKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, second);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
-        kit.GitBucket.AddBotComment(12, Claims.Text(Other, ClaimState.Claimed, kit.Time.GetUtcNow()));
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
+        kit.CodeHost.AddBotComment(12, Claims.Text(Other, ClaimState.Claimed, kit.Time.GetUtcNow()));
 
         await RunFinishAsync(kit);
 
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
-        Assert.Equal(Other, Claims.All(kit.GitBucket.CommentsOf(12)).Single().Runner);
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
+        Assert.Equal(Other, Claims.All(kit.CodeHost.CommentsOf(12)).Single().Runner);
     }
 
     // ---- the pure rules ----
@@ -329,7 +329,7 @@ public sealed class ClaimTests
     public void Decide_creates_edits_or_skips()
     {
         var now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
-        GbComment ClaimComment(long id, string runner, ClaimState state, DateTimeOffset at) =>
+        HostComment ClaimComment(long id, string runner, ClaimState state, DateTimeOffset at) =>
             Samples.Bot(id, Claims.Text(runner, state, at));
 
         Assert.Equal(ClaimAction.Create, Claims.Decide([], Me, now).Action);
@@ -349,7 +349,7 @@ public sealed class ClaimTests
 
         // "Copilot started ..." is a bot comment after the claim; it must not keep a dead claim alive.
         var progress = Samples.Bot(2, "Copilot started on branch `ai/issue-12`.");
-        GbComment[] thread = [claim, progress];
+        HostComment[] thread = [claim, progress];
 
         // A job may run until its deadline, even when that is later than the 30 minute mark.
         Assert.Equal(ClaimAction.Skip, Claims.Decide(thread, Me, now.AddMinutes(40)).Action);

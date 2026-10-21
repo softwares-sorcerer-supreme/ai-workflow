@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -12,7 +13,7 @@ namespace AiRunner.Jobs;
 /// </summary>
 public sealed class ReviewPullRequestJob(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IWorkspace workspace,
     IGitClient git,
@@ -61,7 +62,7 @@ public sealed class ReviewPullRequestJob(
         // The people's comments are part of the review input; the newest REVIEW comment also carries the review
         // history in its tag, for when ai-runner.db was deleted. The planner only read them when a fix was possible.
         var pullComments = readComments
-            ?? await gitBucketClient.ListCommentsAsync(request.Repo, pull.Number, cancellationToken);
+            ?? await codeHost.ListCommentsAsync(request.Repo, pull.Number, cancellationToken);
         var reviewComment = BotComments.Latest(pullComments, Markers.Review);
         var stored = previous?.ReviewCount is { } storedCount
             ? new ReviewHistory(previous.ReviewedSha, storedCount)
@@ -77,10 +78,10 @@ public sealed class ReviewPullRequestJob(
                 FullReviewSha = sha,
             };
             stateStore.SetReview(request.Repo, pull.Number, askedState);
-            await gitBucketClient.RemoveLabelAsync(request.Repo, pull.Number, Labels.ReviewFull, cancellationToken);
+            await codeHost.RemoveLabelAsync(request.Repo, pull.Number, Labels.ReviewFull, cancellationToken);
         }
 
-        var pullHead = Branches.PullHead(pull.Number);
+        var pullHead = git.PullHeadRefspec(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: request.Repo,
@@ -128,7 +129,7 @@ public sealed class ReviewPullRequestJob(
         await File.WriteAllLinesAsync(changedFilesFile, files, cancellationToken);
 
         var pullLink = new PullLink(project, request.Repo, pull);
-        var linked = await gitBucketClient.LinkedIssueAsync(pullLink, run, cancellationToken);
+        var linked = await codeHost.LinkedIssueAsync(pullLink, run, cancellationToken);
 
         var description = new AttachmentSource("the PR description", pull.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, description, pullComments);
@@ -165,7 +166,7 @@ public sealed class ReviewPullRequestJob(
         var parsed = JobSupport.Parse(() => ReviewParser.Parse(review), "The review");
 
         // A newer commit arrived while Copilot was running: drop this review, the next poll reviews the new head.
-        var current = await gitBucketClient.GetPullAsync(request.Repo, pull.Number, cancellationToken);
+        var current = await codeHost.GetPullAsync(request.Repo, pull.Number, cancellationToken);
         if (current.Head.Sha != sha)
         {
             return new JobOutcome(
@@ -180,22 +181,22 @@ public sealed class ReviewPullRequestJob(
         var body = wrapped + (limitNote is null ? "" : "\n\n" + limitNote) + "\n" + newHistory.Tag();
         var commentId = previous?.CommentId ?? reviewComment?.Id;
 
-        GbComment posted;
+        HostComment posted;
         if (commentId is not null)
         {
             try
             {
-                posted = await gitBucketClient.UpdateCommentAsync(
+                posted = await codeHost.UpdateCommentAsync(
                     request.Repo, commentId.Value, body, cancellationToken);
             }
-            catch (GitBucketException)
+            catch (CodeHostException)
             {
-                posted = await gitBucketClient.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
+                posted = await codeHost.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
             }
         }
         else
         {
-            posted = await gitBucketClient.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
+            posted = await codeHost.AddCommentAsync(request.Repo, pull.Number, body, cancellationToken);
         }
 
         var reviewedState = new ReviewState(sha, posted.Id, parsed.Verdict)

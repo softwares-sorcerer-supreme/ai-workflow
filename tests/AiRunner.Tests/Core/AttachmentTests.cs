@@ -166,9 +166,9 @@ public class ContextBuilderCommentTests
     [Fact]
     public void Human_comments_leave_out_the_bots_and_keep_the_order()
     {
-        var late = new GbComment(7, "second", new GbUser("bob"), DateTimeOffset.UtcNow);
-        var early = new GbComment(3, "first", new GbUser("alice"), DateTimeOffset.UtcNow);
-        var bot = new GbComment(5, BotComments.Marker + "\nreview", new GbUser("bot"), DateTimeOffset.UtcNow);
+        var late = new HostComment(7, "second", new HostUser("bob"), DateTimeOffset.UtcNow);
+        var early = new HostComment(3, "first", new HostUser("alice"), DateTimeOffset.UtcNow);
+        var bot = new HostComment(5, BotComments.Marker + "\nreview", new HostUser("bot"), DateTimeOffset.UtcNow);
 
         var text = ContextBuilder.HumanComments([late, bot, early], "## Comments");
 

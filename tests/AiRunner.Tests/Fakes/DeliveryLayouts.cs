@@ -55,22 +55,22 @@ public static class DeliveryLayouts
     public static void AddAnalysis(JobTestKit kit, int issue, string complexity, string components)
     {
         var analysis = Samples.Analysis("ready", complexity, components: components);
-        kit.GitBucket.AddBotComment(issue, Markers.Wrap(analysis, Markers.Analysis));
+        kit.CodeHost.AddBotComment(issue, Markers.Wrap(analysis, Markers.Analysis));
     }
 
     /// <summary>A simple issue 12 that is being implemented, with an analysis naming the component.</summary>
     public static void ArrangeSimpleIssue(JobTestKit kit, ComponentConfig component)
     {
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implementing);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implementing);
         AddAnalysis(kit, 12, "simple", component.Name);
     }
 
     public static ImplementIssueJob ImplementJob(JobTestKit kit) =>
-        new(kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Git, kit.Session, kit.Attachments);
+        new(kit.Config, kit.CodeHost, kit.Loader, kit.Workspace, kit.Git, kit.Session, kit.Attachments);
 
     public static FixReviewJob FixJob(JobTestKit kit) =>
-        new(kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Git, kit.Session, kit.State, kit.Attachments);
+        new(kit.Config, kit.CodeHost, kit.Loader, kit.Workspace, kit.Git, kit.Session, kit.State, kit.Attachments);
 
     public static ReviewPullRequestJob ReviewJob(JobTestKit kit) =>
-        new(kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Git, kit.Copilot, kit.State, kit.Attachments);
+        new(kit.Config, kit.CodeHost, kit.Loader, kit.Workspace, kit.Git, kit.Copilot, kit.State, kit.Attachments);
 }

@@ -7,20 +7,20 @@ public class ContractContextTests
 {
     private const string ParentSpec = "## SPEC - issue #12: Export\n\n### API changes\nNone";
 
-    private static GbIssue SubIssue()
+    private static HostIssue SubIssue()
     {
         var body = "Parent: #12\nComponent: demo\n\n### Scope\nDo it.\n\n" +
                    "### Shared contract (exact names, used by every sub-issue)\nentity Export";
 
-        return new GbIssue(21, "#12.1 Task", body, new GbUser("alice"), [], DateTimeOffset.UtcNow, null, "open");
+        return new HostIssue(21, "#12.1 Task", body, new HostUser("alice"), [], DateTimeOffset.UtcNow, null, "open");
     }
 
-    private static GbPull SubIssuePull()
+    private static HostPull SubIssuePull()
     {
-        var head = new GbRef("ai/issue-12-1", "sha");
-        var featureBase = new GbRef("feat/issue-12", "b");
+        var head = new HostRef("ai/issue-12-1", "sha");
+        var featureBase = new HostRef("feat/issue-12", "b");
 
-        return new GbPull(30, "T", head, featureBase, DateTimeOffset.UtcNow);
+        return new HostPull(30, "T", head, featureBase, DateTimeOffset.UtcNow);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class ContractContextTests
     [Fact]
     public void A_pr_of_a_simple_issue_keeps_the_plain_spec_heading()
     {
-        var pull = new GbPull(30, "T", new GbRef("ai/issue-12", "sha"), new GbRef("main", "b"), DateTimeOffset.UtcNow);
+        var pull = new HostPull(30, "T", new HostRef("ai/issue-12", "sha"), new HostRef("main", "b"), DateTimeOffset.UtcNow);
         var linked = new LinkedIssue(12, null, "the spec");
 
         var text = ContextBuilder.ForPull(pull, [], linked);
@@ -121,7 +121,7 @@ public class ContractContextTests
     [InlineData("topic", "release", null)]
     public void The_feature_branch_of_a_pr_is_its_base_else_its_head(string head, string baseRef, string? expected)
     {
-        var pull = new GbPull(30, "T", new GbRef(head, "sha"), new GbRef(baseRef, "b"), DateTimeOffset.UtcNow);
+        var pull = new HostPull(30, "T", new HostRef(head, "sha"), new HostRef(baseRef, "b"), DateTimeOffset.UtcNow);
 
         Assert.Equal(expected, Branches.FeatureBranchOf(pull));
     }

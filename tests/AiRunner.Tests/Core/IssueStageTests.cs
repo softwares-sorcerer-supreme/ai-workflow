@@ -12,7 +12,7 @@ public sealed class IssueStageTests
     /// <summary>Issues in org/mbh-issues, code in a backend and a frontend repo.</summary>
     private readonly ProjectConfig _project = TestProjects.SeparateIssuesRepo();
 
-    private IssueSnapshot Row(GbIssue issue) => SnapshotRules.IssueRow(_project, issue, Now);
+    private IssueSnapshot Row(HostIssue issue) => SnapshotRules.IssueRow(_project, issue, Now);
 
     private IssueSnapshot Open(int number, params string[] labels) => Row(Samples.Issue(number, labels));
 
@@ -35,29 +35,29 @@ public sealed class IssueStageTests
         return Row(issue);
     }
 
-    private static GbPull Pull(string head, string baseRef = "main", string state = "open", bool isMerged = false) =>
+    private static HostPull Pull(string head, string baseRef = "main", string state = "open", bool isMerged = false) =>
         new(
             90,
             "t",
-            new GbRef(head, "s"),
-            new GbRef(baseRef, "b"),
+            new HostRef(head, "s"),
+            new HostRef(baseRef, "b"),
             Now,
             State: isMerged ? "closed" : state,
             Merged: isMerged);
 
-    private StageResult Compute(IssueSnapshot issue, params (string Repo, GbPull Pull)[] pulls) =>
+    private StageResult Compute(IssueSnapshot issue, params (string Repo, HostPull Pull)[] pulls) =>
         Compute(issue, [], pulls);
 
     private StageResult Compute(
         IssueSnapshot issue,
         IReadOnlyList<IssueSnapshot> subIssues,
-        params (string Repo, GbPull Pull)[] pulls)
+        params (string Repo, HostPull Pull)[] pulls)
     {
         var pullsByRepo = pulls
             .GroupBy(entry => entry.Repo, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
-                group => (IReadOnlyList<GbPull>)group.Select(entry => entry.Pull).ToList(),
+                group => (IReadOnlyList<HostPull>)group.Select(entry => entry.Pull).ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
         return IssueStage.Compute(new StageInput(_project, issue, subIssues, pullsByRepo));
@@ -251,7 +251,7 @@ public sealed class IssueStageTests
     public void Claim_names_this_runner_only_while_its_job_holds_the_claim()
     {
         var issue = Open(7, Labels.Claimed);
-        var input = new StageInput(_project, issue, [], new Dictionary<string, IReadOnlyList<GbPull>>());
+        var input = new StageInput(_project, issue, [], new Dictionary<string, IReadOnlyList<HostPull>>());
         var running = new JobActivity(IsQueued: false, IsRunning: true);
 
         var holding = IssueStage.Compute(input with
@@ -276,7 +276,7 @@ public sealed class IssueStageTests
     [InlineData(true, true, "running")]
     public void Badge_comes_from_this_runners_jobs(bool isQueued, bool isRunning, string? badge)
     {
-        var input = new StageInput(_project, Open(7), [], new Dictionary<string, IReadOnlyList<GbPull>>())
+        var input = new StageInput(_project, Open(7), [], new Dictionary<string, IReadOnlyList<HostPull>>())
         {
             Jobs = new JobActivity(isQueued, isRunning),
         };

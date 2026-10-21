@@ -3,84 +3,20 @@ using System.Text;
 using System.Text.Json;
 using AiRunner.Core;
 
-namespace AiRunner.Infrastructure;
+namespace AiRunner.Infrastructure.CodeHost;
 
 /// <summary>
-/// The /api/v3 calls the runner uses (design doc section 10). "repo" is always "owner/name".
-/// One interface, so a GitBucket API difference is fixed in one place.
+/// GitBucket's /api/v3 (GitHub-compatible, design doc section 10) plus the web routes it lacks. Every text sent to
+/// GitBucket goes through AsciiSanitizer, because this GitBucket returns HTTP 500 on non-ASCII text. Every comment
+/// gets the bot marker. Lists read every page.
 /// </summary>
-public interface IGitBucketClient
-{
-    Task<GbUser> GetCurrentUserAsync(CancellationToken cancellationToken);
-
-    Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken);
-
-    /// <summary>Open issues (no PRs), all pages. Null filters are not sent.</summary>
-    Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(
-        string repo,
-        string? label,
-        string? assignee,
-        CancellationToken cancellationToken);
-
-    /// <summary>Closed issues (no PRs) with the label, all pages.</summary>
-    Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
-        string repo,
-        string label,
-        CancellationToken cancellationToken);
-
-    Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken);
-
-    Task<IReadOnlyList<GbComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken);
-
-    Task<GbIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken);
-
-    Task<GbComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken);
-
-    Task<GbComment> UpdateCommentAsync(string repo, long commentId, string body, CancellationToken cancellationToken);
-
-    Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Closes an issue; nothing happens when it is closed already. Throws when it is still open afterwards.
-    /// </summary>
-    Task CloseIssueAsync(string repo, int number, CancellationToken cancellationToken);
-
-    /// <summary>No error when the label is not on the issue.</summary>
-    Task RemoveLabelAsync(string repo, int number, string label, CancellationToken cancellationToken);
-
-    /// <summary>Creates a repo label; returns false when it already exists.</summary>
-    Task<bool> CreateLabelAsync(string repo, NewLabel label, CancellationToken cancellationToken);
-
-    /// <summary>state = open | closed | all.</summary>
-    Task<IReadOnlyList<GbPull>> ListPullsAsync(string repo, string state, CancellationToken cancellationToken);
-
-    Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken);
-
-    Task<GbPull> CreatePullAsync(string repo, NewPull pull, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Downloads one _attached file into <see cref="AttachmentDownload.Directory"/>. Throws
-    /// <see cref="AttachmentDownloadException"/> with a short reason when it cannot be had.
-    /// </summary>
-    Task<DownloadedAttachment> DownloadAttachmentAsync(AttachmentDownload request, CancellationToken cancellationToken);
-}
-
-/// <param name="Url">Absolute _attached URL; must be on the GitBucket host.</param>
-/// <param name="Directory">Where the file goes.</param>
-/// <param name="FileStem">The file name without extension; the extension is chosen from what the server says.</param>
-/// <param name="MaxBytes">Larger files are refused (and never kept).</param>
-public sealed record AttachmentDownload(string Url, string Directory, string FileStem, long MaxBytes);
-
-/// <param name="Path">The saved file.</param>
-/// <param name="OriginalName">The name the server gave (Content-Disposition), or null.</param>
-public sealed record DownloadedAttachment(string Path, string? OriginalName, string? ContentType, long Bytes);
-
-/// <summary>
-/// Every text sent to GitBucket goes through AsciiSanitizer, because this GitBucket returns
-/// HTTP 500 on non-ASCII text. Every comment gets the bot marker. Lists read every page.
-/// </summary>
-public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadClient, GitBucketWeb web)
-    : IGitBucketClient
+/// <param name="baseUrl">The GitBucket root (code_host.base_url), where _attached links live.</param>
+public sealed class GitBucketCodeHost(
+    HttpClient httpClient,
+    HttpClient downloadClient,
+    GitBucketWeb web,
+    string baseUrl)
+    : ICodeHost
 {
     /// <summary>Safety stop for lists; 50 pages is far more than a pilot repo has.</summary>
     private const int MaxPages = 50;
@@ -90,15 +26,21 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
     };
 
+    /// <summary>Some GitBucket versions ignore the labels of a new issue.</summary>
+    public CodeHostCapabilities Capabilities { get; } = new(KeepsLabelsOnCreate: false);
+
+    /// <summary>GitBucket's JSON has no attachment list: the _attached links in the text are all there is.</summary>
+    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) => AttachmentLinks.Find(text, baseUrl);
+
     // ---- read ----
 
-    public Task<GbUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
-        GetAsync<GbUser>("user", cancellationToken);
+    public Task<HostUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
+        GetAsync<HostUser>("user", cancellationToken);
 
-    public Task<GbRepo> GetRepoAsync(string repo, CancellationToken cancellationToken) =>
-        GetAsync<GbRepo>($"repos/{repo}", cancellationToken);
+    public Task<HostRepo> GetRepoAsync(string repo, CancellationToken cancellationToken) =>
+        GetAsync<HostRepo>($"repos/{repo}", cancellationToken);
 
-    public async Task<IReadOnlyList<GbIssue>> ListOpenIssuesAsync(
+    public async Task<IReadOnlyList<HostIssue>> ListOpenIssuesAsync(
         string repo,
         string? label,
         string? assignee,
@@ -107,7 +49,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         // GitBucket ignores "since", so the poller compares updated_at and labels itself.
         var filter = (label is null ? "" : $"&labels={Uri.EscapeDataString(label)}") +
                      (assignee is null ? "" : $"&assignee={Uri.EscapeDataString(assignee)}");
-        var items = await GetPagesAsync<GbIssue>(
+        var items = await GetPagesAsync<HostIssue>(
             $"repos/{repo}/issues?state=open{filter}",
             issue => issue.Number,
             cancellationToken);
@@ -115,12 +57,12 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         return items.Where(issue => !issue.IsPullRequest()).ToList();
     }
 
-    public async Task<IReadOnlyList<GbIssue>> ListClosedIssuesAsync(
+    public async Task<IReadOnlyList<HostIssue>> ListClosedIssuesAsync(
         string repo,
         string label,
         CancellationToken cancellationToken)
     {
-        var items = await GetPagesAsync<GbIssue>(
+        var items = await GetPagesAsync<HostIssue>(
             $"repos/{repo}/issues?state=closed&labels={Uri.EscapeDataString(label)}",
             issue => issue.Number,
             cancellationToken);
@@ -128,36 +70,36 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         return items.Where(issue => !issue.IsPullRequest()).ToList();
     }
 
-    public Task<GbIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken) =>
-        GetAsync<GbIssue>($"repos/{repo}/issues/{number}", cancellationToken);
+    public Task<HostIssue> GetIssueAsync(string repo, int number, CancellationToken cancellationToken) =>
+        GetAsync<HostIssue>($"repos/{repo}/issues/{number}", cancellationToken);
 
-    public async Task<IReadOnlyList<GbComment>> ListCommentsAsync(
+    public async Task<IReadOnlyList<HostComment>> ListCommentsAsync(
         string repo,
         int number,
         CancellationToken cancellationToken) =>
-        await GetPagesAsync<GbComment>(
+        await GetPagesAsync<HostComment>(
             $"repos/{repo}/issues/{number}/comments",
             comment => comment.Id,
             cancellationToken);
 
-    public async Task<IReadOnlyList<GbPull>> ListPullsAsync(
+    public async Task<IReadOnlyList<HostPull>> ListPullsAsync(
         string repo,
         string state,
         CancellationToken cancellationToken) =>
-        await GetPagesAsync<GbPull>($"repos/{repo}/pulls?state={state}", pull => pull.Number, cancellationToken);
+        await GetPagesAsync<HostPull>($"repos/{repo}/pulls?state={state}", pull => pull.Number, cancellationToken);
 
-    public Task<GbPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken) =>
-        GetAsync<GbPull>($"repos/{repo}/pulls/{number}", cancellationToken);
+    public Task<HostPull> GetPullAsync(string repo, int number, CancellationToken cancellationToken) =>
+        GetAsync<HostPull>($"repos/{repo}/pulls/{number}", cancellationToken);
 
     // ---- write ----
 
-    public Task<GbIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
+    public Task<HostIssue> CreateIssueAsync(string repo, NewIssue issue, CancellationToken cancellationToken)
     {
         var cleanTitle = AsciiSanitizer.Clean(issue.Title);
         var cleanBody = AsciiSanitizer.Clean(issue.Body);
         var labelNames = issue.Labels.ToArray();
 
-        return SendAsync<GbIssue>(
+        return SendAsync<HostIssue>(
             HttpMethod.Post,
             $"repos/{repo}/issues",
             new
@@ -169,7 +111,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             cancellationToken);
     }
 
-    public Task<GbComment> AddCommentAsync(
+    public Task<HostComment> AddCommentAsync(
         string repo,
         int number,
         string body,
@@ -177,7 +119,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
     {
         var markedBody = WithMarker(body);
 
-        return SendAsync<GbComment>(
+        return SendAsync<HostComment>(
             HttpMethod.Post,
             $"repos/{repo}/issues/{number}/comments",
             new
@@ -187,7 +129,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             cancellationToken);
     }
 
-    public Task<GbComment> UpdateCommentAsync(
+    public Task<HostComment> UpdateCommentAsync(
         string repo,
         long commentId,
         string body,
@@ -195,7 +137,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
     {
         var markedBody = WithMarker(body);
 
-        return SendAsync<GbComment>(
+        return SendAsync<HostComment>(
             HttpMethod.Patch,
             $"repos/{repo}/issues/comments/{commentId}",
             new
@@ -230,7 +172,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
             var reason = answer.IsSignInPage
                 ? "GitBucket still asks to sign in right after a sign-in it accepted"
                 : $"the user of the GitBucket token needs write access to {repo}";
-            throw new GitBucketException(
+            throw new CodeHostException(
                 answer.Status,
                 $"POST {closeUrl} -> {(int)answer.Status}: #{number} is still open; {reason}.");
         }
@@ -265,7 +207,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
                 null,
                 cancellationToken);
         }
-        catch (GitBucketException exception) when (exception.Status == HttpStatusCode.NotFound)
+        catch (CodeHostException exception) when (exception.Status == HttpStatusCode.NotFound)
         {
             // The label was not there.
         }
@@ -289,16 +231,17 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
 
             return true;
         }
-        catch (GitBucketException exception)
+        catch (CodeHostException exception)
             when (exception.Status is HttpStatusCode.UnprocessableEntity or HttpStatusCode.Conflict)
         {
             return false;
         }
     }
 
-    public async Task<GbPull> CreatePullAsync(string repo, NewPull pull, CancellationToken cancellationToken)
+    public async Task<HostPull> CreatePullAsync(string repo, NewPull pull, CancellationToken cancellationToken)
     {
-        // GitBucket's create reply is not readable as GbPull; only the number is trusted, the PR is read back with GET.
+        // GitBucket's create reply is not readable as HostPull; only the number is trusted, the PR is read back
+        // with GET.
         var cleanTitle = AsciiSanitizer.Clean(pull.Title);
         var markedBody = WithMarker(pull.Body);
         var created = await SendAsync<JsonElement>(
@@ -330,7 +273,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
 
         var reply = created.ValueKind == JsonValueKind.Undefined ? "(empty response)" : created.GetRawText();
         var shortReply = Text.Short(reply);
-        throw new GitBucketException(
+        throw new CodeHostException(
             HttpStatusCode.OK,
             $"POST repos/{repo}/pulls: the reply has no usable PR number and no open PR matches " +
             $"'{pull.Head}' into '{pull.BaseBranch}'. Reply: {shortReply}");
@@ -485,7 +428,7 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new GitBucketException(
+            throw new CodeHostException(
                 response.StatusCode,
                 $"{method} {url} -> {(int)response.StatusCode}: {Text.Short(text)}");
         }
@@ -502,17 +445,9 @@ public sealed class GitBucketClient(HttpClient httpClient, HttpClient downloadCl
         catch (JsonException exception)
         {
             // The raw reply is the only way to see which GitBucket quirk broke the model.
-            throw new GitBucketException(
+            throw new CodeHostException(
                 response.StatusCode,
                 $"{method} {url}: cannot read the reply as {typeof(T).Name} ({exception.Message}). Reply: {Text.Short(text)}");
         }
     }
-}
-
-/// <summary>An attachment that cannot be downloaded; the message is a short reason for the context file.</summary>
-public sealed class AttachmentDownloadException(string reason) : Exception(reason);
-
-public sealed class GitBucketException(HttpStatusCode status, string message) : Exception(message)
-{
-    public HttpStatusCode Status { get; } = status;
 }

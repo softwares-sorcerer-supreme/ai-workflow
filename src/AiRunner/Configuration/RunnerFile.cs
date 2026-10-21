@@ -6,7 +6,11 @@ namespace AiRunner.Configuration;
 
 internal sealed class RunnerFile
 {
-    public GitBucketFile GitBucket { get; set; } = new();
+    public CodeHostFile? CodeHost { get; set; }
+
+    /// <summary>The old name of <see cref="CodeHost"/>; it means kind gitbucket. Both at once stop the start.</summary>
+    public GitBucketFile? GitBucket { get; set; }
+
     public int PollIntervalSeconds { get; set; } = 90;
     public string RunnerName { get; set; } = "";
     public CopilotConfig Copilot { get; set; } = new();
@@ -21,9 +25,18 @@ internal sealed class RunnerFile
 }
 
 /// <summary>
-/// The git_bucket block. The web password is not copied into <see cref="RunnerConfig"/>: the dashboard gets the
+/// The code_host block. The web password is not copied into <see cref="RunnerConfig"/>: the dashboard gets the
 /// config, and no secret may reach it (docs/adr/0001). It travels next to it in <see cref="ConfigFile"/>.
 /// </summary>
+internal sealed class CodeHostFile
+{
+    /// <summary>Which provider talks to the host (<see cref="CodeHostKinds"/>). Required: no silent default.</summary>
+    public string? Kind { get; set; }
+    public string BaseUrl { get; set; } = "";
+    public string WebPassword { get; set; } = "";
+}
+
+/// <summary>The old git_bucket block: a code_host block without a kind.</summary>
 internal sealed class GitBucketFile
 {
     public string BaseUrl { get; set; } = "";

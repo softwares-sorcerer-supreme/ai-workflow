@@ -167,12 +167,12 @@ public sealed class IssueBoardReader(
         return running is { HoldsClaim: true } ? IssueBoard.KeyOf(running.Repo, running.Number) : null;
     }
 
-    private static Dictionary<string, IReadOnlyList<GbPull>> PullsByRepo(IReadOnlyList<PullSnapshot> pulls) =>
+    private static Dictionary<string, IReadOnlyList<HostPull>> PullsByRepo(IReadOnlyList<PullSnapshot> pulls) =>
         pulls
             .GroupBy(pull => pull.Repo, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
-                group => (IReadOnlyList<GbPull>)group.Select(pull => pull.AsPull()).ToList(),
+                group => (IReadOnlyList<HostPull>)group.Select(pull => pull.AsPull()).ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
     private static JobActivity ActivityOf(IEnumerable<JobRecord> jobsOfIssue, string? claimHolder)

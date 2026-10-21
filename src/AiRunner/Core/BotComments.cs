@@ -15,31 +15,31 @@ public static class BotComments
     /// <summary>Visible first line, so nobody mistakes a bot comment for a colleague's opinion.</summary>
     public const string VisibleTag = "**[ai-runner]**";
 
-    public static bool IsBot(GbComment comment) => comment.Body?.Contains(Marker, StringComparison.Ordinal) == true;
+    public static bool IsBot(HostComment comment) => comment.Body?.Contains(Marker, StringComparison.Ordinal) == true;
 
     /// <summary>A bot comment that holds a block of that kind (Markers.Analysis, Spec, Review).</summary>
-    public static bool Is(GbComment comment, string marker) =>
+    public static bool Is(HostComment comment, string marker) =>
         IsBot(comment) && Markers.Contains(comment.Body, marker);
 
-    public static bool IsAnalysis(GbComment comment) => Is(comment, Markers.Analysis);
+    public static bool IsAnalysis(HostComment comment) => Is(comment, Markers.Analysis);
 
     /// <summary>The newest bot comment with a block of that kind, or null.</summary>
-    public static GbComment? Latest(IEnumerable<GbComment> comments, string marker) =>
+    public static HostComment? Latest(IEnumerable<HostComment> comments, string marker) =>
         comments.Where(comment => Is(comment, marker)).MaxBy(comment => comment.Id);
 
     /// <summary>The people's comments (no bot comments), oldest first.</summary>
-    public static IEnumerable<GbComment> Humans(IEnumerable<GbComment> comments) =>
+    public static IEnumerable<HostComment> Humans(IEnumerable<HostComment> comments) =>
         comments
             .Where(comment => !IsBot(comment))
             .OrderBy(comment => comment.Id);
 
-    public static bool MentionsAi(GbComment comment) => MentionsAi(comment, "@ai");
+    public static bool MentionsAi(HostComment comment) => MentionsAi(comment, "@ai");
 
     /// <summary>A people's comment that contains the project's trigger keyword as a word of its own.</summary>
-    public static bool MentionsAi(GbComment comment, string keyword) =>
+    public static bool MentionsAi(HostComment comment, string keyword) =>
         !IsBot(comment) && comment.Body is not null &&
         Regex.IsMatch(comment.Body, @"(^|[^\w])" + Regex.Escape(keyword) + @"(?!\w)", RegexOptions.IgnoreCase);
 
-    public static int Count(IEnumerable<GbComment> comments, string marker) =>
+    public static int Count(IEnumerable<HostComment> comments, string marker) =>
         comments.Count(comment => Is(comment, marker));
 }

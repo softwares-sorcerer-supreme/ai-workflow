@@ -48,10 +48,10 @@ public sealed class PollerSnapshotTests : IDisposable
     }
 
     private static int ClosedIssueLists(JobTestKit kit) =>
-        kit.GitBucket.RepoCalls.Count(call => call.Operation == "closed-issues");
+        kit.CodeHost.RepoCalls.Count(call => call.Operation == "closed-issues");
 
-    private static GbIssue Closed(JobTestKit kit, GbIssue issue, int daysAgo) =>
-        kit.GitBucket.Issues[issue.Number] = issue with
+    private static HostIssue Closed(JobTestKit kit, HostIssue issue, int daysAgo) =>
+        kit.CodeHost.Issues[issue.Number] = issue with
         {
             State = "closed",
             UpdatedAt = kit.Time.GetUtcNow().AddDays(-daysAgo)
@@ -61,9 +61,9 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Snapshot_holds_the_issues_in_scope_and_the_open_prs_even_with_review_and_fix_off()
     {
         var kit = NewKit(isReviewOn: false);
-        kit.GitBucket.AddIssue(7, "Export", null, "ai", Labels.Ready, Labels.Simple);
-        kit.GitBucket.AddIssue(9, "Not in scope", null);
-        kit.GitBucket.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7", labels: "ai");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai", Labels.Ready, Labels.Simple);
+        kit.CodeHost.AddIssue(9, "Not in scope", null);
+        kit.CodeHost.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7", labels: "ai");
 
         await NewPoller(kit).PollOnceAsync(default);
 
@@ -84,7 +84,7 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Slow_refresh_runs_on_the_first_and_every_tenth_poll()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
         var poller = NewPoller(kit);
 
         await poller.PollOnceAsync(default);
@@ -101,14 +101,14 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Slow_refresh_keeps_recent_closed_issues_and_closed_subs_of_an_open_parent()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(12, "Parent", null, "ai", Labels.Parent);
+        kit.CodeHost.AddIssue(12, "Parent", null, "ai", Labels.Parent);
         var subIssueBody = DeliveryLayouts.SubIssueBodyFor(12, 1, "demo");
-        Closed(kit, kit.GitBucket.AddIssue(20, "Old sub", subIssueBody, "ai", Labels.SubIssue), daysAgo: 90);
-        Closed(kit, kit.GitBucket.AddIssue(8, "Old", null, "ai"), daysAgo: 90);
-        Closed(kit, kit.GitBucket.AddIssue(9, "Recent", null, "ai"), daysAgo: 2);
-        kit.GitBucket.AddPull(40, "ai/issue-9", "main", body: "Issue: james/demo#9", merged: true, state: "closed");
-        kit.GitBucket.AddPull(41, "ai/issue-8", "main", body: "Issue: james/demo#8", merged: true, state: "closed");
-        kit.GitBucket.AddPull(42, "feature/x", "main", body: "Issue: james/demo#9", state: "closed");
+        Closed(kit, kit.CodeHost.AddIssue(20, "Old sub", subIssueBody, "ai", Labels.SubIssue), daysAgo: 90);
+        Closed(kit, kit.CodeHost.AddIssue(8, "Old", null, "ai"), daysAgo: 90);
+        Closed(kit, kit.CodeHost.AddIssue(9, "Recent", null, "ai"), daysAgo: 2);
+        kit.CodeHost.AddPull(40, "ai/issue-9", "main", body: "Issue: james/demo#9", merged: true, state: "closed");
+        kit.CodeHost.AddPull(41, "ai/issue-8", "main", body: "Issue: james/demo#8", merged: true, state: "closed");
+        kit.CodeHost.AddPull(42, "feature/x", "main", body: "Issue: james/demo#9", state: "closed");
 
         await NewPoller(kit).PollOnceAsync(default);
 
@@ -123,14 +123,14 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Vanished_open_issue_stays_until_the_slow_refresh_removes_it()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(5, "Gone soon", null, "ai");
-        kit.GitBucket.AddPull(31, "ai/issue-5", "main", body: "Issue: james/demo#5");
+        kit.CodeHost.AddIssue(5, "Gone soon", null, "ai");
+        kit.CodeHost.AddPull(31, "ai/issue-5", "main", body: "Issue: james/demo#5");
         var poller = NewPoller(kit);
         await poller.PollOnceAsync(default);
 
         // Deleted on the server, or its label was removed: it is not listed any more.
-        kit.GitBucket.Issues.Remove(5);
-        kit.GitBucket.Pulls.Clear();
+        kit.CodeHost.Issues.Remove(5);
+        kit.CodeHost.Pulls.Clear();
         await PollAsync(poller, 8);   // polls 2..9
 
         Assert.Single(kit.State.ListIssues());
@@ -143,20 +143,20 @@ public sealed class PollerSnapshotTests : IDisposable
     }
 
     private static int Reads(JobTestKit kit, string operation) =>
-        kit.GitBucket.RepoCalls.Count(call => call.Operation == operation);
+        kit.CodeHost.RepoCalls.Count(call => call.Operation == operation);
 
     [Fact]
     public async Task A_merged_pr_shows_as_merged_on_the_next_poll_not_at_the_slow_refresh()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
-        kit.GitBucket.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
         var poller = NewPoller(kit);
         await poller.PollOnceAsync(default);   // poll 1
         Assert.Equal((false, "open"), (kit.State.ListPulls().Single().IsMerged, kit.State.ListPulls().Single().State));
 
-        var index = kit.GitBucket.Pulls.FindIndex(pull => pull.Number == 30);
-        kit.GitBucket.Pulls[index] = kit.GitBucket.Pulls[index] with { State = "closed", Merged = true };
+        var index = kit.CodeHost.Pulls.FindIndex(pull => pull.Number == 30);
+        kit.CodeHost.Pulls[index] = kit.CodeHost.Pulls[index] with { State = "closed", Merged = true };
         await poller.PollOnceAsync(default);   // poll 2
 
         var merged = Assert.Single(kit.State.ListPulls());
@@ -167,11 +167,11 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task A_closed_issue_shows_as_closed_on_the_next_poll_not_at_the_slow_refresh()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai", Labels.Implementing);
+        kit.CodeHost.AddIssue(7, "Export", null, "ai", Labels.Implementing);
         var poller = NewPoller(kit);
         await poller.PollOnceAsync(default);   // poll 1
 
-        Closed(kit, kit.GitBucket.Issues[7], daysAgo: 0);
+        Closed(kit, kit.CodeHost.Issues[7], daysAgo: 0);
         await poller.PollOnceAsync(default);   // poll 2
 
         Assert.Equal("closed", Assert.Single(kit.State.ListIssues()).State);
@@ -181,8 +181,8 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Nothing_is_re_read_while_nothing_has_vanished()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
-        kit.GitBucket.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddPull(30, "ai/issue-7", "main", body: "Issue: james/demo#7");
 
         await PollAsync(NewPoller(kit), 3);
 
@@ -194,12 +194,12 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task An_open_issue_that_is_only_out_of_scope_is_read_but_not_saved_again()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
         var poller = NewPoller(kit);
         await poller.PollOnceAsync(default);
 
         // The trigger label is removed: the issue is still open but no longer listed.
-        kit.GitBucket.Issues[7] = kit.GitBucket.Issues[7] with { Labels = [] };
+        kit.CodeHost.Issues[7] = kit.CodeHost.Issues[7] with { Labels = [] };
         await poller.PollOnceAsync(default);
 
         Assert.Equal(1, Reads(kit, "issue-read"));
@@ -210,11 +210,11 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task A_failed_list_does_not_make_every_row_look_vanished()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
         var poller = NewPoller(kit);
         await poller.PollOnceAsync(default);
 
-        kit.GitBucket.IssueListError = "VPN down";
+        kit.CodeHost.IssueListError = "VPN down";
         await poller.PollOnceAsync(default);
 
         Assert.Equal(0, Reads(kit, "issue-read"));
@@ -226,8 +226,8 @@ public sealed class PollerSnapshotTests : IDisposable
     {
         var kit = NewKit();
         var subIssueBody = DeliveryLayouts.SubIssueBodyFor(12, 1, "demo");
-        Closed(kit, kit.GitBucket.AddIssue(12, "Parent", null, "ai", Labels.Parent), daysAgo: 1);
-        Closed(kit, kit.GitBucket.AddIssue(20, "Old sub", subIssueBody, "ai", Labels.SubIssue), daysAgo: 90);
+        Closed(kit, kit.CodeHost.AddIssue(12, "Parent", null, "ai", Labels.Parent), daysAgo: 1);
+        Closed(kit, kit.CodeHost.AddIssue(20, "Old sub", subIssueBody, "ai", Labels.SubIssue), daysAgo: 90);
 
         await NewPoller(kit).PollOnceAsync(default);
 
@@ -239,14 +239,14 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task A_failed_issue_list_leaves_the_refresh_due_for_the_next_poll()
     {
         var kit = NewKit();
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
         var poller = NewPoller(kit);
 
-        kit.GitBucket.IssueListError = "VPN down";
+        kit.CodeHost.IssueListError = "VPN down";
         await poller.PollOnceAsync(default);
         Assert.Equal(0, ClosedIssueLists(kit));
 
-        kit.GitBucket.IssueListError = null;
+        kit.CodeHost.IssueListError = null;
         await poller.PollOnceAsync(default);
         Assert.Equal(1, ClosedIssueLists(kit));
     }
@@ -263,16 +263,16 @@ public sealed class PollerSnapshotTests : IDisposable
         var broken = NewKit();
         foreach (var kit in new[] { baseline, working, broken })
         {
-            kit.GitBucket.AddIssue(7, "Export", null, "ai");
-            var waiting = kit.GitBucket.AddIssue(8, "Waiting", null, "ai", Labels.QuestionsOpen);
+            kit.CodeHost.AddIssue(7, "Export", null, "ai");
+            var waiting = kit.CodeHost.AddIssue(8, "Waiting", null, "ai", Labels.QuestionsOpen);
 
             // The same updated_at in both kits, so their fingerprints can be compared.
-            kit.GitBucket.Issues[8] = waiting with
+            kit.CodeHost.Issues[8] = waiting with
             {
                 UpdatedAt = kit.Time.GetUtcNow()
             };
-            kit.GitBucket.AddBotComment(8, Markers.Wrap("x", Markers.Analysis));
-            kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
+            kit.CodeHost.AddBotComment(8, Markers.Wrap("x", Markers.Analysis));
+            kit.CodeHost.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         }
 
         await PollAsync(NewPoller(baseline, new NoSnapshotStore()), 2);
@@ -327,15 +327,15 @@ public sealed class PollerSnapshotTests : IDisposable
     public async Task Dry_run_writes_no_snapshot_and_lists_no_extra_prs()
     {
         var kit = NewKit(isReviewOn: false);
-        kit.GitBucket.AddIssue(7, "Export", null, "ai");
-        kit.GitBucket.AddPull(30, "ai/issue-7", "main");
+        kit.CodeHost.AddIssue(7, "Export", null, "ai");
+        kit.CodeHost.AddPull(30, "ai/issue-7", "main");
         var poller = NewPoller(kit);
         poller.DryRun = true;
 
         await poller.PollOnceAsync(default);
 
         Assert.Empty(kit.State.ListIssues());
-        Assert.Empty(kit.GitBucket.ReposOf("pulls"));
+        Assert.Empty(kit.CodeHost.ReposOf("pulls"));
         Assert.Equal(0, ClosedIssueLists(kit));
     }
 

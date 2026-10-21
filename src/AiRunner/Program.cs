@@ -1,7 +1,7 @@
-using System.Net.Http.Headers;
 using AiRunner.Configuration;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 using AiRunner.Jobs;
 using AiRunner.Web;
 
@@ -47,26 +47,9 @@ var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(identity);
 
-// Attachments are web routes, not /api/v3: a second client that never follows redirects (a redirect to the
-// login page is reported, and the token cannot be sent on to another host). Closing an issue is a web form too
-// (the API has no route for it): a third client with a session cookie, signed in with git_bucket.web_password.
-builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(
-    new HttpClient
-    {
-        BaseAddress = new Uri(config.GitBucket.BaseUrl.TrimEnd('/') + "/api/v3/"),
-        Timeout = TimeSpan.FromSeconds(30),
-        DefaultRequestHeaders =
-        {
-            Authorization = new AuthenticationHeaderValue("token", token),
-            Accept = { new MediaTypeWithQualityHeaderValue("application/json") },
-        },
-    },
-    new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
-    {
-        Timeout = TimeSpan.FromMinutes(2),
-        DefaultRequestHeaders = { Authorization = new AuthenticationHeaderValue("token", token) },
-    },
-    GitBucketWeb.Create(config.GitBucket.BaseUrl, configFile.WebPassword)));
+// The code host (code_host.kind): the API client and the git remote of its provider.
+CodeHostRegistration.Add(builder.Services, configFile, token);
+
 builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
 builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
 builder.Services.AddSingleton<IGitClient, GitClient>();
@@ -147,15 +130,15 @@ if (mode.CloseTestIssue is { } closeTestIssue)
     return;
 }
 
-// Who are we on GitBucket? Needed for the scope guard and for git over HTTP.
-var currentUser = await services.GetRequiredService<IGitBucketClient>().GetCurrentUserAsync(cancellationToken);
+// Who are we on the code host? Needed for the scope guard and for git over HTTP.
+var currentUser = await services.GetRequiredService<ICodeHost>().GetCurrentUserAsync(cancellationToken);
 identity.Login = currentUser.Login;
 
 var logger = services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation(
     "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
     identity.Login,
-    config.GitBucket.BaseUrl,
+    config.CodeHost.BaseUrl,
     config.Projects.Count,
     config.AllRepos().Count(),
     fullConfigPath);

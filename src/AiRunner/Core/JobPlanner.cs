@@ -305,12 +305,12 @@ public static class JobPlanner
     /// The PR carries the label ai-review-full and its head has not had that full review yet (the review job removes
     /// the label, and the head it stored keeps a label that could not be removed from asking again).
     /// </summary>
-    public static bool IsFullReviewAsked(GbPull pull, string? fullReviewSha) =>
+    public static bool IsFullReviewAsked(HostPull pull, string? fullReviewSha) =>
         pull.LabelNames().Contains(Labels.ReviewFull) &&
         !string.Equals(fullReviewSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A human opts a PR in with the trigger label; PRs this runner opened itself are always in.</summary>
-    private static bool InScope(GbPull pull, string botLogin, string triggerLabel) =>
+    private static bool InScope(HostPull pull, string botLogin, string triggerLabel) =>
         pull.LabelNames().Contains(triggerLabel) ||
         (Branches.IsAiBranch(pull.Head.Ref) &&
          string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase));
