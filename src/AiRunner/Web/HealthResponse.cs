@@ -12,7 +12,7 @@ public sealed record PollErrorResponse(string Project, string Message, DateTimeO
 
 /// <summary>
 /// <c>GET /api/health</c>: is the runner working? Every state comes as a stable code (for styling) plus the text to
-/// show, so the UI never decides what "healthy" means. Times are UTC.
+/// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button. Times are UTC.
 /// </summary>
 public sealed record HealthResponse(
     string State,
@@ -25,6 +25,7 @@ public sealed record HealthResponse(
     DateTimeOffset? LastPollStartedAt,
     DateTimeOffset? LastPollEndedAt,
     bool IsPolling,
+    bool IsPaused,
     WorkerHealth Worker,
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
@@ -41,7 +42,10 @@ public sealed record HealthResponse(
             status.LastPollEndedAt,
             pollInterval,
             status.Errors.Count,
-            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null);
+            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null)
+        {
+            IsPaused = status.IsPaused,
+        };
         var health = RunnerHealth.Assess(input);
 
         var worker = status.WorkerBusySince is { } busySince
@@ -63,6 +67,7 @@ public sealed record HealthResponse(
             status.LastPollStartedAt,
             status.LastPollEndedAt,
             status.IsPolling,
+            status.IsPaused,
             worker,
             ErrorsLabelOf(errors.Count),
             errors);

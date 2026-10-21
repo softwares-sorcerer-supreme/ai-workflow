@@ -8,6 +8,7 @@ export interface HealthResponse {
   copilotVersion: string;
   errors: Array<PollErrorResponse>;
   errorsLabel: string;
+  isPaused: boolean;
   isPolling: boolean;
   lastPollEndedAt: (string | null);
   lastPollStartedAt: (string | null);

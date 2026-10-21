@@ -344,7 +344,11 @@ public sealed class JobTestKit : IDisposable
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
         Status = new RunnerStatus("test-runner", "repos.yml", Time);
+        Commands = new RunnerCommands(Status);
     }
+
+    /// <summary>The dashboard's runtime controls, shared by the kit's worker and poller.</summary>
+    public RunnerCommands Commands { get; }
 
     /// <summary>The in-memory health the poller and the worker write, on the kit's clock.</summary>
     public RunnerStatus Status { get; }
@@ -399,6 +403,7 @@ public sealed class JobTestKit : IDisposable
             CodeHost,
             new ClaimService(config, CodeHost, Time),
             Status,
+            Commands,
             NullLogger<JobWorker>.Instance);
 
         return (worker, queue, logs);
@@ -416,7 +421,7 @@ public sealed class JobTestKit : IDisposable
 
         var logger = NullLogger<Poller>.Instance;
 
-        return new Poller(Config, CodeHost, Loader, State, queue, Identity, Status, recorder, logger);
+        return new Poller(Config, CodeHost, Loader, State, queue, Identity, Status, recorder, Commands, logger);
     }
 
     /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>

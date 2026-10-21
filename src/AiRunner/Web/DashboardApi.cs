@@ -12,8 +12,10 @@ using Microsoft.AspNetCore.Routing;
 namespace AiRunner.Web;
 
 /// <summary>
-/// The dashboard's JSON API under <c>/api</c>: read-only, computed answers only (codes plus labels), UTC times.
-/// It reads the runner's in-memory status and local data; it never calls GitBucket (docs/adr/0001).
+/// The dashboard's JSON API under <c>/api</c>: computed answers only (codes plus labels), UTC times.
+/// It reads the runner's in-memory status and local data; it never calls GitBucket (docs/adr/0001). The writes are
+/// runtime controls handed to <see cref="RunnerCommands"/>; each is marked <see cref="WriteRoute"/>, so it is behind
+/// the <see cref="WriteGuard"/>.
 /// </summary>
 public static class DashboardApi
 {
@@ -67,8 +69,66 @@ public static class DashboardApi
             .WithName("getCost")
             .WithSummary("Copilot calls, billed credits, tokens, jobs and job time per day, project, issue or model.");
 
+        var writes = api.MapGroup("")
+            .WithMetadata(WriteRoute.Instance);
+
+        writes.MapPost("/runner/poll", PollNow)
+            .WithTags("Runner")
+            .WithName("pollNow")
+            .WithSummary("Poll now; a poll that is running finishes first.");
+
+        writes.MapPost("/runner/pause", Pause)
+            .WithTags("Runner")
+            .WithName("pauseRunner")
+            .WithSummary("Take no new job until resumed; polls go on and the running job finishes.");
+
+        writes.MapPost("/runner/resume", Resume)
+            .WithTags("Runner")
+            .WithName("resumeRunner")
+            .WithSummary("Take jobs again after a pause.");
+
+        writes.MapPost("/jobs/{id:long}/cancel", CancelJob)
+            .WithTags("Jobs")
+            .WithName("cancelJob")
+            .WithSummary("Cancel the running job; it fails like a timeout. A pending job cannot be cancelled.");
+
         return endpoints;
     }
+
+    private static Accepted<CommandResponse> PollNow(RunnerCommands commands)
+    {
+        commands.WakePoller();
+
+        return AcceptedWith("A poll starts now, or right after the one that is running.");
+    }
+
+    private static Accepted<CommandResponse> Pause(RunnerCommands commands)
+    {
+        commands.Pause();
+
+        return AcceptedWith("Paused: no new job starts. A running job finishes.");
+    }
+
+    private static Accepted<CommandResponse> Resume(RunnerCommands commands)
+    {
+        commands.Resume();
+
+        return AcceptedWith("Resumed: queued jobs start again.");
+    }
+
+    private static Results<Accepted<CommandResponse>, Conflict<ApiError>> CancelJob(long id, RunnerCommands commands)
+    {
+        var result = commands.Cancel(id);
+        if (result == CancelResult.NotRunning)
+        {
+            return TypedResults.Conflict(new ApiError($"Job {id} is not running. Pause the runner to hold queued jobs."));
+        }
+
+        return AcceptedWith($"Job {id} is being cancelled. Its issue or PR gets the failure comment.");
+    }
+
+    private static Accepted<CommandResponse> AcceptedWith(string message) =>
+        TypedResults.Accepted((string?)null, new CommandResponse(message));
 
     /// <summary>The query string of <c>GET /api/cost</c>.</summary>
     public sealed record CostFilter(

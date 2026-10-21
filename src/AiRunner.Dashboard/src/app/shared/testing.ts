@@ -166,6 +166,7 @@ export function sampleHealth(overrides: Partial<HealthResponse> = {}): HealthRes
     lastPollStartedAt: '2026-01-01T11:59:00Z',
     lastPollEndedAt: '2026-01-01T11:59:30Z',
     isPolling: false,
+    isPaused: false,
     worker: { state: 'idle', stateLabel: 'Idle', since: null },
     errorsLabel: 'No poll errors',
     errors: [],

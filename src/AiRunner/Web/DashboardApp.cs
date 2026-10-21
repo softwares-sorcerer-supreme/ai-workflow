@@ -23,6 +23,12 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
 
     /// <summary>Read access to the cost log; the default is empty (the OpenAPI export needs none).</summary>
     public ICostReader Cost { get; init; } = NoCost.Instance;
+
+    /// <summary>
+    /// The runtime controls, shared with the runner's poller and worker; the default controls nothing (the OpenAPI
+    /// export runs no runner). This is the web app's only way to act: it holds no token and no code-host client.
+    /// </summary>
+    public RunnerCommands Commands { get; init; } = new(Status);
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -55,7 +61,8 @@ public sealed class NoJobs : IJobReader
 /// The dashboard's small web app. It is built from an empty builder on purpose: it reads no appsettings, no
 /// environment variables and no user secrets, so the GitBucket token can never reach it, and it gets only the
 /// services the API reads. Kestrel listens on 127.0.0.1; host filtering refuses any other Host header, so a web page
-/// on another site cannot reach the API through DNS rebinding. Read-only: every method other than GET is refused.
+/// on another site cannot reach the API through DNS rebinding. Reads are GET; a write is allowed only on a route
+/// marked <see cref="WriteRoute"/> and only past the <see cref="WriteGuard"/>; any other method is a 405.
 /// </summary>
 public static class DashboardApp
 {
@@ -101,6 +108,7 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Jobs);
         builder.Services.AddSingleton(options.Snapshot);
         builder.Services.AddSingleton(options.Cost);
+        builder.Services.AddSingleton(options.Commands);
         builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<OverviewReader>();
@@ -117,7 +125,7 @@ public static class DashboardApp
         var indexFile = Path.Combine(options.WebRoot, IndexFile);
         var isUiBuilt = File.Exists(indexFile);
 
-        app.Use(RejectNonGetAsync);
+        app.Use(RejectOtherMethodsAsync);
         app.UseHostFiltering();
 
         // Static files run before routing: once a fallback endpoint is chosen, the static file middleware steps aside.
@@ -131,6 +139,10 @@ public static class DashboardApp
         }
 
         app.UseRouting();
+
+        // After routing (the endpoint is known), before the endpoint binds its parameters.
+        var port = options.Config.Dashboard.Port;
+        app.Use((context, next) => GuardWritesAsync(context, next, port));
 
         app.MapOpenApi();
         app.MapDashboardApi();
@@ -149,17 +161,57 @@ public static class DashboardApp
         return app;
     }
 
-    /// <summary>v1 is read-only (docs/adr/0003): anything but GET is a 405, whatever the route.</summary>
-    private static async Task RejectNonGetAsync(HttpContext context, RequestDelegate next)
+    /// <summary>Only GET and the methods a write route may use get past this; anything else is a 405 at once.</summary>
+    private static async Task RejectOtherMethodsAsync(HttpContext context, RequestDelegate next)
     {
-        if (!HttpMethods.IsGet(context.Request.Method))
+        var method = context.Request.Method;
+        var isKnown = HttpMethods.IsGet(method) ||
+                      HttpMethods.IsPost(method) ||
+                      HttpMethods.IsPut(method) ||
+                      HttpMethods.IsDelete(method);
+        if (!isKnown)
         {
-            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-            context.Response.Headers.Allow = HttpMethods.Get;
+            RejectMethod(context);
             return;
         }
 
         await next(context);
+    }
+
+    /// <summary>
+    /// A non-GET request must have reached a write route (else 405: an unmapped method, an unknown /api route or a
+    /// UI route) and must pass the write guard (else 403).
+    /// </summary>
+    private static async Task GuardWritesAsync(HttpContext context, RequestDelegate next, int port)
+    {
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            await next(context);
+            return;
+        }
+
+        var endpoint = context.GetEndpoint();
+        if (endpoint?.Metadata.GetMetadata<WriteRoute>() is null)
+        {
+            RejectMethod(context);
+            return;
+        }
+
+        var refusal = WriteGuard.WhyRefused(context.Request, port);
+        if (refusal is not null)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ApiError(refusal));
+            return;
+        }
+
+        await next(context);
+    }
+
+    private static void RejectMethod(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+        context.Response.Headers.Allow = HttpMethods.Get;
     }
 
     private const string NotBuiltPage = """

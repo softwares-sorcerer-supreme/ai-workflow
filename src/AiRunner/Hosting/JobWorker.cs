@@ -35,8 +35,12 @@ public sealed class JobWorker(
     ICodeHost codeHost,
     ClaimService claims,
     RunnerStatus status,
+    RunnerCommands commands,
     ILogger<JobWorker> logger) : BackgroundService
 {
+    /// <summary>The failure message of a job cancelled from the dashboard.</summary>
+    public const string CancelledMessage = "Cancelled from the dashboard.";
+
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         await RecoverAsync();
@@ -47,6 +51,10 @@ public sealed class JobWorker(
             try
             {
                 job = await queue.DequeueAsync(cancellationToken);
+
+                // After the dequeue: an idle worker waits in DequeueAsync when the pause comes. The held job stays
+                // pending; a stale payload is harmless, because every job re-plans on fresh data.
+                await commands.WaitWhilePausedAsync(cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -92,6 +100,9 @@ public sealed class JobWorker(
         var timeout = job.Info.Timeout;
         run.Deadline = DateTimeOffset.UtcNow + timeout;
         timeoutSource.CancelAfter(timeout);
+
+        // Declared after the source, so it is disposed first: a cancel from the dashboard never meets a disposed source.
+        using var runningHandle = commands.Track(stored.Id, timeoutSource);
 
         // Claims (claim_enabled): a normal job claims its issue or PR up front, a routine one just before its first
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
@@ -171,6 +182,9 @@ public sealed class JobWorker(
             var message = exception switch
             {
                 JobFailedException => exception.Message,
+                // A cancel from the dashboard cancels the same source, so it takes the timeout path.
+                OperationCanceledException when timeoutSource.IsCancellationRequested && runningHandle.IsCancelled =>
+                    CancelledMessage,
                 OperationCanceledException when timeoutSource.IsCancellationRequested =>
                     $"The job did not finish within {job.Info.Timeout.TotalMinutes:F0} minutes.",
                 OperationCanceledException => "A call to GitBucket timed out (VPN or server down?).",

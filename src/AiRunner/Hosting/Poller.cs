@@ -27,6 +27,7 @@ public sealed class Poller(
     RunnerIdentity identity,
     RunnerStatus status,
     SnapshotRecorder snapshot,
+    RunnerCommands commands,
     ILogger<Poller> logger) : BackgroundService
 {
     private int _pollCount;
@@ -42,11 +43,31 @@ public sealed class Poller(
         var pollInterval = TimeSpan.FromSeconds(config.PollIntervalSeconds);
         using var timer = new PeriodicTimer(pollInterval);
 
-        do
+        // The wait that lost is kept for the next round: PeriodicTimer allows one wait in flight, and a second read
+        // of the wake channel would swallow the next wake. A wake during a poll completes the kept wait, so it gives
+        // exactly one more poll after it.
+        Task<bool>? tick = null;
+        Task? wake = null;
+        while (true)
         {
             await PollOnceAsync(cancellationToken);
+
+            tick ??= timer.WaitForNextTickAsync(cancellationToken).AsTask();
+            wake ??= commands.WaitForWakeAsync(cancellationToken);
+            var first = await Task.WhenAny(tick, wake);
+
+            // Rethrows a shutdown.
+            await first;
+
+            if (first == tick)
+            {
+                tick = null;
+            }
+            else
+            {
+                wake = null;
+            }
         }
-        while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)

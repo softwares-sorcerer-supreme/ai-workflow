@@ -13,9 +13,17 @@ export type { GetJobFiles$Params as GetJobFiles$Params } from './fn/jobs/get-job
 export { getJobFiles as getJobFiles } from './fn/jobs/get-job-files';
 export type { GetJobFile$Params as GetJobFile$Params } from './fn/jobs/get-job-file';
 export { getJobFile as getJobFile } from './fn/jobs/get-job-file';
+export type { CancelJob$Params as CancelJob$Params } from './fn/jobs/cancel-job';
+export { cancelJob as cancelJob } from './fn/jobs/cancel-job';
 export type { GetIssues$Params as GetIssues$Params } from './fn/issues/get-issues';
 export { getIssues as getIssues } from './fn/issues/get-issues';
 export type { GetIssue$Params as GetIssue$Params } from './fn/issues/get-issue';
 export { getIssue as getIssue } from './fn/issues/get-issue';
 export type { GetCost$Params as GetCost$Params } from './fn/cost/get-cost';
 export { getCost as getCost } from './fn/cost/get-cost';
+export type { PollNow$Params as PollNow$Params } from './fn/runner/poll-now';
+export { pollNow as pollNow } from './fn/runner/poll-now';
+export type { PauseRunner$Params as PauseRunner$Params } from './fn/runner/pause-runner';
+export { pauseRunner as pauseRunner } from './fn/runner/pause-runner';
+export type { ResumeRunner$Params as ResumeRunner$Params } from './fn/runner/resume-runner';
+export { resumeRunner as resumeRunner } from './fn/runner/resume-runner';

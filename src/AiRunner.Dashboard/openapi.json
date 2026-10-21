@@ -432,6 +432,111 @@
           }
         }
       }
+    },
+    "/api/runner/poll": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Poll now; a poll that is running finishes first.",
+        "operationId": "pollNow",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runner/pause": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Take no new job until resumed; polls go on and the running job finishes.",
+        "operationId": "pauseRunner",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runner/resume": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Take jobs again after a pause.",
+        "operationId": "resumeRunner",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Cancel the running job; it fails like a timeout. A pending job cannot be cancelled.",
+        "operationId": "cancelJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -480,6 +585,17 @@
             "type": "string"
           },
           "label": {
+            "type": "string"
+          }
+        }
+      },
+      "CommandResponse": {
+        "required": [
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
             "type": "string"
           }
         }
@@ -628,6 +744,7 @@
           "lastPollStartedAt",
           "lastPollEndedAt",
           "isPolling",
+          "isPaused",
           "worker",
           "errorsLabel",
           "errors"
@@ -672,6 +789,9 @@
             "format": "date-time"
           },
           "isPolling": {
+            "type": "boolean"
+          },
+          "isPaused": {
             "type": "boolean"
           },
           "worker": {
@@ -1420,6 +1540,9 @@
     },
     {
       "name": "Cost"
+    },
+    {
+      "name": "Runner"
     }
   ]
 }

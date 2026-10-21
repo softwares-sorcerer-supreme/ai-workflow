@@ -76,9 +76,11 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 - `Jobs/` — one `IJob` per workflow step. A job orchestrates: load fresh data, ask Core, call Infrastructure. Expected failures throw `JobFailedException`.
 - `Hosting/` — `Poller` (GitBucket -> `JobPlanner` -> `JobQueue`), `JobQueue` (SQLite-backed, one pending job per key), `JobWorker`
   (one job at a time, timeout, failure comment + `ai:failed`, cost row), `RunnerStatus` (in-memory health the poller and worker
-  write), `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
-- `Web/` — the dashboard's read-only HTTP API (`DashboardApp`, `MapDashboardApi`, response records). May use `Core`,
-  `Configuration`, Infrastructure read interfaces and `Hosting/RunnerStatus`; `Core/` and `Jobs/` never reference it.
+  write), `RunnerCommands` (the dashboard's runtime controls: wake the poller, pause the worker, cancel the running job),
+  `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
+- `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
+  `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus` and `Hosting/RunnerCommands`; `Core/` and `Jobs/`
+  never reference it.
 - `Program.cs` — DI registration and command-line modes only.
 
 Key mechanics that span several files:
@@ -187,12 +189,27 @@ Key mechanics that span several files:
 
 ## Dashboard
 
-Local, read-only status page of one runner (`docs/specs/dashboard.md`, `docs/adr/0001`-`0003`). `repos.yml` global block
+Local status page and control panel of one runner (`docs/specs/dashboard.md`, `docs/specs/dashboard-control.md` (built up to
+slice 2), `docs/adr/0001`, `0002`, `0004`). `repos.yml` global block
 `dashboard: { enabled: false, port: 5180 }`; only the polling loop (not `--once`, `--dry-run` or the other modes) starts
 `Hosting/DashboardHost`, which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
-token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; GET only, anything else 405; no CORS, no auth). A taken port
+token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; no CORS, no auth). A taken port
 is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`,
 `Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
+
+- **Writes** are a security boundary: any page the user opens can send a request to `127.0.0.1`. Reads are GET; a write
+  route is mapped in the `writes` group of `MapDashboardApi` (metadata `WriteRoute`), and any other method or route is 405.
+  `DashboardApp.GuardWritesAsync` runs `Web/WriteGuard` after routing and before parameter binding (so not as an endpoint
+  filter): header `X-AiRunner-Request: 1`, `Content-Type: application/json`, an `Origin` (when sent) equal to
+  `http://localhost:<port>` or `http://127.0.0.1:<port>`, a loopback caller; else 403. Order: method gate (405), host filter
+  (400), routing, guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
+  The web app gets no token and no code-host client: its only way to act is `Hosting/RunnerCommands`, the same instance the
+  poller and worker use (registered in both containers, like `RunnerStatus`). Every new write route gets a guard test.
+- **Runtime controls** (in memory, a restart resumes): `POST /api/runner/poll` wakes the poller (a wake during a poll gives
+  one more poll after it); `/pause` and `/resume` hold the worker after its dequeue (the poller keeps polling and queuing;
+  health code `paused`, `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends
+  through the timeout path of `JobWorker` with "Cancelled from the dashboard." (failure comment, `ai:failed` or `OnFailed`,
+  claim released, cost row) and is not planned again; 409 when that job is not running (a pending job cannot be cancelled).
 
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that

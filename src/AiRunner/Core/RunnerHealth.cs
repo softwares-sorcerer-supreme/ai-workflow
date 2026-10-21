@@ -10,7 +10,11 @@ public sealed record HealthInput(
     DateTimeOffset? LastPollEndedAt,
     TimeSpan PollInterval,
     int FailingProjects,
-    DateTimeOffset? PollRunningSince = null);
+    DateTimeOffset? PollRunningSince = null)
+{
+    /// <summary>The worker is paused from the dashboard (it takes no new job; polls go on).</summary>
+    public bool IsPaused { get; init; }
+}
 
 /// <summary>A stable code for the UI to style by, and the text to show.</summary>
 public sealed record HealthState(string Code, string Label);
@@ -18,13 +22,14 @@ public sealed record HealthState(string Code, string Label);
 /// <summary>
 /// Whether the runner is working (the **Health** of CONTEXT.md). Lives here, not in the UI, so "idle" and "broken"
 /// are told apart by one tested rule. First match wins: a runner that stopped polling is stale even when its last
-/// poll had errors, because those errors may be long gone.
+/// poll had errors, because those errors may be long gone; a failing poll is louder than a pause the user chose.
 /// </summary>
 public static class RunnerHealth
 {
     public const string Starting = "starting";
     public const string Stale = "stale";
     public const string Error = "error";
+    public const string Paused = "paused";
     public const string Ok = "ok";
 
     /// <summary>A poll is late after this many intervals; one slow GitBucket answer is not "stale" yet.</summary>
@@ -67,6 +72,11 @@ public static class RunnerHealth
             var projects = input.FailingProjects == 1 ? "1 project" : $"{input.FailingProjects} projects";
 
             return new HealthState(Error, $"Poll failed in {projects}");
+        }
+
+        if (input.IsPaused)
+        {
+            return new HealthState(Paused, "Paused: no new jobs");
         }
 
         return new HealthState(Ok, "Healthy");

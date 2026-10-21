@@ -88,6 +88,7 @@ builder.Services.AddSingleton<LabelSetup>();
 builder.Services.AddSingleton<CopilotSelfTest>();
 builder.Services.AddSingleton<AttachmentSelfTest>();
 builder.Services.AddSingleton<CloseSelfTest>();
+builder.Services.AddSingleton<RunnerCommands>();
 builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
     config.EffectiveRunnerName(),
     fullConfigPath,

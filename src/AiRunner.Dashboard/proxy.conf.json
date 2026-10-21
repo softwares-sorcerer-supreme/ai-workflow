@@ -1,7 +1,10 @@
 {
   "/api": {
     "target": "http://127.0.0.1:5180",
-    "secure": false
+    "secure": false,
+    "headers": {
+      "origin": "http://127.0.0.1:5180"
+    }
   },
   "/openapi": {
     "target": "http://127.0.0.1:5180",

@@ -8,6 +8,9 @@ namespace AiRunner.Web;
 /// <summary>An error the API explains in one sentence.</summary>
 public sealed record ApiError(string Message);
 
+/// <summary>The answer of a write: what the runner will do now, ready to show.</summary>
+public sealed record CommandResponse(string Message);
+
 /// <summary>
 /// One job of the history or the queue. State comes as a stable code plus the text to show; the log is read through
 /// <c>/api/jobs/{id}/files</c>.
