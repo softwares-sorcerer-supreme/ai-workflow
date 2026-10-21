@@ -125,6 +125,24 @@ describe('HealthStrip', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-agent-drift"]')).toBeNull();
   });
 
+  it('links a broken repos.yml to the Settings screen, and shows nothing while the file is fine', async () => {
+    resource = fakePollResource(
+      sampleHealth({ configError: 'line 4: unknown key "polll"', configErrorLabel: 'repos.yml has errors' }),
+    );
+
+    const fixture = await render();
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-config-error"]');
+
+    expect(chip?.tagName).toBe('A');
+    expect(chip?.getAttribute('href')).toBe('/settings');
+    expect(chip?.textContent).toContain('repos.yml has errors');
+
+    resource.value.set(sampleHealth());
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-config-error"]')).toBeNull();
+  });
+
   it('uses a neutral tone for a state code it does not know', async () => {
     resource = fakePollResource(sampleHealth({ state: 'something-new', stateLabel: 'Something new' }));
 

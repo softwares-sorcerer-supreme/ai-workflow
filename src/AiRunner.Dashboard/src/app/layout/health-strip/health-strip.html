@@ -52,6 +52,19 @@
     </a>
   }
 
+  @if (health.configError && health.configErrorLabel) {
+    <a
+      class="item config-error"
+      [routerLink]="settingsPath"
+      data-testid="health-config-error"
+      [matTooltip]="health.configError"
+      matTooltipClass="app-pre-line"
+    >
+      <mat-icon aria-hidden="true">error</mat-icon>
+      {{ health.configErrorLabel }}
+    </a>
+  }
+
   <span class="spacer"></span>
   <span class="item app-muted runner" [matTooltip]="health.configPath">{{ health.runnerName }}</span>
 } @else if (isLoading()) {

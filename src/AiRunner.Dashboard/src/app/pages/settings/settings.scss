@@ -1,0 +1,130 @@
+@use '../../shared/tones';
+
+.small {
+  font: var(--mat-sys-body-small);
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+// The broken-file banner: danger tone, the resolver's message below the title.
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-3);
+  padding: var(--app-space-3) var(--app-space-4);
+  border-radius: var(--app-radius-small);
+  background: var(--banner-bg);
+  color: var(--banner-fg);
+  font: var(--mat-sys-body-small);
+
+  > mat-icon {
+    flex: none;
+    color: var(--banner-dot);
+  }
+
+  p {
+    margin: 0 0 var(--app-space-1);
+  }
+}
+
+@include tones.class-variants(banner);
+
+.banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.banner-title,
+.refusal-title {
+  font: var(--mat-sys-label-large);
+}
+
+pre {
+  margin: var(--app-space-1) 0 0;
+  white-space: pre-wrap;
+}
+
+.with-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+
+  app-inline-note {
+    flex: 1 1 240px;
+  }
+}
+
+.refusal {
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  background: var(--app-tone-danger-bg);
+  color: var(--app-tone-danger-fg);
+  font: var(--mat-sys-body-small);
+
+  .refusal-title {
+    margin: 0;
+  }
+}
+
+.file-path {
+  margin: 0 0 var(--app-space-3);
+}
+
+.tab-body {
+  padding-top: var(--app-space-4);
+}
+
+.group + .group {
+  margin-top: var(--app-space-5);
+}
+
+.group-title {
+  margin: 0 0 var(--app-space-3);
+  padding-bottom: var(--app-space-1);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  font: var(--mat-sys-title-small);
+}
+
+.group app-inline-note {
+  margin-bottom: var(--app-space-3);
+}
+
+// Fields in two columns from 900 px, one below.
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--app-space-5) var(--app-space-5);
+}
+
+@media (max-width: 899.98px) {
+  .fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.components-title {
+  margin: var(--app-space-6) 0 var(--app-space-3);
+  font: var(--mat-sys-title-medium);
+}
+
+.component {
+  padding: var(--app-space-4);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-small);
+}
+
+.component + .component {
+  margin-top: var(--app-space-4);
+}
+
+.component-title {
+  margin: 0 0 var(--app-space-3);
+  font: var(--mat-sys-title-small);
+  font-family: var(--app-font-mono);
+}

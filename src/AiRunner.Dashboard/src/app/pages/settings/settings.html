@@ -1,0 +1,199 @@
+<app-page-header
+  title="Settings"
+  subtitle="The settings of repos.yml. The runner checks them like at its start and applies them at once."
+>
+  @if (loaded()?.file) {
+    <div actions class="header-actions">
+      @if (isDirty()) {
+        <span class="app-muted small" data-testid="unsaved">Unsaved changes</span>
+        <button
+          mat-button
+          type="button"
+          data-testid="discard-button"
+          [disabled]="saveWrite.isBusy()"
+          (click)="discard()"
+        >
+          Discard
+        </button>
+      }
+      <button
+        mat-flat-button
+        type="button"
+        data-testid="save-button"
+        [disabled]="!canSave()"
+        [attr.aria-busy]="saveWrite.isBusy()"
+        (click)="save()"
+      >
+        @if (saveWrite.isBusy()) {
+          <mat-progress-spinner class="app-busy" mode="indeterminate" diameter="18" aria-hidden="true" />
+        } @else {
+          <mat-icon aria-hidden="true">save</mat-icon>
+        }
+        Save
+      </button>
+    </div>
+  }
+</app-page-header>
+
+@if (loaded(); as base) {
+  @if (base.file && schema.value()) {
+    <div class="app-stack">
+      @if (settings.error(); as message) {
+        <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+      }
+
+      @if (latest()?.error; as message) {
+        <div class="banner tone-danger" role="alert" data-testid="config-error">
+          <mat-icon aria-hidden="true">error</mat-icon>
+          <div class="banner-text">
+            <p class="banner-title">repos.yml has errors and is not applied</p>
+            <p>The runner keeps working with the last good settings, shown below. Fix the file or save from here.</p>
+            <pre class="app-mono">{{ message }}</pre>
+          </div>
+        </div>
+      }
+
+      @if ((latest()?.restartNeeded ?? []).length > 0) {
+        <app-inline-note tone="info" icon="restart_alt" data-testid="restart-needed">
+          Saved, applied at the next start of the runner:
+          <span class="app-mono">{{ latest()?.restartNeeded?.join(', ') }}</span>
+        </app-inline-note>
+      }
+
+      @if (conflict(); as message) {
+        <div class="with-action" data-testid="save-conflict">
+          <app-inline-note>{{ message }}</app-inline-note>
+          <button mat-stroked-button type="button" data-testid="conflict-reload" (click)="reload()">
+            <mat-icon aria-hidden="true">refresh</mat-icon>
+            Reload
+          </button>
+        </div>
+      } @else if (hasChangedOnDisk()) {
+        <div class="with-action" data-testid="changed-on-disk">
+          <app-inline-note>repos.yml changed since you started editing. Saving now is refused; reload to see it.</app-inline-note>
+          <button mat-stroked-button type="button" data-testid="changed-reload" (click)="reload()">
+            <mat-icon aria-hidden="true">refresh</mat-icon>
+            Reload
+          </button>
+        </div>
+      }
+
+      @if (reloadError(); as message) {
+        <app-inline-note icon="sync_problem">{{ message }}</app-inline-note>
+      }
+
+      @if (saveError(); as message) {
+        <div class="refusal" role="alert" data-testid="save-error">
+          <p class="refusal-title">The runner did not save repos.yml. Nothing was changed.</p>
+          <pre class="app-mono">{{ message }}</pre>
+        </div>
+      }
+
+      @if (isLegacy()) {
+        <app-inline-note tone="info" icon="history" data-testid="legacy-note">
+          This file uses the old form (a <code>git_bucket:</code> block or a <code>repos:</code> list). Those parts
+          are kept as they are and edited in repos.yml by hand.
+        </app-inline-note>
+      }
+
+      <section class="app-card" aria-labelledby="settings-title">
+        <h2 id="settings-title" class="app-card-title">repos.yml</h2>
+        <p class="app-mono app-muted small file-path" data-testid="settings-path">{{ base.path }}</p>
+
+        <mat-tab-group mat-stretch-tabs="false" mat-align-tabs="start" animationDuration="0ms">
+          @for (tab of tabs(); track tab.id) {
+            <mat-tab [label]="tab.label">
+              <div class="tab-body" [attr.data-testid]="'tab-' + tab.id">
+                @for (group of tab.groups; track group.name) {
+                  <ng-container
+                    [ngTemplateOutlet]="groupTemplate"
+                    [ngTemplateOutletContext]="{ group: group, project: tab.project, level: 3 }"
+                  />
+                } @empty {
+                  <p class="app-muted">No settings in this part.</p>
+                }
+
+                @if (tab.project !== undefined) {
+                  <h3 class="components-title">Components</h3>
+                  @for (component of tab.components; track component.name) {
+                    <section class="component" [attr.data-testid]="'component-' + component.name">
+                      <h4 class="component-title app-mono">{{ component.name }}</h4>
+                      @for (group of component.groups; track group.name) {
+                        <ng-container
+                          [ngTemplateOutlet]="groupTemplate"
+                          [ngTemplateOutletContext]="{ group: group, project: undefined, level: 5 }"
+                        />
+                      }
+                    </section>
+                  } @empty {
+                    <p class="app-muted">This project has no components.</p>
+                  }
+                }
+              </div>
+            </mat-tab>
+          }
+        </mat-tab-group>
+      </section>
+    </div>
+  } @else if (!base.file) {
+    <section class="app-card">
+      <app-view-state
+        kind="error"
+        title="No repos.yml to edit"
+        [message]="base.error ?? 'The runner sent no settings file.'"
+        [canRetry]="true"
+        (retry)="settings.reload()"
+      />
+    </section>
+  } @else if (schema.error()) {
+    <section class="app-card">
+      <app-view-state
+        kind="error"
+        title="Could not load the settings schema"
+        [message]="schema.error()"
+        [canRetry]="true"
+        (retry)="schema.reload()"
+      />
+    </section>
+  } @else {
+    <section class="app-card">
+      <app-view-state kind="loading" />
+    </section>
+  }
+} @else if (settings.error()) {
+  <section class="app-card">
+    <app-view-state
+      kind="error"
+      title="Could not load the settings"
+      [message]="settings.error()"
+      [canRetry]="true"
+      (retry)="settings.reload()"
+    />
+  </section>
+} @else {
+  <section class="app-card">
+    <app-view-state kind="loading" />
+  </section>
+}
+
+<ng-template #groupTemplate let-group="group" let-project="project" let-level="level">
+  <section class="group" [attr.data-testid]="'group-' + group.name">
+    <div class="group-title" role="heading" [attr.aria-level]="level">{{ group.title }}</div>
+    @if (group.name === commandsGroup) {
+      <app-inline-note icon="terminal" data-testid="commands-note">
+        These commands run on this machine, with your user's rights, in every job of this project.
+      </app-inline-note>
+    }
+    <div class="fields">
+      @for (field of group.fields; track field.id) {
+        <app-setting-field
+          [field]="field"
+          [value]="valueOf(field)"
+          [effective]="effectiveOf(project, field)"
+          (valueChange)="setValue(field, $event)"
+          (invalidChange)="setInvalid(field, $event)"
+        />
+      }
+    </div>
+  </section>
+</ng-template>

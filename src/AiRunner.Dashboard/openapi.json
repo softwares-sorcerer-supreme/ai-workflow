@@ -1936,26 +1936,19 @@
       "EffectiveValue": {
         "required": [
           "key",
-          "value",
-          "source"
+          "effective",
+          "inherited"
         ],
         "type": "object",
         "properties": {
           "key": {
             "type": "string"
           },
-          "value": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonNode"
-              }
-            ]
+          "effective": {
+            "$ref": "#/components/schemas/SourcedValue"
           },
-          "source": {
-            "type": "string"
+          "inherited": {
+            "$ref": "#/components/schemas/SourcedValue"
           }
         }
       },
@@ -3107,6 +3100,32 @@
           },
           "canRemoveWebPassword": {
             "type": "boolean"
+          }
+        }
+      },
+      "SourcedValue": {
+        "required": [
+          "value",
+          "source",
+          "sourceLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
           }
         }
       },

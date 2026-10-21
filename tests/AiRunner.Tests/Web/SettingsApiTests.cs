@@ -140,7 +140,7 @@ public sealed class SettingsApiTests : IAsyncDisposable
         Assert.Contains(
             effective["values"]!.AsArray(),
             value => value!["key"]!.GetValue<string>() == "limits.max_reviews" &&
-                     value["source"]!.GetValue<string>() == "default");
+                     value["effective"]!["source"]!.GetValue<string>() == "default");
         Assert.All(_answers, answer => Assert.DoesNotContain(WebPassword, answer));
     }
 

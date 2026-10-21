@@ -202,11 +202,21 @@ public class SettingsJsonTests
         var byKey = effective.Values.ToDictionary(value => value.Key);
 
         Assert.Equal("p", effective.Project);
-        Assert.Equal(("4", "project"), (byKey["limits.max_reviews"].Value!.ToJsonString(), byKey["limits.max_reviews"].Source));
-        Assert.Equal(("900", "defaults"), (byKey["limits.max_diff_lines"].Value!.ToJsonString(), byKey["limits.max_diff_lines"].Source));
-        Assert.Equal(("15", "default"), (byKey["limits.max_changed_files"].Value!.ToJsonString(), byKey["limits.max_changed_files"].Source));
-        Assert.Equal("default", byKey["models.implement"].Source);
-        Assert.Null(byKey["models.implement"].Value);
+        var maxReviews = byKey["limits.max_reviews"];
+        var maxDiffLines = byKey["limits.max_diff_lines"];
+        var maxChangedFiles = byKey["limits.max_changed_files"];
+        var implementModel = byKey["models.implement"];
+
+        Assert.Equal("4", maxReviews.Effective.Value!.ToJsonString());
+        Assert.Equal(("project", "Set in this project"), (maxReviews.Effective.Source, maxReviews.Effective.SourceLabel));
+        Assert.Equal("3", maxReviews.Inherited.Value!.ToJsonString());
+        Assert.Equal("default", maxReviews.Inherited.Source);
+        Assert.Equal("900", maxDiffLines.Effective.Value!.ToJsonString());
+        Assert.Equal(("defaults", "Inherited from defaults"), (maxDiffLines.Effective.Source, maxDiffLines.Effective.SourceLabel));
+        Assert.Same(maxDiffLines.Effective, maxDiffLines.Inherited);
+        Assert.Equal("15", maxChangedFiles.Effective.Value!.ToJsonString());
+        Assert.Equal(("default", "Built-in default"), (maxChangedFiles.Effective.Source, maxChangedFiles.Effective.SourceLabel));
+        Assert.Null(implementModel.Effective.Value);
     }
 
     [Fact]

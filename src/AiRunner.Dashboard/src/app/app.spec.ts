@@ -31,6 +31,7 @@ describe('App shell', () => {
       'paymentsCost',
       'folder_copyWorkspaces',
       'smart_toyAgents',
+      'tuneSettings',
       'keySetup',
     ]);
   });

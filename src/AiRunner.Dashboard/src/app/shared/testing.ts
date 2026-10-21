@@ -176,6 +176,8 @@ export function sampleHealth(overrides: Partial<HealthResponse> = {}): HealthRes
     isSetupNeeded: false,
     hasAgentDrift: false,
     agentDriftLabel: null,
+    configError: null,
+    configErrorLabel: null,
     worker: { state: 'idle', stateLabel: 'Idle', since: null },
     errorsLabel: 'No poll errors',
     errors: [],

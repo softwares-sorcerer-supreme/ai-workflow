@@ -6,7 +6,7 @@ what is here before you create anything new. If you add a shared piece, add it t
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
 The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
 (Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, the Workspaces screen's Fetch / Re-clone /
-Delete, the Agents screen's Sync now / Save / Revert, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
+Delete, the Agents screen's Sync now / Save / Revert, the Settings screen's Save, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
 
 ## 1. Ground rules
 
@@ -132,6 +132,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | Cost      |     <section class="app-card"> ... </section>    |
 | Workspaces|                                                  |
 | Agents    |                                                  |
+| Settings  |                                                  |
 | Setup     |                                                  |
 +-----------+--------------------------------------------------+
 ```
@@ -436,6 +437,28 @@ message with a Reload button and keeps the edits. After a Save or Revert the run
 and the list and health reload; leaving or reloading a file with unsaved edits asks first ("Discard your changes?").
 At 900 px and wider the two cards stand side by side (list 260-360 px), below that one above the other.
 
+### Settings screen
+
+`pages/settings`: repos.yml as forms built only from `GET /api/settings/schema` (a new schema key shows up with no
+UI change). One card with a `mat-tab-group`: **Global** (scope `global`, file root), **Defaults** (`defaults`, under
+`file.defaults`) and one tab per entry of `file.projects` (scope `project`), with its components below (scope
+`component`, under `components.<name>`). Fields are grouped by the first part of their key (`buildGroups` in
+`settings-form.ts`; keys without a dot go to "General"); `legacy` keys get no form, only a note when the file has
+`repos` or `git_bucket`. Each field is `app-setting-field` (`pages/settings/setting-field`): string = text or a
+select (`allowedValues`), integer = text with a whole-number check (Save waits while one is invalid), boolean = slide
+toggle, string-list = one entry per line (written on blur) or a multi-select (`allowedValues`); the schema's help,
+"Restart needed" chip, and a line saying what applies when the key is not written. A project key that the API merges
+(`effective`) shows the API's `inherited` value with its `sourceLabel` ("Inherited from defaults: X" / "Built-in
+default: X"; exact also right after an unsaved reset), never merged or labelled in the UI; a written one has "Reset to inherited" (removes the key and the
+objects it leaves empty, never the project's own object). Secrets (`isSecret`) are read-only "Set / Not set in
+repos.yml" with a link to Setup, and their `{ isSet }` mask goes back unchanged. The file is polled; a poll rebuilds
+the form only while nothing is edited (else "repos.yml changed since you started editing" + Reload). Save lists
+every change first (`diffSettings`: path, added / removed / old -> new; presentation only) in
+`settings-diff-dialog`, with the comments warning while `hasComments`; it sends the whole draft with `baseHash`. A
+400 shows the resolver's message above the form and keeps the edits; a 409 shows the message with Reload (asks
+before it drops edits). Banners on top: the file's `error` (danger), the `restartNeeded` list (info). The
+`commands` group carries a note that these run on this machine.
+
 ### Health
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
@@ -444,7 +467,8 @@ tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success
 `paused` and `needs-setup` warning, `error` danger. Setup mode (no token yet) is read from `health.isSetupNeeded`,
 never from the state code: it shows the setup banner and turns the strip's state label into a link to `/setup`.
 When `hasAgentDrift` is true the strip shows `agentDriftLabel` as a small warning-toned pill linked to `/agents`
-(`AGENTS_PATH`). Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
+(`AGENTS_PATH`). When `configError` is set it shows `configErrorLabel` as a danger-toned pill linked to `/settings`
+(`SETTINGS_PATH`), the message in its tooltip. Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
 `health.isPaused`, never a state of its own.
 
 ### Charts
@@ -489,7 +513,7 @@ keep data on screen while reloading, never show the loading state again after th
 Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
 the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
 Check and save / Remove for the token and the web password on the Setup screen, Fetch / Re-clone per clone and Delete
-per orphan folder on the Workspaces screen, Sync now, Save and Revert on the Agents screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
+per orphan folder on the Workspaces screen, Sync now, Save and Revert on the Agents screen, Save on the Settings screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
 list, the board cards and Issue detail.
 
 1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The

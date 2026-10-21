@@ -5,10 +5,16 @@ using YamlDotNet.Core.Tokens;
 
 namespace AiRunner.Configuration;
 
-/// <summary>One setting of a project after the merge, and where its value comes from.</summary>
+/// <summary>A value of a project setting and where it comes from, with the text the screen shows for that.</summary>
 /// <param name="Value">The value as written in repos.yml (JSON); null = not set anywhere (no built-in value).</param>
 /// <param name="Source"><c>project</c>, <c>defaults</c> or <c>default</c> (built in).</param>
-public sealed record EffectiveValue(string Key, JsonNode? Value, string Source);
+public sealed record SourcedValue(JsonNode? Value, string Source, string SourceLabel);
+
+/// <summary>
+/// One setting of a project after the merge (<see cref="Effective"/>), and what would apply without the project's own
+/// value (<see cref="Inherited"/>: from <c>defaults:</c> or built in), so a reset shows its result before a save.
+/// </summary>
+public sealed record EffectiveValue(string Key, SourcedValue Effective, SourcedValue Inherited);
 
 /// <summary>The merged settings of one project, key by key.</summary>
 public sealed record ProjectEffective(string Project, IReadOnlyList<EffectiveValue> Values);
@@ -136,19 +142,24 @@ public static class SettingsJson
     private static EffectiveValue Effective(string key, SettingLayers layers)
     {
         var (project, defaults, builtIn) = layers;
-        if (Find(project, key) is { } own)
-        {
-            return new EffectiveValue(key, own.DeepClone(), FromProject);
-        }
-
+        SourcedValue inherited;
         if (Find(defaults, key) is { } shared)
         {
-            return new EffectiveValue(key, shared.DeepClone(), FromDefaults);
+            inherited = new SourcedValue(shared.DeepClone(), FromDefaults, "Inherited from defaults");
+        }
+        else
+        {
+            var builtInValue = Find(builtIn, key)?.DeepClone();
+            inherited = new SourcedValue(builtInValue, BuiltIn, "Built-in default");
         }
 
-        var builtInValue = Find(builtIn, key)?.DeepClone();
+        var effective = inherited;
+        if (Find(project, key) is { } own)
+        {
+            effective = new SourcedValue(own.DeepClone(), FromProject, "Set in this project");
+        }
 
-        return new EffectiveValue(key, builtInValue, BuiltIn);
+        return new EffectiveValue(key, effective, inherited);
     }
 
     /// <summary>The node at a dotted path (no wildcards), or null when any part is missing or null.</summary>

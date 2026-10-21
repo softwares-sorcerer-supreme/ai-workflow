@@ -44,6 +44,7 @@ export type { SettingsResponse } from './models/settings-response';
 export type { SettingsSchemaResponse } from './models/settings-schema-response';
 export type { SetupChangeResponse } from './models/setup-change-response';
 export type { SetupResponse } from './models/setup-response';
+export type { SourcedValue } from './models/sourced-value';
 export type { SubIssueCountResponse } from './models/sub-issue-count-response';
 export type { TokenRequest } from './models/token-request';
 export type { WaitingItemResponse } from './models/waiting-item-response';
