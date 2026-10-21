@@ -81,7 +81,9 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
         var content = hasWindowsEndings ? normalized.Replace("\n", "\r\n", StringComparison.Ordinal) : normalized;
 
-        var temporaryFile = file + ".tmp-" + Guid.NewGuid().ToString("N");
+        // Next to the repo's folders, not inside them: a sync or a drift check must never see the half-written file.
+        var temporaryName = ".agent-save-" + Guid.NewGuid().ToString("N");
+        var temporaryFile = Path.Combine(config.ResolvePath("."), temporaryName);
         await File.WriteAllTextAsync(temporaryFile, content, new UTF8Encoding(false), cancellationToken);
         File.Move(temporaryFile, file, overwrite: true);
     }

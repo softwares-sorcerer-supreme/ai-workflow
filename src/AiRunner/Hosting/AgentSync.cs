@@ -37,19 +37,23 @@ public sealed class AgentSync(
     {
         try
         {
-            await commands.RunBetweenJobsAsync(() => installer.Install(copilotHome.Path), CancellationToken.None);
+            await commands.RunBetweenJobsAsync(CopyWithSlot, CancellationToken.None);
         }
         catch (Exception exception)
         {
             logger.LogWarning("Agent sync to {Target} failed: {Error}", copilotHome.Path, exception.Message);
         }
-        finally
+    }
+
+    private void CopyWithSlot()
+    {
+        // The slot is ours: a request from here on starts a new sync, because the copy below may already have passed
+        // the file it saved. A request before this point shares the copy, which reads the files only now.
+        lock (_lock)
         {
-            // From here a new request starts a new sync: the files it would copy may be newer than this one's.
-            lock (_lock)
-            {
-                _waiting = null;
-            }
+            _waiting = null;
         }
+
+        installer.Install(copilotHome.Path);
     }
 }
