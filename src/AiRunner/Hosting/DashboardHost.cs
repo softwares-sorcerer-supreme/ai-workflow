@@ -20,6 +20,8 @@ public sealed class DashboardHost(
     ICostReader cost,
     RunnerCommands commands,
     IRunnerSetup setup,
+    IRunnerActions actions,
+    RunnerIdentity identity,
     ILogger<DashboardHost> logger) : BackgroundService
 {
     /// <summary>Where build-dashboard.ps1 puts the built UI (copied next to the runner's binaries).</summary>
@@ -35,6 +37,8 @@ public sealed class DashboardHost(
             Cost = cost,
             Commands = commands,
             Setup = setup,
+            Actions = actions,
+            Identity = identity,
         };
         var builder = DashboardApp.CreateBuilder(options);
         await using var app = DashboardApp.Build(builder, options);

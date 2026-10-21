@@ -56,6 +56,14 @@ public sealed record PullSnapshot(
 
     public string? HtmlUrl { get; init; }
 
+    /// <summary>Label names, for the scope of the review and the fix (the trigger label opts a PR in).</summary>
+    public IReadOnlyList<string> Labels { get; init; } = [];
+
+    /// <summary>Login of the PR's author: the runner's own PRs are in scope by it.</summary>
+    public string? Author { get; init; }
+
+    public bool IsDraft { get; init; }
+
     /// <summary>The PR in the shape the jobs read, so the "its PR" helpers run unchanged on snapshot data.</summary>
     public HostPull AsPull() =>
         new(
@@ -64,8 +72,11 @@ public sealed record PullSnapshot(
             new HostRef(HeadRef, HeadSha),
             new HostRef(BaseRef, ""),
             UpdatedAt,
+            User: Author is null ? null : new HostUser(Author),
             State: State,
             Merged: IsMerged,
+            Draft: IsDraft,
+            Labels: Labels.Select(label => new HostLabel(label)).ToList(),
             HtmlUrl: HtmlUrl);
 }
 
@@ -118,6 +129,9 @@ public static class SnapshotRules
         {
             LinkedIssue = linkedIssue?.ToString(),
             HtmlUrl = pull.HtmlUrl,
+            Labels = pull.LabelNames().Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            Author = pull.User?.Login,
+            IsDraft = pull.Draft == true,
         };
     }
 

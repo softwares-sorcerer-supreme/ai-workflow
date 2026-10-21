@@ -102,14 +102,15 @@ public sealed partial class SqliteStateStore : ISnapshotStore
         {
             var updatedAt = Time(pull.UpdatedAt);
             var seenAt = Time(pull.SeenAt);
+            var labels = string.Join(ListSeparator, pull.Labels);
 
             using var command = Command(
                 connection,
                 """
                 INSERT OR REPLACE INTO pull_snapshot (repo, number, project, title, state, merged, head_ref, base_ref,
-                    head_sha, linked_issue, html_url, updated_at, seen_at)
+                    head_sha, linked_issue, html_url, updated_at, seen_at, labels, author, is_draft)
                 VALUES ($repo, $number, $project, $title, $state, $merged, $head, $base, $sha, $linked, $url, $updated,
-                    $seen)
+                    $seen, $labels, $author, $draft)
                 """,
                 ("$repo", pull.Repo),
                 ("$number", pull.Number),
@@ -123,7 +124,10 @@ public sealed partial class SqliteStateStore : ISnapshotStore
                 ("$linked", pull.LinkedIssue),
                 ("$url", pull.HtmlUrl),
                 ("$updated", updatedAt),
-                ("$seen", seenAt));
+                ("$seen", seenAt),
+                ("$labels", labels),
+                ("$author", pull.Author),
+                ("$draft", pull.IsDraft ? 1 : 0));
             command.Transaction = transaction;
             command.ExecuteNonQuery();
         }
@@ -187,7 +191,7 @@ public sealed partial class SqliteStateStore : ISnapshotStore
             connection,
             """
             SELECT repo, number, project, title, state, merged, head_ref, base_ref, head_sha, linked_issue, html_url,
-                updated_at, seen_at
+                updated_at, seen_at, labels, author, is_draft
             FROM pull_snapshot ORDER BY repo, number
             """);
         using var reader = command.ExecuteReader();
@@ -213,6 +217,9 @@ public sealed partial class SqliteStateStore : ISnapshotStore
             {
                 LinkedIssue = reader.IsDBNull(9) ? null : reader.GetString(9),
                 HtmlUrl = reader.IsDBNull(10) ? null : reader.GetString(10),
+                Labels = reader.IsDBNull(13) ? [] : SplitList(reader.GetString(13)),
+                Author = reader.IsDBNull(14) ? null : reader.GetString(14),
+                IsDraft = !reader.IsDBNull(15) && reader.GetInt32(15) != 0,
             });
         }
 

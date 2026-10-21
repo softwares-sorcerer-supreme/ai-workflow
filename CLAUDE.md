@@ -93,7 +93,7 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
   `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
 - `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
   `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus`, `Hosting/RunnerCommands` and
-  `Hosting/IRunnerSetup` (`Web/SetupApi`); `Core/` and `Jobs/` never reference it.
+  `Hosting/IRunnerSetup` (`Web/SetupApi`) and `Hosting/IRunnerActions` (`Web/ActionsApi`); `Core/` and `Jobs/` never reference it.
 - `Program.cs` — DI registration and command-line modes only.
 
 Key mechanics that span several files:
@@ -229,6 +229,14 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   health code `paused`, below `stale` and `error`, plus `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends
   through the timeout path of `JobWorker` with "Cancelled from the dashboard." (failure comment, `ai:failed` or `OnFailed`,
   claim released, cost row) and is not planned again; 409 when that job is not running (a pending job cannot be cancelled).
+
+- **Actions** (`Core/IssueActions`, `Hosting/RunnerActions`, `Web/ActionsApi`): `actions` (code, label, `needsText`) on every issue row
+  and PR; `POST /api/issues/{owner}/{repo}/{n}/actions/{code}` and `POST /api/pulls/...`, body `{ text }` for answer / ask / fix. The rules
+  take the same inputs as `WaitingOn` (+ the project's workflows, trigger keyword and the PR's labels / author / draft in `pull_snapshot`). `RunnerActions`
+  (shared with the web app through `IRunnerActions`, like `IRunnerSetup`; the web app still has no code-host client) reads the item fresh
+  from the code host, checks the action is still offered (else 409), writes through `ICodeHost` (a label, or `AddPersonCommentAsync`: a
+  comment without the bot marker, so the planner takes it as a person's `@ai`; it ends with `_(sent from the ai-runner dashboard on <runner_name>)_`),
+  then wakes the poller. It never inserts into the queue. Unknown project/action 404, missing text 400, code host failure 400.
 
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that

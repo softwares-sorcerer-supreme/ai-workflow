@@ -40,6 +40,12 @@ public interface ICodeHost
 
     Task<HostComment> AddCommentAsync(string repo, int number, string body, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A comment written as the token's user, without the runner's marker: the planner takes it as a person's comment
+    /// (a dashboard action that stands for the user typing "@ai ..." on the code host). Text only, no runner blocks.
+    /// </summary>
+    Task<HostComment> AddPersonCommentAsync(string repo, int number, string body, CancellationToken cancellationToken);
+
     Task<HostComment> UpdateCommentAsync(string repo, long commentId, string body, CancellationToken cancellationToken);
 
     Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken);

@@ -41,6 +41,8 @@ public sealed class DashboardHostTests : IDisposable
             AiRunner.Web.NoCost.Instance,
             new RunnerCommands(),
             AiRunner.Web.NoSetup.Instance,
+            AiRunner.Web.NoActions.Instance,
+            new RunnerIdentity(),
             serviceProvider.GetRequiredService<ILogger<DashboardHost>>())
         {
             WebRoot = _webRoot,

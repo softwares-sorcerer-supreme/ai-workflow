@@ -85,6 +85,10 @@ _Avoid_: column, bucket, phase
 The one action a person must take before an issue can move to its next stage, such as answering questions or merging a pull request. An issue that is queued or running waits on nobody.
 _Avoid_: blocked, pending, todo
 
+**Action**:
+Something a person asks the runner to do from the dashboard (implement, break down, retry, answer, ask, start the next sub-issue, full review, fix). It is only a write on the code host, a label or a person's `@ai` comment, that the planner then picks up like the same change made by hand; it never puts a job in the queue. The runner offers an action only while the item still allows it, and checks again on fresh data right before it writes.
+_Avoid_: command, button, trigger
+
 **Snapshot**:
 The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.
 _Avoid_: cache, mirror, sync

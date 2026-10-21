@@ -35,6 +35,15 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
     /// OpenAPI export runs no runner). It takes secrets but never hands one back.
     /// </summary>
     public IRunnerSetup Setup { get; init; } = NoSetup.Instance;
+
+    /// <summary>
+    /// The actions on issues and PRs, shared with the runner; the default refuses (the OpenAPI export runs no runner).
+    /// It reads and writes the code host for the web app, which holds no client of its own.
+    /// </summary>
+    public IRunnerActions Actions { get; init; } = NoActions.Instance;
+
+    /// <summary>The runner's login on the code host, for the scope of the PR actions; a login, never a secret.</summary>
+    public RunnerIdentity Identity { get; init; } = new();
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -118,6 +127,8 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Cost);
         builder.Services.AddSingleton(options.Commands);
         builder.Services.AddSingleton(options.Setup);
+        builder.Services.AddSingleton(options.Actions);
+        builder.Services.AddSingleton(options.Identity);
         builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<HealthReader>();

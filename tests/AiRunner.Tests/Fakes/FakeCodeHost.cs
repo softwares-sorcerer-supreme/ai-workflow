@@ -275,6 +275,22 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.FromResult(comment);
     }
 
+    /// <summary>Numbers of the issues or PRs that got a person's comment (no marker), in order.</summary>
+    public List<int> PersonCommentTargets { get; } = [];
+
+    public Task<HostComment> AddPersonCommentAsync(
+        string repo,
+        int number,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        RepoCalls.Add(("person-comment", repo));
+        PersonCommentTargets.Add(number);
+        var comment = AddRaw(number, body, Login);
+
+        return Task.FromResult(comment);
+    }
+
     public Task<HostComment> UpdateCommentAsync(
         string repo,
         long commentId,
@@ -317,9 +333,15 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.CompletedTask;
     }
 
+    /// <summary>Every label added, issues and PRs alike, in order.</summary>
+    public List<(int Number, string Label)> AddedLabels { get; } = [];
+
     public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken)
     {
         _labelWrites++;
+        var added = labels.ToList();
+        AddedLabels.AddRange(added.Select(label => (number, label)));
+        labels = added;
         if (Issues.ContainsKey(number))
         {
             var allLabels = LabelsOf(number).Concat(labels);

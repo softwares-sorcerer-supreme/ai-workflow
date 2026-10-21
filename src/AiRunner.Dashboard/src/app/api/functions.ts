@@ -19,6 +19,8 @@ export type { GetIssues$Params as GetIssues$Params } from './fn/issues/get-issue
 export { getIssues as getIssues } from './fn/issues/get-issues';
 export type { GetIssue$Params as GetIssue$Params } from './fn/issues/get-issue';
 export { getIssue as getIssue } from './fn/issues/get-issue';
+export type { RunIssueAction$Params as RunIssueAction$Params } from './fn/issues/run-issue-action';
+export { runIssueAction as runIssueAction } from './fn/issues/run-issue-action';
 export type { GetCost$Params as GetCost$Params } from './fn/cost/get-cost';
 export { getCost as getCost } from './fn/cost/get-cost';
 export type { GetSetup$Params as GetSetup$Params } from './fn/setup/get-setup';
@@ -37,3 +39,5 @@ export type { PauseRunner$Params as PauseRunner$Params } from './fn/runner/pause
 export { pauseRunner as pauseRunner } from './fn/runner/pause-runner';
 export type { ResumeRunner$Params as ResumeRunner$Params } from './fn/runner/resume-runner';
 export { resumeRunner as resumeRunner } from './fn/runner/resume-runner';
+export type { RunPullAction$Params as RunPullAction$Params } from './fn/pulls/run-pull-action';
+export { runPullAction as runPullAction } from './fn/pulls/run-pull-action';

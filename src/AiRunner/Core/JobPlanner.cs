@@ -10,7 +10,7 @@ namespace AiRunner.Core;
 /// </summary>
 public static class JobPlanner
 {
-    private const string SkipAiPrefix = "[skip-ai]";
+    public const string SkipAiPrefix = "[skip-ai]";
 
     public static PlanDecision PlanIssue(IssuePlanInput input)
     {
@@ -310,7 +310,7 @@ public static class JobPlanner
         !string.Equals(fullReviewSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A human opts a PR in with the trigger label; PRs this runner opened itself are always in.</summary>
-    private static bool InScope(HostPull pull, string botLogin, string triggerLabel) =>
+    public static bool InScope(HostPull pull, string botLogin, string triggerLabel) =>
         pull.LabelNames().Contains(triggerLabel) ||
         (Branches.IsAiBranch(pull.Head.Ref) &&
          string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase));

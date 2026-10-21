@@ -155,6 +155,11 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
             """);
 
         CreateSnapshotTables();
+
+        // The scope of a PR (labels, author, draft) for the dashboard's actions; older rows read as no labels.
+        AddColumnIfMissing("pull_snapshot", "labels", "TEXT");
+        AddColumnIfMissing("pull_snapshot", "author", "TEXT");
+        AddColumnIfMissing("pull_snapshot", "is_draft", "INTEGER");
     }
 
     public IReadOnlyDictionary<int, string> GetIssueFingerprints(string repo)

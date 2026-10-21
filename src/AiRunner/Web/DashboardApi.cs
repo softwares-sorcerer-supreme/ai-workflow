@@ -93,6 +93,7 @@ public static class DashboardApi
             .WithSummary("Cancel the running job; it fails like a timeout. A pending job cannot be cancelled.");
 
         SetupApi.MapSetupApi(api, writes);
+        ActionsApi.MapActionsApi(writes);
 
         return endpoints;
     }

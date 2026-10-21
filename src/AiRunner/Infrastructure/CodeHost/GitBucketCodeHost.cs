@@ -133,6 +133,25 @@ public sealed class GitBucketCodeHost(
             cancellationToken);
     }
 
+    public Task<HostComment> AddPersonCommentAsync(
+        string repo,
+        int number,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        // No marker on purpose: see ICodeHost. The text still goes through the ASCII filter like every outgoing text.
+        var cleanBody = AsciiSanitizer.Clean(body);
+
+        return SendAsync<HostComment>(
+            HttpMethod.Post,
+            $"repos/{repo}/issues/{number}/comments",
+            new
+            {
+                body = cleanBody
+            },
+            cancellationToken);
+    }
+
     public Task<HostComment> UpdateCommentAsync(
         string repo,
         long commentId,

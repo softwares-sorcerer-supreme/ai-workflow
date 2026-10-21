@@ -11,7 +11,8 @@ public sealed record IssueEntry(
     IssueSnapshot Issue,
     IReadOnlyList<IssueSnapshot> SubIssues,
     StageResult Stage,
-    CodeLabel? Waiting);
+    CodeLabel? Waiting,
+    IReadOnlyList<IssueAction> Actions);
 
 /// <summary>
 /// The issues of the snapshot with their stage, computed once per request, so the list, the overview and the detail
@@ -23,6 +24,12 @@ public sealed record IssueBoard(
 {
     /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
     public static StringComparer KeyComparer { get; } = StringComparer.OrdinalIgnoreCase;
+
+    /// <summary>The runner's login on the code host: the PRs it opened itself are in the scope of the PR actions.</summary>
+    public string BotLogin { get; init; } = "";
+
+    /// <summary>"owner/repo#n" of every issue or PR this runner has a job queued or running for.</summary>
+    public IReadOnlySet<string> BusyKeys { get; init; } = new HashSet<string>();
 
     /// <summary>Built once per board, so finding the PRs of every row is not one scan of all PRs per issue.</summary>
     private readonly ILookup<string, PullSnapshot> _pullsByLinkedIssue = Pulls
@@ -51,11 +58,11 @@ public sealed record IssueBoard(
             .Where(pull => repos.Contains(pull.Repo))
             .Distinct()
             .OrderByDescending(pull => pull.UpdatedAt)
-            .Select(PullOf)
+            .Select(pull => PullOf(pull, entry.Project.Settings))
             .ToList();
     }
 
-    private static PullResponse PullOf(PullSnapshot pull)
+    private PullResponse PullOf(PullSnapshot pull, ProjectSettings settings)
     {
         var (state, label) = pull switch
         {
@@ -63,6 +70,10 @@ public sealed record IssueBoard(
             { State: SnapshotRules.Open } => ("open", "Open"),
             _ => ("closed", "Closed"),
         };
+
+        var hasActiveJob = BusyKeys.Contains(KeyOf(pull.Repo, pull.Number));
+        var actionInput = new PullActionInput(pull.AsPull(), settings, BotLogin, hasActiveJob);
+        var actions = ActionResponse.ListOf(IssueActions.AvailableForPull(actionInput));
 
         return new PullResponse(
             pull.Repo,
@@ -73,7 +84,8 @@ public sealed record IssueBoard(
             pull.HeadRef,
             pull.BaseRef,
             pull.HtmlUrl,
-            pull.UpdatedAt);
+            pull.UpdatedAt,
+            actions);
     }
 }
 
@@ -82,7 +94,8 @@ public sealed class IssueBoardReader(
     RunnerConfig config,
     ISnapshotReader snapshot,
     IJobReader jobs,
-    RunnerStatus status)
+    RunnerStatus status,
+    RunnerIdentity identity)
 {
     public IssueBoard Read(string? project = null)
     {
@@ -134,12 +147,19 @@ public sealed class IssueBoardReader(
                 .Select(subIssue => ProgressOf(subIssue, staged))
                 .ToList();
             var autoStart = item.Project.Settings.AutoStartFirstSubIssue;
-            var waiting = WaitingOn.Of(new WaitingInput(item.Issue, item.Stage, autoStart, progress));
+            var waitingInput = new WaitingInput(item.Issue, item.Stage, autoStart, progress);
+            var waiting = WaitingOn.Of(waitingInput);
+            var actionInput = new IssueActionInput(waitingInput, item.Project.Settings, item.SubIssues);
+            var actions = IssueActions.Available(actionInput);
 
-            entries[key] = new IssueEntry(item.Project, item.Issue, item.SubIssues, item.Stage, waiting);
+            entries[key] = new IssueEntry(item.Project, item.Issue, item.SubIssues, item.Stage, waiting, actions);
         }
 
-        return new IssueBoard(entries, pulls);
+        return new IssueBoard(entries, pulls)
+        {
+            BotLogin = identity.Login,
+            BusyKeys = jobsOf.Select(group => group.Key).ToHashSet(comparer),
+        };
     }
 
     /// <summary>One issue after pass 1: its project, sub-issues and stage.</summary>
