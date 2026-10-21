@@ -309,7 +309,7 @@ public sealed class SiblingCloneGuardTests : IDisposable
 
         var project = _kit.Project;
         var target = project.CodeComponents.First();
-        var workspaceRequest = new WorkspaceRequest(project, target.Repo, "origin/main", "ai/issue-1", [])
+        var workspaceRequest = new WorkspaceRequest(project, target.Repo, "origin/main", "ai/issue-1", null)
         {
             Writable = true,
         };

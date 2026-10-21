@@ -48,10 +48,10 @@ internal static partial class ConfigResolver
     /// <summary>The config, and beside it the web password, which must stay out of it (<see cref="ConfigFile"/>).</summary>
     public static ConfigFile Resolve(RunnerFile file)
     {
-        var codeHost = CodeHostBlock(file);
+        var (codeHost, webPassword) = ResolveCodeHost(file);
         var config = new RunnerConfig
         {
-            CodeHost = new CodeHostConfig { Kind = codeHost.Kind!, BaseUrl = codeHost.BaseUrl },
+            CodeHost = codeHost,
             PollIntervalSeconds = file.PollIntervalSeconds,
             RunnerName = file.RunnerName,
             Copilot = file.Copilot,
@@ -76,14 +76,15 @@ internal static partial class ConfigResolver
 
         Validate(config);
 
-        return new ConfigFile(config, codeHost.WebPassword);
+        return new ConfigFile(config, webPassword);
     }
 
     /// <summary>
-    /// The code_host block, or the old git_bucket block read as kind gitbucket. With neither, a gitbucket block with
-    /// no URL: <see cref="RunnerConfig.LoadFile"/> asks for the URL, while a snippet in a test still parses.
+    /// The code_host block, or the old git_bucket block read as kind gitbucket, with its web password apart. With
+    /// neither, gitbucket with no URL: <see cref="RunnerConfig.LoadFile"/> asks for the URL, while a snippet in a
+    /// test still parses.
     /// </summary>
-    private static CodeHostFile CodeHostBlock(RunnerFile file)
+    private static (CodeHostConfig Config, string WebPassword) ResolveCodeHost(RunnerFile file)
     {
         if (file.CodeHost is not null && file.GitBucket is not null)
         {
@@ -93,20 +94,16 @@ internal static partial class ConfigResolver
 
         if (file.GitBucket is { } oldBlock)
         {
-            return new CodeHostFile
-            {
-                Kind = CodeHostKinds.GitBucket,
-                BaseUrl = oldBlock.BaseUrl,
-                WebPassword = oldBlock.WebPassword,
-            };
+            var oldConfig = new CodeHostConfig { Kind = CodeHostKinds.GitBucket, BaseUrl = oldBlock.BaseUrl };
+            return (oldConfig, oldBlock.WebPassword);
         }
 
-        if (file.CodeHost is null)
+        if (file.CodeHost is not { } block)
         {
-            return new CodeHostFile { Kind = CodeHostKinds.GitBucket };
+            return (new CodeHostConfig(), "");
         }
 
-        var kind = file.CodeHost.Kind?.Trim() ?? "";
+        var kind = block.Kind?.Trim() ?? "";
         var knownKinds = string.Join(", ", CodeHostKinds.All);
         if (kind.Length == 0)
         {
@@ -118,12 +115,9 @@ internal static partial class ConfigResolver
             throw new InvalidOperationException($"code_host.kind '{kind}' is unknown. Use: {knownKinds}");
         }
 
-        return new CodeHostFile
-        {
-            Kind = kind,
-            BaseUrl = file.CodeHost.BaseUrl,
-            WebPassword = file.CodeHost.WebPassword,
-        };
+        var config = new CodeHostConfig { Kind = kind, BaseUrl = block.BaseUrl };
+
+        return (config, block.WebPassword);
     }
 
     private static ProjectConfig BuildProject(string name, ProjectFile file, SettingsFile defaults)

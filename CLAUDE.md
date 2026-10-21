@@ -67,7 +67,7 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 - `Infrastructure/` — every side effect behind a small interface (`ICodeHost`, `ICopilotRunner`, `IGitClient`, `IProcessRunner`,
   `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a code-host/CLI quirk is fixed in exactly one class.
   `Infrastructure/CodeHost/` is the code-host provider (ADR 0004): `ICodeHost` (issues, comments, labels, PRs, close,
-  attachments, `FindAttachments`), `IGitRemote` (clone URL, git auth header, PR head refspec; `GitClient` reads it) and
+  attachments, `FindAttachments`), `IGitRemote` (clone URL, git auth header, PR head refspec; `GitClient` and `Workspace` read it) and
   `CodeHostCapabilities` (what a job must know about the host, named after the job's need: `KeepsLabelsOnCreate`).
   `CodeHostRegistration` picks the provider from `code_host.kind`; GitBucket (`GitBucketCodeHost`, `GitBucketWeb`,
   `GitBucketGitRemote`) is the only one, and no class outside the folder knows its API. Failures are `CodeHostException`.

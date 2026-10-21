@@ -103,13 +103,12 @@ public sealed class FixReviewJob(
         // The PR head is fetched too (the code host's PR head ref), so a fork PR gets the refusal below instead of
         // a git error.
         var sha = pull.Head.Sha;
-        var pullHead = git.PullHeadRefspec(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: pull.Head.Ref,
-            ExtraFetch: [pullHead])
+            PullHead: pull.Number)
         {
             Writable = true,
             TargetComponent = writable.Count == 1 ? target.Name : null,

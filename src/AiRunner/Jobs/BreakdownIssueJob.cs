@@ -98,7 +98,7 @@ public sealed class BreakdownIssueJob(
             TargetRepo: firstRepo,
             StartPoint: Branches.Remote(firstDefaultBranch),
             NewBranch: null,
-            ExtraFetch: []);
+            PullHead: null);
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
 
         foreach (var featureRepo in featureRepos)

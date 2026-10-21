@@ -71,9 +71,6 @@ public interface IGitClient
 
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string directory);
-
-    /// <summary>The code host's refspec for a PR's head commit, for the workspace's extra fetch.</summary>
-    string PullHeadRefspec(int number);
 }
 
 /// <summary>
@@ -359,8 +356,6 @@ public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRu
         text.Split((char)0, StringSplitOptions.RemoveEmptyEntries)
             .Select(entry => entry.Trim('\r', '\n'))
             .Where(entry => entry.Length > 0);
-
-    public string PullHeadRefspec(int number) => remote.PullHeadRefspec(number);
 
     public string ConfigFingerprint(string directory)
     {

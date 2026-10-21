@@ -216,8 +216,6 @@ public sealed class FakeGit : IGitClient
 
     public string ConfigFingerprint(string directory) =>
         _lastFingerprint = Fingerprints.Count > 0 ? Fingerprints.Dequeue() : _lastFingerprint;
-
-    public string PullHeadRefspec(int number) => $"+refs/pull/{number}/head:refs/remotes/pr/{number}";
 }
 
 /// <summary>A temp folder instead of a clone.</summary>

@@ -37,8 +37,9 @@ public sealed class GitWorkspaceTests : IDisposable
         File.WriteAllText(templateFile, "template");
 
         var identity = new RunnerIdentity { Login = "bot", GitSecret = "x" };
-        _gitClient = new GitClient(_config, new GitBucketGitRemote(_config, identity), _processRunner);
-        _workspace = new Workspace(_config, _gitClient, NullLogger<Workspace>.Instance);
+        var remote = new GitBucketGitRemote(_config, identity);
+        _gitClient = new GitClient(_config, remote, _processRunner);
+        _workspace = new Workspace(_config, _gitClient, remote, NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main
         var bare = Path.Combine(_root, "git", "o", "r.git");
@@ -56,9 +57,9 @@ public sealed class GitWorkspaceTests : IDisposable
     public void Dispose() => FileSystem.DeleteDirectory(_root);
 
     /// <summary>Prepares the project and returns the clone of o/r.</summary>
-    private async Task<string> PrepareAsync(string startPoint, string? newBranch, params string[] extraFetch)
+    private async Task<string> PrepareAsync(string startPoint, string? newBranch, int? pullHead = null)
     {
-        var request = new WorkspaceRequest(_project, "o/r", startPoint, newBranch, extraFetch);
+        var request = new WorkspaceRequest(_project, "o/r", startPoint, newBranch, pullHead);
         var prepared = await _workspace.PrepareAsync(request, default);
 
         return prepared.TargetClone;
@@ -66,7 +67,7 @@ public sealed class GitWorkspaceTests : IDisposable
 
     private async Task<PreparedWorkspace> PrepareProjectAsync(ProjectConfig project, string targetRepo)
     {
-        var request = new WorkspaceRequest(project, targetRepo, "origin/main", null, [])
+        var request = new WorkspaceRequest(project, targetRepo, "origin/main", null, null)
         {
             Writable = true,
         };
@@ -158,7 +159,7 @@ public sealed class GitWorkspaceTests : IDisposable
     [Fact]
     public async Task Feature_branch_is_pushed_from_a_remote_ref_and_missing_refs_fail_clearly()
     {
-        var directory = await PrepareAsync("origin/main", null, "+refs/pull/9/head:refs/remotes/pr/9");
+        var directory = await PrepareAsync("origin/main", null, pullHead: 9);
         await _gitClient.PushAsync(directory, "origin/main", "feat/issue-5", default);
         await _gitClient.CloneOrFetchAsync("o/r", directory, default);
         Assert.True(await _gitClient.RefExistsAsync(directory, "origin/feat/issue-5", default));
@@ -336,7 +337,7 @@ public sealed class GitWorkspaceTests : IDisposable
     {
         SeedRepo("o/s", ("lib.txt", "lib\n"));
         PushFeatureBranch();
-        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, null)
         {
             Writable = true,
             OthersAt = "feat/issue-12",
@@ -359,7 +360,7 @@ public sealed class GitWorkspaceTests : IDisposable
     public async Task The_other_repos_stay_at_the_default_branch_when_the_feature_branch_is_missing()
     {
         SeedRepo("o/s", ("lib.txt", "lib\n"));
-        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, null)
         {
             Writable = true,
             OthersAt = "feat/issue-12",
@@ -626,7 +627,7 @@ public sealed class GitWorkspaceTests : IDisposable
             ],
         };
         project.Settings.NeverEdit = ["migrations/"];
-        var request = new WorkspaceRequest(project, "o/mono", "origin/main", "ai/issue-1", [])
+        var request = new WorkspaceRequest(project, "o/mono", "origin/main", "ai/issue-1", null)
         {
             Writable = true,
             TargetComponent = "api",

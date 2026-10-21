@@ -61,7 +61,7 @@ public sealed class AnalyzeIssueJob(
             TargetRepo: request.Repo,
             StartPoint: startPoint,
             NewBranch: null,
-            ExtraFetch: []);
+            PullHead: null);
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
 

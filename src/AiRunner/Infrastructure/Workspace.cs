@@ -1,5 +1,6 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
+using AiRunner.Infrastructure.CodeHost;
 using Microsoft.Extensions.Logging;
 
 namespace AiRunner.Infrastructure;
@@ -9,13 +10,16 @@ namespace AiRunner.Infrastructure;
 /// <param name="TargetRepo">The repo the job works on; it is checked out at <paramref name="StartPoint"/>.</param>
 /// <param name="StartPoint">The commit to check out in the target repo, e.g. "origin/main" or a sha.</param>
 /// <param name="NewBranch">Check out as this branch when given, else detached.</param>
-/// <param name="ExtraFetch">Refspecs fetched first in the target repo when the server has them (e.g. a PR head); a failure there is ignored.</param>
+/// <param name="PullHead">
+/// A PR whose head commit is fetched first into the target repo (the code host's PR head ref), so a commit that is
+/// only on that PR can be checked out. A host without the ref is ignored.
+/// </param>
 public sealed record WorkspaceRequest(
     ProjectConfig Project,
     string TargetRepo,
     string StartPoint,
     string? NewBranch,
-    IReadOnlyList<string> ExtraFetch)
+    int? PullHead)
 {
     /// <summary>The agent may change the target code (implement, review fix). False = components.md shows everything read-only.</summary>
     public bool Writable { get; init; }
@@ -65,7 +69,11 @@ public interface IWorkspace
 /// so "git add -A" never commits one the agent wrote there by mistake. AGENTS.md in the root is a runner file too,
 /// but it is not excluded in the clones: a repo may have an AGENTS.md of its own that the agent may legitimately edit.
 /// </summary>
-public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger<Workspace> logger) : IWorkspace
+public sealed class Workspace(
+    RunnerConfig config,
+    IGitClient gitClient,
+    IGitRemote remote,
+    ILogger<Workspace> logger) : IWorkspace
 {
     private const string RunnerFolder = ".ai-workflow";
     private const string TemplatesFolder = ".ai-workflow/templates";
@@ -254,8 +262,9 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
         string directory,
         CancellationToken cancellationToken)
     {
-        foreach (var refspec in request.ExtraFetch)
+        if (request.PullHead is { } pullNumber)
         {
+            var refspec = remote.PullHeadRefspec(pullNumber);
             try
             {
                 await gitClient.FetchAsync(directory, refspec, cancellationToken);

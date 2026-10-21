@@ -12,13 +12,15 @@ public static class CodeHostRegistration
     public static void Add(IServiceCollection services, ConfigFile configFile, string token)
     {
         var kind = configFile.Config.CodeHost.Kind;
-        if (kind != CodeHostKinds.GitBucket)
+        switch (kind)
         {
-            // ConfigResolver refuses an unknown kind; this is for a kind added there but not here.
-            throw new InvalidOperationException($"code_host.kind '{kind}' has no provider.");
+            case CodeHostKinds.GitBucket:
+                AddGitBucket(services, configFile, token);
+                break;
+            default:
+                // ConfigResolver refuses an unknown kind; this is for a kind added there but not here.
+                throw new InvalidOperationException($"code_host.kind '{kind}' has no provider.");
         }
-
-        AddGitBucket(services, configFile, token);
     }
 
     /// <summary>

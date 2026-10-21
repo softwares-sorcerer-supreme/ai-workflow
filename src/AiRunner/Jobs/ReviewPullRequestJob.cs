@@ -81,13 +81,12 @@ public sealed class ReviewPullRequestJob(
             await codeHost.RemoveLabelAsync(request.Repo, pull.Number, Labels.ReviewFull, cancellationToken);
         }
 
-        var pullHead = git.PullHeadRefspec(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: null,
-            ExtraFetch: [pullHead])
+            PullHead: pull.Number)
         {
             OthersAt = Branches.FeatureBranchOf(pull),
         };

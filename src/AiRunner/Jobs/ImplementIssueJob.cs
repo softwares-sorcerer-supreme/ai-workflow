@@ -154,7 +154,7 @@ public sealed class ImplementIssueJob(
             TargetRepo: targetRepo,
             StartPoint: baseRemote,
             NewBranch: branch,
-            ExtraFetch: [])
+            PullHead: null)
         {
             Writable = true,
             TargetComponent = target.Name,
