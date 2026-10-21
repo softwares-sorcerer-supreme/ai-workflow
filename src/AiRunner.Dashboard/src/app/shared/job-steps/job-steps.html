@@ -1,0 +1,29 @@
+@if (steps(); as list) {
+  @if (list.length > 0) {
+    <ol class="steps" aria-label="Job steps">
+      @for (step of list; track step.seq) {
+        <li class="step" [class]="'tone-' + stateTone(step.state)">
+          <app-status-chip
+            class="state"
+            [label]="step.stateLabel"
+            [tone]="stateTone(step.state)"
+            [icon]="stateIcon(step.state)"
+          />
+          <span class="label">{{ step.label }}</span>
+          <span class="duration app-muted">
+            @if (step.durationSeconds !== null) {
+              {{ step.durationSeconds | duration }}
+            }
+          </span>
+          @if (step.detail) {
+            <span class="detail app-muted">{{ step.detail }}</span>
+          }
+        </li>
+      }
+    </ol>
+  } @else {
+    <p class="none app-muted">No steps recorded for this job.</p>
+  }
+} @else {
+  <p class="none app-muted">No steps recorded for this job.</p>
+}

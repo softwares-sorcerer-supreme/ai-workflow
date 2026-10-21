@@ -1506,7 +1506,8 @@
           "detail",
           "error",
           "hasLog",
-          "copilotCalls"
+          "copilotCalls",
+          "isRunning"
         ],
         "type": "object",
         "properties": {
@@ -1591,6 +1592,9 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "isRunning": {
+            "type": "boolean"
           },
           "steps": {
             "type": [
@@ -1697,7 +1701,8 @@
         "required": [
           "name",
           "format",
-          "sizeBytes"
+          "sizeBytes",
+          "isLive"
         ],
         "type": "object",
         "properties": {
@@ -1710,6 +1715,9 @@
           "sizeBytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "isLive": {
+            "type": "boolean"
           }
         }
       },
@@ -1739,7 +1747,9 @@
           "sizeBytes",
           "text",
           "isTruncated",
-          "truncatedNote"
+          "truncatedNote",
+          "offset",
+          "nextOffset"
         ],
         "type": "object",
         "properties": {

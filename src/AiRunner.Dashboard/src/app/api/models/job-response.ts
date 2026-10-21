@@ -11,6 +11,7 @@ export interface JobResponse {
   finishedAt: (string | null);
   hasLog: boolean;
   id: number;
+  isRunning: boolean;
   number: number;
   project: (string | null);
   repo: string;

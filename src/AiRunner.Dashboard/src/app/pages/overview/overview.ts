@@ -19,6 +19,7 @@ import { confirmWrite } from '../../shared/confirm-dialog/confirm-dialog';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { issueLink } from '../../shared/issue-link';
+import { JobSteps } from '../../shared/job-steps/job-steps';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
 import { StageChip } from '../../shared/stage-chip/stage-chip';
@@ -47,6 +48,7 @@ export const CANCEL_JOB_MESSAGE =
     DataTable,
     DurationPipe,
     InlineNote,
+    JobSteps,
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,

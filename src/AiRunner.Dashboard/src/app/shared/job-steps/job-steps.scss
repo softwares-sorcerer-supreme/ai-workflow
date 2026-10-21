@@ -1,0 +1,71 @@
+@use '../tones';
+
+:host {
+  display: block;
+}
+
+@include tones.class-variants(step);
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+// Chip, label and duration on one line, the detail below; the left edge carries the state's tone.
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--app-space-3);
+  row-gap: var(--app-space-1);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-left: 3px solid var(--step-dot);
+  border-radius: var(--app-radius-small);
+  font: var(--mat-sys-body-medium);
+}
+
+// The step the job is on now stands out with its tone's soft background.
+.step.tone-progress {
+  background: var(--step-bg);
+}
+
+.label {
+  overflow-wrap: anywhere;
+}
+
+.duration {
+  font: var(--mat-sys-body-small);
+  text-align: end;
+}
+
+.detail {
+  grid-column: 2 / -1;
+  font: var(--mat-sys-body-small);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.none {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+}
+
+// Phones: the chip goes on its own line above the label.
+@media (max-width: 599.98px) {
+  .step {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .state {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .detail {
+    grid-column: 1 / -1;
+  }
+}

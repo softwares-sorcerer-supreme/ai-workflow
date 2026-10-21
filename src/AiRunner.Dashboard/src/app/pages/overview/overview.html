@@ -52,9 +52,16 @@
           <dt>Project</dt>
           <dd>{{ running.project ?? '-' }}</dd>
 
-          @if (running.roundLabel) {
-            <dt>Round</dt>
-            <dd>{{ running.roundLabel }}</dd>
+          @if (running.roundLabel || running.currentStep) {
+            <dt>Now</dt>
+            <dd class="now">
+              @if (running.roundLabel) {
+                <span>{{ running.roundLabel }}</span>
+              }
+              @if (running.currentStep; as step) {
+                <span data-testid="current-step">{{ step.label }}</span>
+              }
+            </dd>
           }
 
           <dt>Started</dt>
@@ -63,6 +70,11 @@
           <dt>Elapsed</dt>
           <dd>{{ running.elapsedSeconds | duration }}</dd>
         </dl>
+
+        @if (running.steps.length > 0) {
+          <h3 class="steps-title">Steps</h3>
+          <app-job-steps [steps]="running.steps" />
+        }
       } @else {
         <app-view-state
           kind="empty"

@@ -24,6 +24,7 @@ import {
   fixedClock,
   sampleHealth,
   sampleJob,
+  sampleStep,
   settle,
 } from '../../shared/testing';
 import { Overview } from './overview';
@@ -78,6 +79,19 @@ describe('Overview', () => {
         elapsedSeconds: 300,
         round: 2,
         roundLabel: 'Round 2',
+        currentStep: { code: 'copilot', label: 'Copilot round 2' },
+        steps: [
+          sampleStep({ seq: 1 }),
+          sampleStep({
+            seq: 2,
+            code: 'copilot',
+            label: 'Copilot round 2',
+            state: 'running',
+            stateLabel: 'Running',
+            endedAt: null,
+            durationSeconds: null,
+          }),
+        ],
       },
       queueLabel: '1 job queued',
       queue: [
@@ -95,7 +109,14 @@ describe('Overview', () => {
     expect(element.textContent).toContain('Implement issue');
     expect(element.textContent).toContain('team/shop#42');
     expect(element.textContent).toContain('Round 2');
+    expect(element.querySelector('[data-testid="current-step"]')?.textContent).toBe('Copilot round 2');
     expect(element.textContent).toContain('5 min 00 s');
+
+    const steps = [...element.querySelectorAll('app-job-steps li.step')];
+    expect(steps.length).toBe(2);
+    expect(steps[0].textContent).toContain('Prepare workspace');
+    expect(steps[1].textContent).toContain('Running');
+    expect(steps[1].classList).toContain('tone-progress');
     expect(element.querySelector('a[href="/jobs/9"]')).not.toBeNull();
 
     const queue = element.querySelector('#queue') as HTMLElement;
@@ -204,6 +225,8 @@ describe('Overview writes', () => {
       elapsedSeconds: 300,
       round: null,
       roundLabel: null,
+      currentStep: null,
+      steps: [],
     },
   };
 

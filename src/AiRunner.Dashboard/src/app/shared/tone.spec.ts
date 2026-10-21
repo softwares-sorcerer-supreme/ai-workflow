@@ -4,6 +4,7 @@ import {
   JOB_STATUS_TONES,
   LANE_TONES,
   PULL_STATE_TONES,
+  STEP_STATE_TONES,
   focusTone,
   healthTone,
   issueMarkIcon,
@@ -11,6 +12,8 @@ import {
   jobStatusTone,
   laneTone,
   pullStateTone,
+  stepStateIcon,
+  stepStateTone,
 } from './tone';
 
 describe('issueMarkTone and issueMarkIcon', () => {
@@ -125,5 +128,26 @@ describe('healthTone', () => {
   it('shows an unknown or missing state as neutral', () => {
     expect(healthTone('something-new')).toBe('neutral');
     expect(healthTone(undefined)).toBe('neutral');
+  });
+});
+
+describe('stepStateTone and stepStateIcon', () => {
+  it.each([
+    ['running', 'progress', 'progress_activity'],
+    ['ok', 'success', 'check_circle'],
+    ['failed', 'danger', 'error'],
+    ['interrupted', 'warning', 'cancel'],
+  ])('shows step state %s as %s with icon %s', (code, tone, icon) => {
+    expect(stepStateTone(code)).toBe(tone);
+    expect(stepStateIcon(code)).toBe(icon);
+  });
+
+  it('shows an unknown step state as neutral without an icon', () => {
+    expect(stepStateTone('skipped')).toBe('neutral');
+    expect(stepStateIcon('skipped')).toBeUndefined();
+  });
+
+  it('has a color for every step state the API sends', () => {
+    expect(Object.keys(STEP_STATE_TONES).sort()).toEqual(['failed', 'interrupted', 'ok', 'running']);
   });
 });

@@ -2,6 +2,7 @@ import { WritableSignal, signal } from '@angular/core';
 import { HealthResponse } from '../api/models/health-response';
 import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
+import { JobStepResponse } from '../api/models/job-step-response';
 import { PullResponse } from '../api/models/pull-response';
 import { SetupResponse } from '../api/models/setup-response';
 import { PollResource } from './poll-resource';
@@ -106,6 +107,7 @@ export function sampleJob(overrides: Partial<JobResponse> = {}): JobResponse {
     detail: '2 rounds',
     error: null,
     hasLog: true,
+    isRunning: false,
     copilotCalls: 2,
     ...overrides,
   };
@@ -194,6 +196,22 @@ export function sampleSetup(overrides: Partial<SetupResponse> = {}): SetupRespon
     webPasswordNote: null,
     canRemoveWebPassword: false,
     secretsFile: '/home/dev/.microsoft/usersecrets/ai-runner/secrets.json',
+    ...overrides,
+  };
+}
+
+/** A finished step; override fields per test. */
+export function sampleStep(overrides: Partial<JobStepResponse> = {}): JobStepResponse {
+  return {
+    seq: 1,
+    code: 'prepare',
+    label: 'Prepare workspace',
+    startedAt: '2026-01-01T11:01:00Z',
+    endedAt: '2026-01-01T11:01:12Z',
+    durationSeconds: 12,
+    state: 'ok',
+    stateLabel: 'Done',
+    detail: null,
     ...overrides,
   };
 }

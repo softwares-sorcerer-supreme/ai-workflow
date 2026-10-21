@@ -380,7 +380,7 @@ public static class DashboardApi
         }
 
         var files = logs.List(job)
-            .Select(file => new LogFileResponse(file.Name, FormatOf(file.Name), file.SizeBytes))
+            .Select(file => new LogFileResponse(file.Name, FormatOf(file.Name), file.SizeBytes, LogFileRules.IsLiveName(file.Name)))
             .ToList();
 
         return TypedResults.Ok(new LogFilesResponse(id, files));
@@ -426,11 +426,9 @@ public static class DashboardApi
             content.SizeBytes,
             content.Text,
             content.IsTruncated,
-            note)
-        {
-            Offset = content.Offset,
-            NextOffset = content.NextOffset,
-        });
+            note,
+            content.Offset,
+            content.NextOffset));
     }
 
     private static ApiError UnknownProject(string project) => new($"Unknown project '{project}'.");

@@ -362,6 +362,26 @@ public sealed class JobsApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_API_says_which_file_is_live_and_whether_the_job_is_running()
+    {
+        var folder = MakeLogFolder("run-1", ("round-1-copilot-live.txt", "x"), ("job.log", "y"));
+        var running = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var done = AddJob(JobType.AnalyzeIssue, "o/shop", 2);
+        var client = await StartAsync();
+
+        var files = await GetJsonAsync(client, $"api/jobs/{running}/files");
+        var runningJob = await GetJsonAsync(client, $"api/jobs/{running}");
+        var doneJob = await GetJsonAsync(client, $"api/jobs/{done}");
+
+        var liveByName = files.GetProperty("files").EnumerateArray()
+            .ToDictionary(file => file.GetProperty("name").GetString()!, file => file.GetProperty("isLive").GetBoolean());
+        Assert.True(liveByName["round-1-copilot-live.txt"]);
+        Assert.False(liveByName["job.log"]);
+        Assert.True(runningJob.GetProperty("isRunning").GetBoolean());
+        Assert.False(doneJob.GetProperty("isRunning").GetBoolean());
+    }
+
+    [Fact]
     public async Task A_job_from_before_the_step_log_has_an_empty_list()
     {
         var id = AddJob(JobType.AnalyzeIssue, "o/shop", 4);

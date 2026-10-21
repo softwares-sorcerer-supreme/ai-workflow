@@ -61,12 +61,12 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
-`JOB_STATUS_TONES`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
-`PULL_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`,
+`JOB_STATUS_TONES`, `STEP_STATE_TONES`, `STEP_STATE_ICONS`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
+`PULL_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
 `issueMarkTone(code)`, `issueMarkIcon(code)`, `workerIcon(code)`, `laneTone(code)`, `focusTone(code)`,
 `pullStateTone(code)`), which falls back to `neutral` (or no icon) for an unknown code. Lanes: `todo` neutral, `ready`
 info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
-`failed` danger. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
+`failed` danger. Job step states: `running` progress, `ok` success, `failed` danger, `interrupted` warning. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
 a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
 is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
 comparing the chosen filter value with an option's code to mark the selected option
@@ -160,6 +160,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-issue-card` | one issue as a card (the lanes of the board, short lists) | a table row (use `app-data-table`) |
 | `app-count-toggle` | a toned toggle button with a label and an API count (focus chips, pipeline segments) | a plain action button (use `mat-button`) |
 | `app-pull-link` | one PR as a toned "#50" link | PR details (use a table) |
+| `app-job-steps` | the steps of one job (`steps` of the running job or of `GET /api/jobs/{id}`) | job facts (use `.app-facts`) |
 | `app-sub-issue-progress` | a parent's `progress` as a thin bar + "closed/total" | any other ratio |
 | `app-view-state` | loading / empty / error of a panel that is not a table | inline hints |
 | `app-inline-note` | one tone colored line inside a panel: stale data, a cut file | a whole-panel state |
@@ -294,6 +295,25 @@ Sub-issues, the Actions column of Pull requests).
 The component is the button itself, so `(click)`, `data-*` attributes and the focus ring stay on it. `look` is
 `chip` (a pill with a small count badge, default) or `segment` (a tile with a colored top edge and a large count).
 No `tone` = no dot (an "All" option); no `count` = no number. It sets `aria-pressed` and the selected colors.
+
+### `app-job-steps`
+
+```html
+<app-job-steps [steps]="job.steps" />        <!-- JobStepResponse[]; null or [] for an old job -->
+```
+One line per step in the API's order: an `app-status-chip` with `stateLabel` (tone and icon from `stepStateTone` /
+`stepStateIcon`), the step's `label`, its duration (none while it runs), and `detail` as a muted second line when
+sent. The line's left edge carries the state's tone; the running step also gets the tone's soft background. An empty
+or missing list says "No steps recorded for this job." Used on the Overview's Running job card and the job page.
+
+### Live log files
+
+A file whose entry in the job's file list has `isLive: true` is Copilot output the runner appends to while the job
+runs. While the job's `isRunning` is true the job page tails it: each poll calls `getJobFile` with `offset` = the
+previous answer's `nextOffset` and appends the text; the first poll that starts after `isRunning` turned false reads
+once more (the end of the log) and then the file is not read again. The text box scrolls on its own and keeps its
+end in view until the user scrolls up. Every other file is read as before. The page never looks at a file name or a
+status code to decide this.
 
 ### `app-view-state`
 
@@ -502,7 +522,7 @@ tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePo
 fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
 its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
 `callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`,
-`sampleIssue(overrides)` or `samplePull(overrides)`, and wait for the
+`sampleIssue(overrides)`, `samplePull(overrides)` or `sampleStep(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
 `MatPaginatorHarness`, `MatButtonHarness`). A write test answers the write in `FakeApi` (throw an
 `HttpErrorResponse` for a 409 or 403), provides `{ provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } }`

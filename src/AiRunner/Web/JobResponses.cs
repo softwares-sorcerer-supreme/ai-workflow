@@ -32,7 +32,8 @@ public sealed record JobResponse(
     string? Detail,
     string? Error,
     bool HasLog,
-    int? CopilotCalls)
+    int? CopilotCalls,
+    bool IsRunning)
 {
     /// <summary>The steps the job went through; only <c>GET /api/jobs/{id}</c> fills it (lists leave it out).</summary>
     public IReadOnlyList<JobStepResponse>? Steps { get; init; }
@@ -61,7 +62,8 @@ public sealed record JobResponse(
             job.Detail,
             job.Error,
             !string.IsNullOrEmpty(job.LogDir),
-            job.CopilotCalls);
+            job.CopilotCalls,
+            job.Status == JobStatus.Running);
     }
 }
 
@@ -177,7 +179,8 @@ public sealed record JobsPageResponse(
     int TotalPages);
 
 /// <summary>A log file of a job. <c>Format</c> is <c>markdown</c> or <c>text</c>: how the UI shows it.</summary>
-public sealed record LogFileResponse(string Name, string Format, long SizeBytes);
+/// <summary><c>IsLive</c>: the runner appends to this file while its job runs, so the UI tails it.</summary>
+public sealed record LogFileResponse(string Name, string Format, long SizeBytes, bool IsLive);
 
 public sealed record LogFilesResponse(long JobId, IReadOnlyList<LogFileResponse> Files);
 
@@ -191,12 +194,9 @@ public sealed record LogFileTextResponse(
     long SizeBytes,
     string Text,
     bool IsTruncated,
-    string? TruncatedNote)
-{
-    public long Offset { get; init; }
-
-    public long NextOffset { get; init; }
-}
+    string? TruncatedNote,
+    long Offset,
+    long NextOffset);
 
 /// <summary>Display texts for job codes. The UI shows them as sent.</summary>
 public static class JobLabels

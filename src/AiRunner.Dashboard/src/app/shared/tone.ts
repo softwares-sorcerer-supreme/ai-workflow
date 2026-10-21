@@ -137,3 +137,32 @@ export function focusTone(code: string): Tone {
 export function pullStateTone(code: string): Tone {
   return PULL_STATE_TONES[code] ?? 'neutral';
 }
+
+/**
+ * Color per job step state code (C# job steps): `running` the step the job is on now, `ok` finished, `failed` the
+ * step the job failed in, `interrupted` cut off (cancel, timeout or a runner stop).
+ */
+export const STEP_STATE_TONES: Readonly<Record<string, Tone>> = {
+  running: 'progress',
+  ok: 'success',
+  failed: 'danger',
+  interrupted: 'warning',
+};
+
+/** Icon per job step state code. */
+export const STEP_STATE_ICONS: Readonly<Record<string, string>> = {
+  running: 'progress_activity',
+  ok: 'check_circle',
+  failed: 'error',
+  interrupted: 'cancel',
+};
+
+/** The color of a job step state code, neutral for an unknown one. */
+export function stepStateTone(code: string): Tone {
+  return STEP_STATE_TONES[code] ?? 'neutral';
+}
+
+/** The icon of a job step state code, or undefined (the chip then shows its dot). */
+export function stepStateIcon(code: string): string | undefined {
+  return STEP_STATE_ICONS[code];
+}

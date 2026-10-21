@@ -54,6 +54,9 @@
           <dd class="wrap error-text">{{ facts.error }}</dd>
         }
       </dl>
+
+      <h3 class="steps-title">Steps</h3>
+      <app-job-steps [steps]="facts.steps" />
     } @else if (job.error()) {
       <app-view-state
         kind="error"
@@ -116,7 +119,12 @@
               @if (isMarkdown()) {
                 <app-markdown [text]="fileText()" />
               } @else {
-                <pre class="app-mono log-text">{{ fileText() }}</pre>
+                <pre
+                  #logText
+                  class="app-mono log-text"
+                  [class.tail]="isLiveFile()"
+                  (scroll)="onLogScroll()"
+                >{{ fileText() }}</pre>
               }
             } @else if (file.error()) {
               <app-view-state

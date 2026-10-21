@@ -257,6 +257,15 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   else `modelMetrics` as agent `main`) goes to `cost_usage_part` (`UsagePart`, not in the CSV); `GET /api/cost?by=model` groups it
   per model and agent, and every cost row carries billed (`nanoAiu`, the CLI's raw value) and the four token counts.
 
+- **Job progress** (`Core/JobSteps`, `Infrastructure/JobStepTracker`, table `job_step`): a log like `jobs`, safe to delete with the
+  database; a step write error is a warning, never a failed job (`JobStepTracker` catches it). `JobRun.Step(code, label)` opens a
+  step and closes the one before it as ok; `EndStep(outcome, detail)` closes it early (a failed check); `JobWorker` closes the last one
+  (`ok`, or `failed` with the failure message) and sets the tracker, `RunnerStatus.JobStep` keeps the current one for the overview. Jobs
+  and `AgentSession` call `Step` where they already log (codes in `JobSteps`); `GET /api/jobs/{id}` and the overview's running job carry
+  the steps (`JobStepResponse`: state `running | ok | failed | interrupted`, from `JobSteps.StateOf`). Copilot output is also appended
+  line by line to `<logName>-live.txt` while it runs (`ProcessSpec.LiveOutputFile`, `CopilotRequest.LiveFile`; the `-stdout` / `-stderr`
+  files are saved as before), and `GET /api/jobs/{id}/files/{name}?offset=` returns text from a byte offset (whole characters) plus
+  `nextOffset` through the same `LogViewer` path rules.
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a
   waiting-on action, a health state or a total.
