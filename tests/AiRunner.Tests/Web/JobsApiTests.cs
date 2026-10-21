@@ -310,6 +310,321 @@ public sealed class JobsApiTests : IAsyncDisposable
         Assert.StartsWith("aaaa", text);
     }
 
+    // ---- steps ----
+
+    private void AddStep(long jobId, int seq, string code, string label, string? outcome = null, string? detail = null)
+    {
+        var startedAt = _time.GetUtcNow();
+        _store.OpenStep(new JobStepRecord(jobId, seq, code, label, startedAt, null, null, null));
+        if (outcome is not null)
+        {
+            _store.CloseStep(new JobStepEnd(jobId, seq, startedAt.AddSeconds(12), outcome, detail));
+        }
+    }
+
+    [Fact]
+    public async Task A_job_carries_its_steps_in_order_with_state_duration_and_detail()
+    {
+        var id = AddJob(JobType.ImplementIssue, "o/shop", 4, JobStatus.Failed);
+        AddStep(id, 1, "prepare", "Prepare workspace", JobSteps.Ok);
+        AddStep(id, 2, "check", "test", JobSteps.Failed, "failed (exit 1)");
+        AddStep(id, 3, "push", "Push");
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, $"api/jobs/{id}");
+
+        var steps = root.GetProperty("steps").EnumerateArray().ToList();
+        Assert.Equal(["prepare", "check", "push"], steps.Select(step => step.GetProperty("code").GetString()));
+        Assert.Equal("Prepare workspace", steps[0].GetProperty("label").GetString());
+        Assert.Equal(12, steps[0].GetProperty("durationSeconds").GetDouble());
+        Assert.Equal("ok", steps[0].GetProperty("state").GetString());
+        Assert.Equal("failed", steps[1].GetProperty("state").GetString());
+        Assert.Equal("failed (exit 1)", steps[1].GetProperty("detail").GetString());
+
+        // The job is over but the step never closed: the runner stopped in the middle of it.
+        Assert.Equal("interrupted", steps[2].GetProperty("state").GetString());
+        Assert.Equal("Interrupted", steps[2].GetProperty("stateLabel").GetString());
+        Assert.Equal(JsonValueKind.Null, steps[2].GetProperty("durationSeconds").ValueKind);
+    }
+
+    [Fact]
+    public async Task The_open_step_of_a_running_job_is_running_and_lists_leave_the_steps_out()
+    {
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 4, JobStatus.Running);
+        AddStep(id, 1, "copilot", "Copilot round 1");
+        var client = await StartAsync();
+
+        var job = await GetJsonAsync(client, $"api/jobs/{id}");
+        var history = await GetJsonAsync(client, "api/jobs");
+
+        Assert.Equal("running", job.GetProperty("steps")[0].GetProperty("state").GetString());
+        Assert.Equal(JsonValueKind.Null, history.GetProperty("items")[0].GetProperty("steps").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_job_from_before_the_step_log_has_an_empty_list()
+    {
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 4);
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, $"api/jobs/{id}");
+
+        Assert.Empty(root.GetProperty("steps").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task The_overview_running_job_lists_its_steps_and_names_the_current_one()
+    {
+        var id = AddJob(JobType.ImplementIssue, "o/shop", 12, JobStatus.Running);
+        _status.WorkerBusy(new RunningJob(id, "ImplementIssue", "o/shop", 12, _time.GetUtcNow()));
+        AddStep(id, 1, "prepare", "Prepare workspace", JobSteps.Ok);
+        AddStep(id, 2, "copilot", "Copilot round 1");
+        _status.JobStep("copilot", "Copilot round 1");
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, "api/overview");
+
+        var running = root.GetProperty("runningJob");
+        Assert.Equal("copilot", running.GetProperty("currentStep").GetProperty("code").GetString());
+        Assert.Equal("Copilot round 1", running.GetProperty("currentStep").GetProperty("label").GetString());
+        var steps = running.GetProperty("steps").EnumerateArray().ToList();
+        Assert.Equal(["ok", "running"], steps.Select(step => step.GetProperty("state").GetString()));
+    }
+
+    [Fact]
+    public async Task The_overview_running_job_has_no_current_step_before_its_first_step()
+    {
+        var id = AddJob(JobType.ImplementIssue, "o/shop", 12, JobStatus.Running);
+        _status.WorkerBusy(new RunningJob(id, "ImplementIssue", "o/shop", 12, _time.GetUtcNow()));
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, "api/overview");
+
+        var running = root.GetProperty("runningJob");
+        Assert.Equal(JsonValueKind.Null, running.GetProperty("currentStep").ValueKind);
+        Assert.Empty(running.GetProperty("steps").EnumerateArray());
+    }
+
+    [Fact]
+    public void Deleting_a_job_or_pruning_old_ones_removes_their_steps_and_keeps_the_rest()
+    {
+        var deleted = AddJob(JobType.AnalyzeIssue, "o/shop", 1);
+        var pruned = AddJob(JobType.AnalyzeIssue, "o/shop", 2);
+        var kept = _store.AddJob(new JobRequest(JobType.AnalyzeIssue, "o/shop", 3));
+        AddStep(deleted, 1, "prepare", "Prepare", JobSteps.Ok);
+        AddStep(pruned, 1, "prepare", "Prepare", JobSteps.Ok);
+        AddStep(kept, 1, "prepare", "Prepare", JobSteps.Ok);
+
+        _store.DeleteJob(deleted);
+        _store.PruneJobs(DateTimeOffset.UtcNow.AddDays(1));   // the store stamps finished jobs with the real clock
+
+        Assert.Empty(_store.ListSteps(deleted));
+        Assert.Empty(_store.ListSteps(pruned));
+        Assert.Single(_store.ListSteps(kept));
+    }
+
+    [Fact]
+    public void A_job_that_runs_again_starts_a_clean_step_list()
+    {
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1);
+        AddStep(id, 1, "prepare", "Prepare", JobSteps.Ok);
+        AddStep(id, 2, "copilot", "Copilot", JobSteps.Ok);
+
+        _ = new JobStepTracker(id, _store, _time, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        Assert.Empty(_store.ListSteps(id));
+    }
+
+    // ---- log tail (?offset=) ----
+
+    [Fact]
+    public async Task Offset_zero_and_no_offset_give_the_whole_file_and_the_end_as_next_offset()
+    {
+        var folder = MakeLogFolder("run-1", ("live.txt", "abcdef"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        var plain = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt");
+        var fromZero = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt?offset=0");
+
+        foreach (var root in new[] { plain, fromZero })
+        {
+            Assert.Equal("abcdef", root.GetProperty("text").GetString());
+            Assert.Equal(0, root.GetProperty("offset").GetInt64());
+            Assert.Equal(6, root.GetProperty("nextOffset").GetInt64());
+            Assert.False(root.GetProperty("isTruncated").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task Offset_in_the_middle_gives_the_rest_and_a_later_call_only_what_was_appended()
+    {
+        var folder = MakeLogFolder("run-1", ("live.txt", "abcdef"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        var middle = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt?offset=3");
+        File.AppendAllText(Path.Combine(JobsRoot, folder, "live.txt"), "ghi");
+        var next = middle.GetProperty("nextOffset").GetInt64();
+        var appended = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt?offset={next}");
+
+        Assert.Equal("def", middle.GetProperty("text").GetString());
+        Assert.Equal(3, middle.GetProperty("offset").GetInt64());
+        Assert.Equal(6, next);
+        Assert.Equal("ghi", appended.GetProperty("text").GetString());
+        Assert.Equal(9, appended.GetProperty("nextOffset").GetInt64());
+    }
+
+    [Theory]
+    [InlineData(6)]
+    [InlineData(500)]
+    public async Task Offset_at_or_past_the_end_gives_no_text_and_the_end_as_next_offset(long offset)
+    {
+        var folder = MakeLogFolder("run-1", ("live.txt", "abcdef"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt?offset={offset}");
+
+        Assert.Equal("", root.GetProperty("text").GetString());
+        Assert.Equal(6, root.GetProperty("nextOffset").GetInt64());
+        Assert.Equal(6, root.GetProperty("sizeBytes").GetInt64());
+    }
+
+    [Fact]
+    public async Task Offset_inside_a_multibyte_character_starts_at_the_next_whole_character()
+    {
+        // "a" is 1 byte, "e acute" is 2 bytes: offset 2 is in the middle of it.
+        var folder = MakeLogFolder("run-1", ("live.txt", "a\u00e9bc"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt?offset=2");
+
+        Assert.Equal("bc", root.GetProperty("text").GetString());
+        Assert.Equal(3, root.GetProperty("offset").GetInt64());
+        Assert.Equal(5, root.GetProperty("nextOffset").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_character_still_being_written_at_the_end_waits_for_the_next_read()
+    {
+        var folder = MakeLogFolder("run-1");
+        var bytes = new byte[] { (byte)'a', 0xC3 };
+        File.WriteAllBytes(Path.Combine(JobsRoot, folder, "live.txt"), bytes);
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        var root = await GetJsonAsync(client, $"api/jobs/{id}/files/live.txt");
+
+        Assert.Equal("a", root.GetProperty("text").GetString());
+        Assert.Equal(1, root.GetProperty("nextOffset").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_negative_offset_is_refused()
+    {
+        var folder = MakeLogFolder("run-1", ("live.txt", "abc"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Running, folder);
+        var client = await StartAsync();
+
+        using var response = await client.GetAsync($"api/jobs/{id}/files/live.txt?offset=-1");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("..%5Cstate.db")]
+    [InlineData("..%2Fstate.db")]
+    [InlineData("%2E%2E%5C%2E%2E%5Cstate.db")]
+    [InlineData("%2Fetc%2Fpasswd")]
+    [InlineData("C%3A%5Cwindows%5Cwin.ini")]
+    [InlineData("%5Cwindows%5Cwin.ini")]
+    [InlineData("secret.txt%3Astream")]
+    public async Task The_tail_route_never_serves_a_name_that_is_not_a_plain_file_in_the_folder(string name)
+    {
+        Directory.CreateDirectory(JobsRoot);
+        File.WriteAllText(Path.Combine(JobsRoot, "secret.txt"), Secret);
+        var folder = MakeLogFolder("run-1", ("job.log", "ok"));
+        var id = AddJob(JobType.AnalyzeIssue, "o/shop", 1, JobStatus.Done, folder);
+        var client = await StartAsync();
+
+        using var response = await client.GetAsync($"api/jobs/{id}/files/{name}?offset=1");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(Secret, body);
+        Assert.DoesNotContain("SQLite", body);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../secret.txt")]
+    [InlineData("..\\secret.txt")]
+    [InlineData("sub/job.log")]
+    [InlineData("/etc/passwd")]
+    [InlineData("C:\\windows\\win.ini")]
+    [InlineData("")]
+    public void The_viewer_refuses_unsafe_names_with_an_offset_too(string name)
+    {
+        var folder = MakeLogFolder("run-1", ("job.log", "ok"));
+        var viewer = new LogViewer(_config);
+        var job = new JobRecord(
+            1, "AnalyzeIssue", "o/shop", 1, JobStatus.Done, 1, _time.GetUtcNow(), null, null, null, folder, null, null);
+
+        var read = viewer.Read(job, name, 1);
+
+        Assert.Equal(LogReadStatus.BadName, read.Status);
+        Assert.Null(read.Content);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../other")]
+    [InlineData("C:\\Windows")]
+    [InlineData("/etc")]
+    [InlineData("")]
+    public void A_tampered_log_dir_cannot_point_the_tail_elsewhere(string logDir)
+    {
+        Directory.CreateDirectory(JobsRoot);
+        File.WriteAllText(Path.Combine(JobsRoot, "secret.txt"), Secret);
+        var viewer = new LogViewer(_config);
+        var job = new JobRecord(
+            1, "AnalyzeIssue", "o/shop", 1, JobStatus.Done, 1, _time.GetUtcNow(), null, null, null, logDir, null, null);
+
+        var read = viewer.Read(job, "secret.txt", 3);
+
+        Assert.NotEqual(LogReadStatus.Ok, read.Status);
+        Assert.Null(read.Content);
+    }
+
+    [Fact]
+    public void The_tail_does_not_follow_a_link_that_points_outside_the_job_folder()
+    {
+        var outsideFile = Path.Combine(_folder, "outside.txt");
+        File.WriteAllText(outsideFile, Secret);
+        var folder = MakeLogFolder("run-1", ("job.log", "ok"));
+        var link = Path.Combine(JobsRoot, folder, "link.txt");
+
+        try
+        {
+            File.CreateSymbolicLink(link, outsideFile);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            // Creating links needs a privilege on Windows; without it there is nothing to follow.
+            return;
+        }
+
+        var viewer = new LogViewer(_config);
+        var job = new JobRecord(
+            1, "AnalyzeIssue", "o/shop", 1, JobStatus.Done, 1, _time.GetUtcNow(), null, null, null, folder, null, null);
+
+        var read = viewer.Read(job, "link.txt", 2);
+
+        Assert.Equal(LogReadStatus.NotFound, read.Status);
+    }
+
     [Theory]
     [InlineData("..%5Cstate.db")]
     [InlineData("..%2Fstate.db")]

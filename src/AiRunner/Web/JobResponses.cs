@@ -34,6 +34,9 @@ public sealed record JobResponse(
     bool HasLog,
     int? CopilotCalls)
 {
+    /// <summary>The steps the job went through; only <c>GET /api/jobs/{id}</c> fills it (lists leave it out).</summary>
+    public IReadOnlyList<JobStepResponse>? Steps { get; init; }
+
     public static JobResponse From(JobRecord job, RunnerConfig config)
     {
         var project = config.FindProject(job.Repo)?.Name;
@@ -62,7 +65,48 @@ public sealed record JobResponse(
     }
 }
 
-/// <summary>The job the worker runs now. <c>RoundLabel</c> is set while an agent session is in a round.</summary>
+/// <summary>
+/// One step of a job. <c>State</c> is <c>running | ok | failed | interrupted</c> with its label; <c>Detail</c> says
+/// why a step failed (a check's exit code, the failure message).
+/// </summary>
+public sealed record JobStepResponse(
+    int Seq,
+    string Code,
+    string Label,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    double? DurationSeconds,
+    string State,
+    string StateLabel,
+    string? Detail)
+{
+    public static JobStepResponse From(JobStepRecord step, bool isJobRunning)
+    {
+        var state = JobSteps.StateOf(step.Outcome, isJobRunning);
+        double? duration = step.EndedAt is { } endedAt ? Math.Max(0, (endedAt - step.StartedAt).TotalSeconds) : null;
+
+        return new JobStepResponse(
+            step.Seq,
+            step.Code,
+            step.Label,
+            step.StartedAt,
+            step.EndedAt,
+            duration,
+            state,
+            JobSteps.StateLabel(state),
+            step.Detail);
+    }
+
+    public static List<JobStepResponse> All(IEnumerable<JobStepRecord> steps, bool isJobRunning) =>
+        steps
+            .Select(step => From(step, isJobRunning))
+            .ToList();
+}
+
+/// <summary>
+/// The job the worker runs now. <c>RoundLabel</c> is set while an agent session is in a round; <c>CurrentStep</c>
+/// names the step it is in, and <c>Steps</c> lists the steps so far.
+/// </summary>
 public sealed record RunningJobResponse(
     long Id,
     string Type,
@@ -73,12 +117,15 @@ public sealed record RunningJobResponse(
     DateTimeOffset StartedAt,
     double ElapsedSeconds,
     int? Round,
-    string? RoundLabel)
+    string? RoundLabel,
+    CodeLabelResponse? CurrentStep,
+    IReadOnlyList<JobStepResponse> Steps)
 {
     public static RunningJobResponse From(RunningJob job, RunnerConfig config, DateTimeOffset now)
     {
         var project = config.FindProject(job.Repo)?.Name;
         var roundLabel = job.Round is { } round ? $"Round {round}" : null;
+        var currentStep = job.Step is { } step ? CodeLabelResponse.From(new CodeLabel(step.Code, step.Label)) : null;
 
         return new RunningJobResponse(
             job.Id,
@@ -90,7 +137,9 @@ public sealed record RunningJobResponse(
             job.StartedAt,
             Math.Max(0, (now - job.StartedAt).TotalSeconds),
             job.Round,
-            roundLabel);
+            roundLabel,
+            currentStep,
+            []);
     }
 }
 
@@ -132,14 +181,22 @@ public sealed record LogFileResponse(string Name, string Format, long SizeBytes)
 
 public sealed record LogFilesResponse(long JobId, IReadOnlyList<LogFileResponse> Files);
 
-/// <summary>One file's text. When <c>IsTruncated</c>, <c>Text</c> is the first 2 MB and the note says so.</summary>
+/// <summary>
+/// One file's text from byte <c>Offset</c> (0 unless asked). When <c>IsTruncated</c>, <c>Text</c> is the first 2 MB
+/// from there and the note says so. A tail asks again with <c>NextOffset</c>; text is always whole characters.
+/// </summary>
 public sealed record LogFileTextResponse(
     string Name,
     string Format,
     long SizeBytes,
     string Text,
     bool IsTruncated,
-    string? TruncatedNote);
+    string? TruncatedNote)
+{
+    public long Offset { get; init; }
+
+    public long NextOffset { get; init; }
+}
 
 /// <summary>Display texts for job codes. The UI shows them as sent.</summary>
 public static class JobLabels
@@ -191,7 +248,13 @@ public sealed class OverviewReader(
     public OverviewResponse Read()
     {
         var running = status.Snapshot().Running;
-        var runningResponse = running is null ? null : RunningJobResponse.From(running, config, time.GetUtcNow());
+        RunningJobResponse? runningResponse = null;
+        if (running is not null)
+        {
+            var steps = JobStepResponse.All(jobs.ListSteps(running.Id), isJobRunning: true);
+            runningResponse = RunningJobResponse.From(running, config, time.GetUtcNow()) with { Steps = steps };
+        }
+
         var queue = jobs.ListQueue()
             .Select(job => JobResponse.From(job, config))
             .ToList();

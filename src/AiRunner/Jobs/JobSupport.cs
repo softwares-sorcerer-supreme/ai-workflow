@@ -289,7 +289,8 @@ public static class JobSupport
     {
         // JobWorker adds up every *-usage.json of the run folder for the cost row, failed runs included.
         var usageFile = run.PathFor($"{logName}{JobRun.UsageFileSuffix}");
-        var requestWithUsage = request with { UsageFile = usageFile };
+        var liveFile = run.PathFor($"{logName}-live.txt");
+        var requestWithUsage = request with { UsageFile = usageFile, LiveFile = liveFile };
         var result = await copilot.RunAsync(requestWithUsage, cancellationToken);
         run.Save($"{logName}-stdout.txt", result.StdOut);
         run.Save($"{logName}-stderr.txt", result.StdErr);

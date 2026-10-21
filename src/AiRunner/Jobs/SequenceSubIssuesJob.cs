@@ -95,16 +95,18 @@ public sealed class SequenceSubIssuesJob(
         // A merged sub-issue PR closes its sub-issue here, because GitBucket does not close an issue of another repo.
         foreach (var mergedSubIssue in merged)
         {
-            await CloseMergedSubIssueAsync(request.Repo, parent.Number, mergedSubIssue, cancellationToken);
             var closedNumber = mergedSubIssue.SubIssue.Issue.Number;
+            run.Step(JobSteps.Close, $"Close sub-issue #{closedNumber}");
+            await CloseMergedSubIssueAsync(request.Repo, parent.Number, mergedSubIssue, cancellationToken);
             run.Info($"closed sub-issue #{closedNumber} (PR #{mergedSubIssue.Pull.Number} merged)");
         }
 
         // A PR closed on purpose: stop watching that sub-issue until a human removes ai:failed.
         foreach (var abandonedSubIssue in abandoned)
         {
-            await StopAbandonedSubIssueAsync(request.Repo, abandonedSubIssue, cancellationToken);
             var abandonedNumber = abandonedSubIssue.SubIssue.Issue.Number;
+            run.Step(JobSteps.Comment, $"Stop sub-issue #{abandonedNumber}");
+            await StopAbandonedSubIssueAsync(request.Repo, abandonedSubIssue, cancellationToken);
             run.Info($"sub-issue #{abandonedNumber}: PR #{abandonedSubIssue.Pull.Number} closed without a merge");
         }
 
@@ -113,6 +115,7 @@ public sealed class SequenceSubIssuesJob(
         switch (step.Step)
         {
             case SequenceStep.StartNext:
+                run.Step(JobSteps.Comment, $"Start sub-issue #{step.Next!.Number}");
                 var labelChange = LabelChange.Adding(Labels.Implement);
                 await codeHost.ApplyLabelsAsync(request.Repo, step.Next!.Number, labelChange, cancellationToken);
                 await codeHost.AddCommentAsync(
@@ -125,11 +128,13 @@ public sealed class SequenceSubIssuesJob(
                 return JobOutcome.Ok($"{closedNote}started #{step.Next.Number}", copilotCalls: 0);
 
             case SequenceStep.OpenFinalPrs:
+                run.Step(JobSteps.PullRequest, "Open final PRs");
                 var opened = await OpenFinalPrsAsync(project, input, parent, cancellationToken);
                 return JobOutcome.Ok($"{closedNote}final PRs: {opened}", copilotCalls: 0);
 
             case SequenceStep.CloseParent:
                 // Close first, so a failed close leaves no comment behind to be posted again on the next poll.
+                run.Step(JobSteps.Close, "Close parent");
                 await codeHost.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
                 await codeHost.AddCommentAsync(
                     request.Repo,

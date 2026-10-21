@@ -99,8 +99,10 @@ public sealed class BreakdownIssueJob(
             StartPoint: Branches.Remote(firstDefaultBranch),
             NewBranch: null,
             PullHead: null);
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
 
+        run.Step(JobSteps.Push, "Feature branches");
         foreach (var featureRepo in featureRepos)
         {
             var clone = prepared.CloneOf(featureRepo);
@@ -112,6 +114,7 @@ public sealed class BreakdownIssueJob(
 
         // Sub-issues, in order. Existing ones (from an earlier, interrupted run) are reused, closed ones too: a
         // person may have closed one in the meantime, and a second copy of it would be built twice.
+        run.Step(JobSteps.Comment, "Create sub-issues");
         var open = await codeHost.ListOpenIssuesAsync(
             request.Repo, Labels.SubIssue, null, cancellationToken);
         var closed = await codeHost.ListClosedIssuesAsync(request.Repo, Labels.SubIssue, cancellationToken);

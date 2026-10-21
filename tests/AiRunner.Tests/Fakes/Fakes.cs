@@ -319,6 +319,15 @@ public sealed class JobTestKit : IDisposable
     public RunnerCredentials Credentials { get; init; } = RunnerCredentials.Of(token: "kit-token");
     public JobRun Run { get; }
 
+    /// <summary>The job id the kit's run writes its steps under.</summary>
+    public const long StepJobId = 900;
+
+    /// <summary>The steps the kit's run has written so far, in order.</summary>
+    public IReadOnlyList<JobStepRecord> Steps => State.ListSteps(StepJobId);
+
+    /// <summary>Closes the open step like the worker does at the end of a job.</summary>
+    public void EndRun(string outcome = JobSteps.Ok, string? detail = null) => Run.EndStep(outcome, detail);
+
     private readonly string _tempFolder = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
 
     /// <param name="configure">Changes the settings of the project.</param>
@@ -346,6 +355,7 @@ public sealed class JobTestKit : IDisposable
         var runFolder = Path.Combine(_tempFolder, "run");
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
+        Run.StepTracker = new JobStepTracker(StepJobId, State, TimeProvider.System, NullLogger.Instance);
         Status = new RunnerStatus("test-runner", "repos.yml", Time);
         Commands = new RunnerCommands();
     }
@@ -403,6 +413,7 @@ public sealed class JobTestKit : IDisposable
             new JobLog(config, NullLogger<JobLog>.Instance),
             new CostLog(config, State, NullLogger<CostLog>.Instance),
             workerState,
+            State,
             CodeHost,
             new ClaimService(config, CodeHost, Time),
             Credentials,

@@ -203,6 +203,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -1583,6 +1591,15 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "steps": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/JobStepResponse"
+            }
           }
         }
       },
@@ -1617,6 +1634,62 @@
           "totalPages": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "JobStepResponse": {
+        "required": [
+          "seq",
+          "code",
+          "label",
+          "startedAt",
+          "endedAt",
+          "durationSeconds",
+          "state",
+          "stateLabel",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1691,6 +1764,14 @@
               "null",
               "string"
             ]
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nextOffset": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -1838,7 +1919,9 @@
           "startedAt",
           "elapsedSeconds",
           "round",
-          "roundLabel"
+          "roundLabel",
+          "currentStep",
+          "steps"
         ],
         "type": "object",
         "properties": {
@@ -1885,6 +1968,22 @@
               "null",
               "string"
             ]
+          },
+          "currentStep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobStepResponse"
+            }
           }
         }
       },

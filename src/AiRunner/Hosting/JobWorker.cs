@@ -32,6 +32,7 @@ public sealed class JobWorker(
     JobLog jobLog,
     ICostLog costLog,
     IStateStore stateStore,
+    IJobStepLog stepLog,
     ICodeHost codeHost,
     ClaimService claims,
     RunnerCredentials credentials,
@@ -108,6 +109,10 @@ public sealed class JobWorker(
         var logFolder = Path.GetFileName(run.Dir);
         stateStore.SetJobLogDir(stored.Id, logFolder);
         run.RoundChanged = status.JobRound;
+        run.StepTracker = new JobStepTracker(stored.Id, stepLog, TimeProvider.System, logger)
+        {
+            Opened = status.JobStep,
+        };
         var stopwatch = Stopwatch.StartNew();
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -134,7 +139,11 @@ public sealed class JobWorker(
         // Both kinds of job claim through here, so the dashboard learns of every claim that went through.
         async Task<bool> TryClaimAsync(CancellationToken token)
         {
+            run.Step(JobSteps.Claim, "Claim");
             var isClaimed = await claims.TryClaimAsync(target, token);
+
+            // Closed here, so a failure later in the job is not blamed on the claim.
+            run.EndStep(JobSteps.Ok);
             if (isClaimed)
             {
                 status.ClaimHeld();
@@ -179,6 +188,8 @@ public sealed class JobWorker(
                 isCancelled = commands.RunEnded(stored.Id);
             }
 
+            run.EndStep(JobSteps.Ok);
+
             if (outcome.Quiet)
             {
                 // e.g. sequencing checks every poll: nothing worth keeping (Record keeps a cost row only if Copilot
@@ -216,6 +227,7 @@ public sealed class JobWorker(
             };
 
             logger.LogError("{Request} failed: {Message}", request, message);
+            run.EndStep(JobSteps.Failed, message);
 
             try
             {

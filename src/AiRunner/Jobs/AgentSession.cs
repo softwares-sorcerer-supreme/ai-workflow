@@ -126,6 +126,11 @@ public sealed class AgentSession(
             }
 
             setupNumber++;
+            if (setupNumber == 1)
+            {
+                run.Step(JobSteps.Prepare, "Setup commands");
+            }
+
             var setupCommand = componentCommands.Setup.Trim();
             var setupLog = setupNumber == 1 ? "setup.txt" : $"setup-{setupNumber}.txt";
             var setup = await RunCommandAsync(setupCommand, folder, setupLog);
@@ -199,6 +204,7 @@ public sealed class AgentSession(
         async Task<JobFailedException?> RunAgentAsync(string prompt, int round)
         {
             run.ReportRound(round);
+            run.Step(JobSteps.Copilot, $"Copilot round {round}");
 
             JobFailedException? failure = null;
             try
@@ -216,8 +222,10 @@ public sealed class AgentSession(
             catch (JobFailedException exception)
             {
                 failure = exception;
+                run.EndStep(JobSteps.Failed, exception.Message);
             }
 
+            run.Step(JobSteps.ScopeGuard, "Scope guard");
             GuardGitConfig();
             await GuardScopeAsync();
 
@@ -233,10 +241,16 @@ public sealed class AgentSession(
             {
                 var buildFirst = !string.IsNullOrWhiteSpace(componentCommands.Build);   // Verification() starts with Build
                 var componentChecks = 0;
-                foreach (var command in componentCommands.Verification())
+                foreach (var (kind, command) in componentCommands.VerificationByKind())
                 {
                     var logName = $"round-{round}-check-{checks.Count + 1}.txt";
+                    run.Step(JobSteps.Check, kind);
                     var result = await RunCommandAsync(command, folder, logName);
+                    if (!result.Ok)
+                    {
+                        run.EndStep(JobSteps.Failed, Status(result));
+                    }
+
                     checks.Add(new CheckRun(command, result));
                     componentChecks++;
                     if (!result.Ok && buildFirst && componentChecks == 1)
@@ -248,6 +262,7 @@ public sealed class AgentSession(
 
             // The commands run code too: a lockfile or snapshot they write outside the target component must not
             // reach the commit, which stages everything.
+            run.Step(JobSteps.ScopeGuard, "Scope guard");
             GuardGitConfig();
             await GuardScopeAsync();
 
@@ -370,6 +385,7 @@ public sealed class AgentSession(
         CancellationToken cancellationToken)
     {
         var (directory, message, branch) = work;
+        run.Step(JobSteps.Commit, "Commit");
         var stats = await git.StageAllAsync(directory, cancellationToken);
         var statLines = stats.Select(stat => $"{stat.Added}\t{stat.Deleted}\t{stat.Path}");
         var numstat = string.Join("\n", statLines);
@@ -380,6 +396,7 @@ public sealed class AgentSession(
         }
 
         await git.CommitAsync(directory, message, cancellationToken);
+        run.Step(JobSteps.Push, "Push");
         await git.PushAsync(directory, "HEAD", branch, cancellationToken);
         run.Info($"pushed {branch}: {stats.Count} files, {stats.Sum(stat => stat.Lines)} lines");
 

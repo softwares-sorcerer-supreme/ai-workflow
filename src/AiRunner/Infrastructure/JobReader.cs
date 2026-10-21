@@ -44,6 +44,9 @@ public interface IJobReader
 
     JobRecord? GetRecord(long id);
 
+    /// <summary>The steps of a job in the order they ran; empty for a job from before the step log.</summary>
+    IReadOnlyList<JobStepRecord> ListSteps(long jobId);
+
     /// <summary>Every job on one issue or PR, newest first: the timeline of the issue page.</summary>
     IReadOnlyList<JobRecord> ListForItem(string repo, int number);
 }

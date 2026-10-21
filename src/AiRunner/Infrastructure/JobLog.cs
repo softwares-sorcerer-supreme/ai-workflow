@@ -41,6 +41,17 @@ public sealed class JobRun(string directory, ILogger logger)
 
     public void ReportRound(int round) => RoundChanged?.Invoke(round);
 
+    /// <summary>
+    /// Set by JobWorker; writes the step log of this run. Without it (tests, other modes) opening a step does nothing.
+    /// </summary>
+    public JobStepTracker? StepTracker { get; set; }
+
+    /// <summary>Opens a step (code from <see cref="JobSteps"/>) and closes the one before it as ok.</summary>
+    public void Step(string code, string label) => StepTracker?.Open(code, label);
+
+    /// <summary>Closes the open step with this outcome, e.g. a failed check; the next step opens as usual.</summary>
+    public void EndStep(string outcome, string? detail = null) => StepTracker?.End(outcome, detail);
+
     public void Save(string fileName, string content)
     {
         var directoryPath = EnsureDir();

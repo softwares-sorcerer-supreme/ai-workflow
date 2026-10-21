@@ -62,9 +62,11 @@ public sealed class AnalyzeIssueJob(
             StartPoint: startPoint,
             NewBranch: null,
             PullHead: null);
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
 
+        run.Step(JobSteps.Attachments, "Attachments");
         var issueBody = new AttachmentSource("the issue body", issue.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, issueBody, comments);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
@@ -76,6 +78,7 @@ public sealed class AnalyzeIssueJob(
 
         var model = settings.ModelFor(Workflows.Analyze);
         var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);
+        run.Step(JobSteps.Copilot, $"Copilot round {round}");
         var output = await copilot.RunCopilotAsync(
             new CopilotRequest(directory, Prompt, Agent, model, timeout)
             {
@@ -108,6 +111,7 @@ public sealed class AnalyzeIssueJob(
                 "The SPEC");
         }
 
+        run.Step(JobSteps.Comment, "Post analysis");
         var reply = thread.Reply(analysis);
         await codeHost.AddCommentAsync(request.Repo, issue.Number, reply, cancellationToken);
         var labelChange = new LabelChange(Add: parsed.LabelsToAdd, Remove: parsed.LabelsToRemove);

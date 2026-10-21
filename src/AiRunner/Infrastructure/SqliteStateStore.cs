@@ -100,7 +100,7 @@ public interface IStateStore
     void SetJobResult(long id, JobResult jobResult);
 }
 
-public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostReader
+public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStepLog, ICostReader
 {
     /// <summary>The usage columns as SQL ("nano_aiu, input_tokens, ..."), from CopilotUsage.ColumnNames.</summary>
     private static readonly string UsageColumnList = string.Join(", ", CopilotUsage.ColumnNames);
@@ -155,6 +155,7 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
             """);
 
         CreateSnapshotTables();
+        CreateStepTables();
 
         // The scope of a PR (labels, author, draft) for the dashboard's actions; older rows read as no labels.
         AddColumnIfMissing("pull_snapshot", "labels", "TEXT");
@@ -312,7 +313,11 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         }
     }
 
-    public void DeleteJob(long id) => Execute("DELETE FROM jobs WHERE id = $id", ("$id", id));
+    public void DeleteJob(long id)
+    {
+        Execute("DELETE FROM jobs WHERE id = $id", ("$id", id));
+        ClearSteps(id);
+    }
 
     public void PruneJobs(DateTimeOffset finishedBefore)
     {
@@ -320,6 +325,9 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, ICostRea
         Execute(
             "DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < $t",
             ("$t", finishedBeforeText));
+
+        // The steps of the jobs just pruned (and of any job a deleted database lost).
+        Execute("DELETE FROM job_step WHERE job_id NOT IN (SELECT id FROM jobs)");
     }
 
     public void AddCost(CostEntry entry)

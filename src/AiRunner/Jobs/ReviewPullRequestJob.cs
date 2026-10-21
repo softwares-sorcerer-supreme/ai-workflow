@@ -90,6 +90,7 @@ public sealed class ReviewPullRequestJob(
         {
             OthersAt = Branches.FeatureBranchOf(pull),
         };
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
         var clone = prepared.TargetClone;
@@ -130,6 +131,7 @@ public sealed class ReviewPullRequestJob(
         var pullLink = new PullLink(project, request.Repo, pull);
         var linked = await codeHost.LinkedIssueAsync(pullLink, run, cancellationToken);
 
+        run.Step(JobSteps.Attachments, "Attachments");
         var description = new AttachmentSource("the PR description", pull.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, description, pullComments);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
@@ -154,6 +156,7 @@ public sealed class ReviewPullRequestJob(
 
         var model = project.Settings.ModelFor(Workflows.Review);
         var timeout = TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes);
+        run.Step(JobSteps.Copilot, "Copilot");
         var output = await copilot.RunCopilotAsync(
             new CopilotRequest(directory, Prompt, Agent, model, timeout)
             {
@@ -180,6 +183,7 @@ public sealed class ReviewPullRequestJob(
         var body = wrapped + (limitNote is null ? "" : "\n\n" + limitNote) + "\n" + newHistory.Tag();
         var commentId = previous?.CommentId ?? reviewComment?.Id;
 
+        run.Step(JobSteps.Comment, "Post review");
         HostComment posted;
         if (commentId is not null)
         {

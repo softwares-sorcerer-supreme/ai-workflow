@@ -69,6 +69,8 @@ public sealed class NoJobs : IJobReader
 
     public JobRecord? GetRecord(long id) => null;
 
+    public IReadOnlyList<JobStepRecord> ListSteps(long jobId) => [];
+
     public IReadOnlyList<JobRecord> ListForItem(string repo, int number) => [];
 }
 

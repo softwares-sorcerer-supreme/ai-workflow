@@ -160,6 +160,7 @@ public sealed class ImplementIssueJob(
             TargetComponent = target.Name,
             OthersAt = subIssue?.BaseBranch,
         };
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var clone = prepared.TargetClone;
 
@@ -189,6 +190,7 @@ public sealed class ImplementIssueJob(
         }
 
         // A sub-issue plan is its own body (the parent thread is not part of it), so only that body is scanned.
+        run.Step(JobSteps.Attachments, "Attachments");
         var issueBody = new AttachmentSource("the issue body", issue.Body);
         IReadOnlyList<HostComment> attachmentComments = subIssue is null ? comments : [];
         var attachmentRequest = AttachmentRequest.Of(prepared.Root, issueBody, attachmentComments);
@@ -200,6 +202,7 @@ public sealed class ImplementIssueJob(
         await File.WriteAllTextAsync(planFile, plan, cancellationToken);
         run.Save("plan.md", plan);
 
+        run.Step(JobSteps.Comment, "Copilot started");
         var implementingChange = LabelChange.Adding(Labels.Implementing);
         await codeHost.ApplyLabelsAsync(request.Repo, issue.Number, implementingChange, cancellationToken);
         await codeHost.AddCommentAsync(
@@ -302,6 +305,7 @@ public sealed class ImplementIssueJob(
                 CopilotCalls: result.Rounds.Count);
         }
 
+        run.Step(JobSteps.PullRequest, "Open PR");
         var openPulls = await codeHost.ListPullsAsync(target.Repo, "open", cancellationToken);
         var pull = openPulls.Find(branch, baseBranch);
 
@@ -315,6 +319,7 @@ public sealed class ImplementIssueJob(
             pull = await codeHost.CreatePullAsync(target.Repo, newPull, cancellationToken);
         }
 
+        run.Step(JobSteps.Comment, "Report on the issue");
         var finishedChange = LabelChange.Removing(Labels.Implement);
         await codeHost.ApplyLabelsAsync(issueRepo, issue.Number, finishedChange, cancellationToken);
         await codeHost.AddCommentAsync(

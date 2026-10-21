@@ -3,10 +3,16 @@ namespace AiRunner.Hosting;
 /// <summary>The latest poll error of one project.</summary>
 public sealed record ProjectPollError(string Project, string Message, DateTimeOffset At);
 
+/// <summary>The step a running job is in: a code from <c>JobSteps</c> and the text to show.</summary>
+public sealed record RunningStep(string Code, string Label);
+
 /// <summary>The job the worker runs now. <c>Round</c> is set by agent sessions (implement, review fix), else null.</summary>
 public sealed record RunningJob(long Id, string Type, string Repo, int Number, DateTimeOffset StartedAt)
 {
     public int? Round { get; init; }
+
+    /// <summary>The step the job is in now; null before its first step.</summary>
+    public RunningStep? Step { get; init; }
 
     /// <summary>
     /// This runner's claim on the issue or PR went through (claim_enabled). A routine job claims only before its
@@ -122,6 +128,18 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
             if (_running is not null)
             {
                 _running = _running with { Round = round };
+            }
+        }
+    }
+
+    /// <summary>The running job opened a step.</summary>
+    public void JobStep(string code, string label)
+    {
+        lock (_lock)
+        {
+            if (_running is not null)
+            {
+                _running = _running with { Step = new RunningStep(code, label) };
             }
         }
     }

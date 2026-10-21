@@ -16,6 +16,7 @@ export type { IssueListResponse } from './models/issue-list-response';
 export type { IssueRowResponse } from './models/issue-row-response';
 export type { JobResponse } from './models/job-response';
 export type { JobsPageResponse } from './models/jobs-page-response';
+export type { JobStepResponse } from './models/job-step-response';
 export type { LogFileResponse } from './models/log-file-response';
 export type { LogFilesResponse } from './models/log-files-response';
 export type { LogFileTextResponse } from './models/log-file-text-response';

@@ -114,6 +114,7 @@ public sealed class FixReviewJob(
             TargetComponent = writable.Count == 1 ? target.Name : null,
             OthersAt = Branches.FeatureBranchOf(pull),
         };
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
         var clone = prepared.TargetClone;
@@ -129,6 +130,8 @@ public sealed class FixReviewJob(
 
         if (refusalReason is not null)
         {
+            run.Step(JobSteps.Comment, "Reply");
+
             return await RefuseAsync(replyTarget, refusalReason, cancellationToken);
         }
 
@@ -142,6 +145,7 @@ public sealed class FixReviewJob(
             FixNumber: number,
             Linked: linked);
 
+        run.Step(JobSteps.Attachments, "Attachments");
         var description = new AttachmentSource("the PR description", pull.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, description, thread.RequestsSinceReply);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
@@ -215,6 +219,7 @@ public sealed class FixReviewJob(
             reply = Reply(pushedFix);
         }
 
+        run.Step(JobSteps.Comment, "Reply");
         await PostReplyAsync(replyTarget, reply, cancellationToken);
 
         var outcome = result.Failing ? "red" : stats is null ? "no-change" : "ok";

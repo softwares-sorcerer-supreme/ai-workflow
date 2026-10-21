@@ -209,6 +209,16 @@ public sealed class CommandsConfig
     /// <summary>Build, test and lint, run by the runner after the agent stops.</summary>
     public IEnumerable<string> Verification() => NonEmpty(Build, Test, Lint);
 
+    /// <summary>The same commands as <see cref="Verification"/>, each with its kind ("build", "test", "lint").</summary>
+    public IEnumerable<(string Kind, string Command)> VerificationByKind()
+    {
+        var kinds = new (string Kind, string? Command)[] { ("build", Build), ("test", Test), ("lint", Lint) };
+
+        return kinds
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Command))
+            .Select(entry => (entry.Kind, entry.Command!.Trim()));
+    }
+
     private static IEnumerable<string> NonEmpty(params string?[] commands) =>
         commands
             .Where(command => !string.IsNullOrWhiteSpace(command))

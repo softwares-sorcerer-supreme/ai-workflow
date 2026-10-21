@@ -9,6 +9,12 @@ public sealed record ProcessSpec(string FileName, IReadOnlyList<string> Args, st
     /// <summary>Raw argument string, used instead of Args (cmd.exe needs its own quoting).</summary>
     public string? RawArguments { get; init; }
 
+    /// <summary>
+    /// A file the runner appends every stdout and stderr line to while the process runs, so the dashboard can tail it.
+    /// It is a copy for watching: the result still carries the full output.
+    /// </summary>
+    public string? LiveOutputFile { get; init; }
+
     /// <summary>A command line from repos.yml ("npm test"), run by the OS shell.</summary>
     public static ProcessSpec Shell(string command, string workDir, TimeSpan timeout) =>
         OperatingSystem.IsWindows()
@@ -112,8 +118,17 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         process.Exited += (_, _) => exited.TrySetResult();
-        process.OutputDataReceived += (_, eventArgs) => Collect(stdout, stdoutDone, eventArgs.Data);
-        process.ErrorDataReceived += (_, eventArgs) => Collect(stderr, stderrDone, eventArgs.Data);
+        using var liveOutput = spec.LiveOutputFile is null ? null : LiveOutput.TryOpen(spec.LiveOutputFile);
+        process.OutputDataReceived += (_, eventArgs) =>
+        {
+            Collect(stdout, stdoutDone, eventArgs.Data);
+            liveOutput?.WriteLine(eventArgs.Data);
+        };
+        process.ErrorDataReceived += (_, eventArgs) =>
+        {
+            Collect(stderr, stderrDone, eventArgs.Data);
+            liveOutput?.WriteLine(eventArgs.Data);
+        };
 
         if (!process.Start())
         {
@@ -188,6 +203,73 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
         lock (buffer)
         {
             buffer.Append(line).Append('\n');
+        }
+    }
+}
+
+/// <summary>
+/// The live copy of a process's output. Best effort: a file that cannot be opened or written is dropped for the rest
+/// of the run, because watching a job must never fail it.
+/// </summary>
+internal sealed class LiveOutput : IDisposable
+{
+    private readonly Lock _lock = new();
+    private StreamWriter? _writer;
+
+    private LiveOutput(StreamWriter writer)
+    {
+        _writer = writer;
+    }
+
+    public static LiveOutput? TryOpen(string file)
+    {
+        try
+        {
+            var stream = new FileStream(
+                file,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.ReadWrite | FileShare.Delete);
+            var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+
+            return new LiveOutput(writer);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Appends one line (null = the stream ended, nothing to write); stdout and stderr share the writer.</summary>
+    public void WriteLine(string? line)
+    {
+        lock (_lock)
+        {
+            if (_writer is null || line is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _writer.Write(line);
+                _writer.Write('\n');
+            }
+            catch (IOException)
+            {
+                // Disk full or file removed: stop writing the live copy, the process goes on.
+                _writer.Dispose();
+                _writer = null;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            _writer?.Dispose();
+            _writer = null;
         }
     }
 }

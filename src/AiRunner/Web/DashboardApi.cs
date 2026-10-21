@@ -312,7 +312,10 @@ public static class DashboardApi
         [FromQuery(Name = "page")] int? Page);
 
     /// <summary>The route values of <c>GET /api/jobs/{id}/files/{name}</c>.</summary>
-    public sealed record JobFileRoute([FromRoute(Name = "id")] long Id, [FromRoute(Name = "name")] string Name);
+    public sealed record JobFileRoute(
+        [FromRoute(Name = "id")] long Id,
+        [FromRoute(Name = "name")] string Name,
+        [FromQuery(Name = "offset")] long? Offset);
 
     private static Results<Ok<JobsPageResponse>, BadRequest<ApiError>> GetJobs(
         [AsParameters] JobsFilter filter,
@@ -362,7 +365,8 @@ public static class DashboardApi
             return TypedResults.NotFound();
         }
 
-        var response = JobResponse.From(job, config);
+        var steps = JobStepResponse.All(jobs.ListSteps(id), job.Status == JobStatus.Running);
+        var response = JobResponse.From(job, config) with { Steps = steps };
 
         return TypedResults.Ok(response);
     }
@@ -387,14 +391,19 @@ public static class DashboardApi
         IJobReader jobs,
         LogViewer logs)
     {
-        var (id, name) = route;
+        var (id, name, offset) = route;
+        if (offset is < 0)
+        {
+            return TypedResults.BadRequest(new ApiError("The offset must not be negative."));
+        }
+
         var job = jobs.GetRecord(id);
         if (job is null)
         {
             return TypedResults.NotFound();
         }
 
-        var result = logs.Read(job, name);
+        var result = logs.Read(job, name, offset ?? 0);
         if (result.Status == LogReadStatus.BadName)
         {
             return TypedResults.BadRequest(new ApiError("The file name must be a plain file name."));
@@ -405,7 +414,11 @@ public static class DashboardApi
             return TypedResults.NotFound();
         }
 
-        var note = content.IsTruncated ? "Showing the first 2 MB of this file." : null;
+        var note = content.IsTruncated
+            ? content.Offset == 0
+                ? "Showing the first 2 MB of this file."
+                : "Showing 2 MB from this offset; read again from the next offset for the rest."
+            : null;
 
         return TypedResults.Ok(new LogFileTextResponse(
             content.Name,
@@ -413,7 +426,11 @@ public static class DashboardApi
             content.SizeBytes,
             content.Text,
             content.IsTruncated,
-            note));
+            note)
+        {
+            Offset = content.Offset,
+            NextOffset = content.NextOffset,
+        });
     }
 
     private static ApiError UnknownProject(string project) => new($"Unknown project '{project}'.");

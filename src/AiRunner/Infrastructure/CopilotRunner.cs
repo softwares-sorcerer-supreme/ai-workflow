@@ -15,6 +15,9 @@ public sealed record CopilotRequest(string WorkDir, string Prompt, string? Agent
     /// Where the CLI writes the tokens and credits of the run (--usage-output-file). Only used when the CLI has the flag.
     /// </summary>
     public string? UsageFile { get; init; }
+
+    /// <summary>The file the output is appended to while Copilot runs (the dashboard tails it).</summary>
+    public string? LiveFile { get; init; }
 }
 
 public interface ICopilotRunner
@@ -134,9 +137,11 @@ public sealed class CopilotRunner(
             request.Model ?? "(default)",
             request.WorkDir);
 
-        var result = await processRunner.RunAsync(
-            new ProcessSpec(config.Copilot.Command, args, request.WorkDir, request.Timeout),
-            cancellationToken);
+        var processSpec = new ProcessSpec(config.Copilot.Command, args, request.WorkDir, request.Timeout)
+        {
+            LiveOutputFile = request.LiveFile,
+        };
+        var result = await processRunner.RunAsync(processSpec, cancellationToken);
 
         logger.LogInformation(
             "copilot finished: exit {Exit}, {Seconds:F1}s, timedOut={TimedOut}",

@@ -67,12 +67,14 @@ public sealed class FinishIssueJob(
         {
             var mergedRef = JobSupport.PullRef(merged.Number, request.Repo, target.Repo);
             var comment = $"PR {mergedRef} is merged into `{merged.Base.Ref}`. This issue is done, so I close it.";
+            run.Step(JobSteps.Close, "Close issue");
             await codeHost.CloseDoneAsync(request.Repo, issue.Number, comment, cancellationToken);
             run.Info($"closed issue #{issue.Number} (PR {mergedRef} merged)");
 
             return JobOutcome.Ok($"closed after {mergedRef}", copilotCalls: 0);
         }
 
+        run.Step(JobSteps.Comment, "Comment");
         var closedRef = JobSupport.PullRef(pulls[0].Number, request.Repo, target.Repo);
         await codeHost.AddCommentAsync(
             request.Repo,
