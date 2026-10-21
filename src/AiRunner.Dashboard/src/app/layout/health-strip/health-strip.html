@@ -45,6 +45,13 @@
     </a>
   }
 
+  @if (health.hasAgentDrift && health.agentDriftLabel) {
+    <a class="item drift" [routerLink]="agentsPath" data-testid="health-agent-drift">
+      <mat-icon aria-hidden="true">smart_toy</mat-icon>
+      {{ health.agentDriftLabel }}
+    </a>
+  }
+
   <span class="spacer"></span>
   <span class="item app-muted runner" [matTooltip]="health.configPath">{{ health.runnerName }}</span>
 } @else if (isLoading()) {

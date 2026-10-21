@@ -6,7 +6,7 @@ what is here before you create anything new. If you add a shared piece, add it t
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
 The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
 (Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, the Workspaces screen's Fetch / Re-clone /
-Delete, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
+Delete, the Agents screen's Sync now / Save / Revert, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
 
 ## 1. Ground rules
 
@@ -62,12 +62,13 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
 `JOB_STATUS_TONES`, `STEP_STATE_TONES`, `STEP_STATE_ICONS`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
-`PULL_STATE_TONES`, `WORKSPACE_WARNING_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
+`PULL_STATE_TONES`, `WORKSPACE_WARNING_ICONS`, `AGENT_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
 `issueMarkTone(code)`, `issueMarkIcon(code)`, `workerIcon(code)`, `laneTone(code)`, `focusTone(code)`,
-`pullStateTone(code)`, `workspaceWarningIcon(code)`), which falls back to `neutral` (or no icon, or the plain `warning` icon) for an unknown code. Lanes: `todo` neutral, `ready`
+`pullStateTone(code)`, `workspaceWarningIcon(code)`, `agentStateTone(code)`), which falls back to `neutral` (or no icon, or the plain `warning` icon) for an unknown code. Lanes: `todo` neutral, `ready`
 info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
 `failed` danger. Job step states: `running` progress, `ok` success, `failed` danger, `interrupted` warning. PR states: `open` info, `merged` success, `closed` neutral. Workspace warnings (`agent-override`, `instructions-missing`, `has-changes`) all use the
-`warning` tone; `WORKSPACE_WARNING_ICONS` only gives each its icon. Those maps are the only place a code is interpreted: a template never compares
+`warning` tone; `WORKSPACE_WARNING_ICONS` only gives each its icon. Agent file states (git and sync codes in one map):
+`unchanged`, `unknown`, `not-installed` neutral, `modified` info, `untracked`, `differs`, `missing` warning, `in-sync` success. Those maps are the only place a code is interpreted: a template never compares
 a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
 is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
 comparing the chosen filter value with an option's code to mark the selected option
@@ -130,6 +131,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | Jobs      |     <section class="app-card"> ... </section>    |
 | Cost      |     <section class="app-card"> ... </section>    |
 | Workspaces|                                                  |
+| Agents    |                                                  |
 | Setup     |                                                  |
 +-----------+--------------------------------------------------+
 ```
@@ -416,6 +418,24 @@ disabled while the project `isBusy` (the runner also refuses with a 409 and its 
 the table as `app-inline-note`s ("<repo>: <message>", icon from `workspaceWarningIcon`). Last card: Orphan folders
 (folder, size, Delete with a confirmation naming the folder), or "No orphan folders." when there are none.
 
+### Agents screen
+
+`GET /api/agents` (polled) beside one selected file. **Files** card: the files grouped by `kind` in the order of
+`AGENT_KIND_GROUPS` (`pages/agents/agents.ts`: Agents, Skills, Templates; only the heading text lives there), each a
+button with the path and two `app-status-chip`s (`gitStateLabel` with icon `commit`, `syncStateLabel` with icon `sync`,
+tones from `agentStateTone`); the API's `templatesNote` once above the templates; the `extra` paths last, as a muted
+note that the runner never deletes them. A **Sync banner** (warning tone, `role="status"`) stands above both cards while
+`isOutOfSync`, with Sync now (`writeAction`, the runner's "queued" message in the snack bar). **File** card: picking a
+file reads `GET /api/agents/file` once (never polled, so a poll never replaces unsaved text; the list's row gives the
+fresher states); an Edit / Diff toggle; Edit is a plain monospace `<textarea>` (no editor library), `readonly` when
+`isEditable` is false; Diff is `pages/agents/agent-diff` (`parseDiff` styles lines by the unified-diff format only:
+`+` success tone, `-` danger tone, `@@` and file headers muted; empty diff = "No changes against git"). Buttons: Save
+(only when editable, disabled until the text differs, sends `baseHash`), Revert (only for a modified, editable file;
+`confirmWrite` first), Reload. A 400 shows its `message` and every `reasons` entry under the editor; a 409 shows the
+message with a Reload button and keeps the edits. After a Save or Revert the runner accepted, the file is read again
+and the list and health reload; leaving or reloading a file with unsaved edits asks first ("Discard your changes?").
+At 900 px and wider the two cards stand side by side (list 260-360 px), below that one above the other.
+
 ### Health
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
@@ -423,7 +443,8 @@ data injects `HealthStore` and reads `health.value()`; it never polls `/api/heal
 tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success, `starting` info, `stale`,
 `paused` and `needs-setup` warning, `error` danger. Setup mode (no token yet) is read from `health.isSetupNeeded`,
 never from the state code: it shows the setup banner and turns the strip's state label into a link to `/setup`.
-Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
+When `hasAgentDrift` is true the strip shows `agentDriftLabel` as a small warning-toned pill linked to `/agents`
+(`AGENTS_PATH`). Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
 `health.isPaused`, never a state of its own.
 
 ### Charts
@@ -468,7 +489,7 @@ keep data on screen while reloading, never show the loading state again after th
 Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
 the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
 Check and save / Remove for the token and the web password on the Setup screen, Fetch / Re-clone per clone and Delete
-per orphan folder on the Workspaces screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
+per orphan folder on the Workspaces screen, Sync now, Save and Revert on the Agents screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
 list, the board cards and Issue detail.
 
 1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The

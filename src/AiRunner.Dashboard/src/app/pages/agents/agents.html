@@ -1,0 +1,276 @@
+<app-page-header
+  title="Agents"
+  subtitle="The agents, skills and templates the runner gives Copilot, with their git and sync state."
+/>
+
+@if (agents.value(); as data) {
+  <div class="app-stack">
+    @if (agents.error(); as message) {
+      <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+    }
+
+    @if (data.isOutOfSync) {
+      <div class="sync-banner tone-warning" role="status" data-testid="sync-banner">
+        <mat-icon aria-hidden="true">sync_problem</mat-icon>
+        <span class="sync-text">
+          Copilot's copy in ~/.copilot differs from these files. Copilot uses the old version until
+          a sync.
+        </span>
+        <button
+          mat-flat-button
+          type="button"
+          data-testid="sync-button"
+          [disabled]="syncWrite.isBusy()"
+          [attr.aria-busy]="syncWrite.isBusy()"
+          (click)="sync()"
+        >
+          @if (syncWrite.isBusy()) {
+            <mat-progress-spinner
+              class="app-busy"
+              mode="indeterminate"
+              diameter="18"
+              aria-hidden="true"
+            />
+          } @else {
+            <mat-icon aria-hidden="true">sync</mat-icon>
+          }
+          Sync now
+        </button>
+      </div>
+    }
+
+    <div class="layout">
+      <section class="app-card files" aria-labelledby="files-title">
+        <h2 id="files-title" class="app-card-title">Files</h2>
+
+        @for (group of groups(); track group.kind) {
+          <div class="group" [attr.data-testid]="'group-' + group.kind">
+            <h3 class="group-title">{{ group.heading }}</h3>
+            @if (group.hasTemplatesNote) {
+              <p class="app-muted small" data-testid="templates-note">{{ data.templatesNote }}</p>
+            }
+            <ul class="file-list">
+              @for (file of group.files; track file.path) {
+                <li>
+                  <button
+                    type="button"
+                    class="file"
+                    data-testid="agent-file"
+                    [class.selected]="file.path === selectedPath()"
+                    [attr.aria-current]="file.path === selectedPath() ? 'true' : null"
+                    (click)="select(file)"
+                  >
+                    <span class="app-mono path" data-testid="agent-path">{{ file.path }}</span>
+                    <span class="chips">
+                      <app-status-chip
+                        data-testid="git-state"
+                        icon="commit"
+                        [label]="file.gitStateLabel"
+                        [tone]="stateTone(file.gitState)"
+                      />
+                      <app-status-chip
+                        data-testid="sync-state"
+                        icon="sync"
+                        [label]="file.syncStateLabel"
+                        [tone]="stateTone(file.syncState)"
+                      />
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          </div>
+        } @empty {
+          <app-view-state
+            kind="empty"
+            icon="smart_toy"
+            title="No agent files"
+            message="The runner found no agents, skills or templates next to it."
+          />
+        }
+
+        @if (data.extra.length > 0) {
+          <div class="extra" data-testid="agents-extra">
+            <p class="app-muted small">
+              Also in ~/.copilot, not in this repo (the runner never deletes them):
+            </p>
+            <ul class="extra-list">
+              @for (path of data.extra; track path) {
+                <li class="app-mono small">{{ path }}</li>
+              }
+            </ul>
+          </div>
+        }
+      </section>
+
+      <section
+        class="app-card editor-card"
+        aria-labelledby="editor-title"
+        data-testid="editor-card"
+      >
+        @if (selectedPath(); as path) {
+          <div class="editor-head">
+            <h2 id="editor-title" class="app-card-title app-mono">{{ path }}</h2>
+            <mat-button-toggle-group
+              aria-label="View"
+              hideSingleSelectionIndicator
+              [value]="view()"
+              (change)="view.set($event.value)"
+            >
+              <mat-button-toggle value="edit" data-testid="view-edit">
+                {{ isEditable() ? 'Edit' : 'Text' }}
+              </mat-button-toggle>
+              <mat-button-toggle value="diff" data-testid="view-diff">Diff</mat-button-toggle>
+            </mat-button-toggle-group>
+          </div>
+
+          @if (detail(); as file) {
+            @if (detailError(); as message) {
+              <app-inline-note icon="sync_problem">{{ message }}</app-inline-note>
+            }
+
+            @if (conflict(); as message) {
+              <div class="conflict" data-testid="save-conflict">
+                <app-inline-note>{{ message }}</app-inline-note>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  data-testid="conflict-reload"
+                  (click)="reload()"
+                >
+                  <mat-icon aria-hidden="true">refresh</mat-icon>
+                  Reload
+                </button>
+              </div>
+            }
+
+            @if (view() === 'edit') {
+              @if (!file.file.isEditable) {
+                <app-inline-note tone="neutral" icon="lock"
+                  >This file is read-only here.</app-inline-note
+                >
+              }
+              <textarea
+                class="editor app-mono"
+                data-testid="agent-editor"
+                spellcheck="false"
+                rows="24"
+                [attr.aria-label]="'Text of ' + path"
+                [readOnly]="!file.file.isEditable"
+                [value]="draft()"
+                (input)="onInput($event)"
+              ></textarea>
+            } @else {
+              <app-agent-diff [diff]="file.diff" />
+            }
+
+            @if (validation(); as refusal) {
+              <div class="reasons" role="alert" data-testid="save-reasons">
+                <p class="reasons-title">{{ refusal.message }}</p>
+                @if (refusal.reasons.length > 0) {
+                  <ul>
+                    @for (reason of refusal.reasons; track $index) {
+                      <li data-testid="save-reason">{{ reason }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+            }
+
+            <div class="editor-actions">
+              @if (file.file.isEditable) {
+                <button
+                  mat-flat-button
+                  type="button"
+                  data-testid="save-button"
+                  [disabled]="!canSave()"
+                  [attr.aria-busy]="saveWrite.isBusy()"
+                  (click)="save()"
+                >
+                  @if (saveWrite.isBusy()) {
+                    <mat-progress-spinner
+                      class="app-busy"
+                      mode="indeterminate"
+                      diameter="18"
+                      aria-hidden="true"
+                    />
+                  } @else {
+                    <mat-icon aria-hidden="true">save</mat-icon>
+                  }
+                  Save
+                </button>
+              }
+              @if (canRevert()) {
+                <button
+                  mat-stroked-button
+                  type="button"
+                  data-testid="revert-button"
+                  [disabled]="revertWrite.isBusy() || saveWrite.isBusy()"
+                  [attr.aria-busy]="revertWrite.isBusy()"
+                  (click)="revert()"
+                >
+                  @if (revertWrite.isBusy()) {
+                    <mat-progress-spinner
+                      class="app-busy"
+                      mode="indeterminate"
+                      diameter="18"
+                      aria-hidden="true"
+                    />
+                  } @else {
+                    <mat-icon aria-hidden="true">undo</mat-icon>
+                  }
+                  Revert
+                </button>
+              }
+              <button
+                mat-button
+                type="button"
+                data-testid="reload-button"
+                [disabled]="isDetailLoading() || saveWrite.isBusy() || revertWrite.isBusy()"
+                (click)="reload()"
+              >
+                <mat-icon aria-hidden="true">refresh</mat-icon>
+                Reload
+              </button>
+              @if (isDirty()) {
+                <span class="app-muted small" data-testid="unsaved">Unsaved changes</span>
+              }
+            </div>
+          } @else if (detailError()) {
+            <app-view-state
+              kind="error"
+              title="Could not read the file"
+              [message]="detailError()"
+              [canRetry]="true"
+              (retry)="reload()"
+            />
+          } @else {
+            <app-view-state kind="loading" />
+          }
+        } @else {
+          <h2 id="editor-title" class="app-card-title">File</h2>
+          <app-view-state
+            kind="empty"
+            icon="edit_document"
+            title="No file selected"
+            message="Pick a file in the list to read or edit it and see its changes against git."
+          />
+        }
+      </section>
+    </div>
+  </div>
+} @else if (agents.error()) {
+  <section class="app-card">
+    <app-view-state
+      kind="error"
+      title="Could not load the agent files"
+      [message]="agents.error()"
+      [canRetry]="true"
+      (retry)="agents.reload()"
+    />
+  </section>
+} @else {
+  <section class="app-card">
+    <app-view-state kind="loading" />
+  </section>
+}

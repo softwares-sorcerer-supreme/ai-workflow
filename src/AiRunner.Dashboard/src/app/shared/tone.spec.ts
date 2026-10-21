@@ -16,6 +16,7 @@ import {
   stepStateIcon,
   stepStateTone,
   workspaceWarningIcon,
+  agentStateTone,
 } from './tone';
 
 describe('issueMarkTone and issueMarkIcon', () => {
@@ -173,5 +174,24 @@ describe('workspaceWarningIcon', () => {
       'has-changes',
       'instructions-missing',
     ]);
+  });
+});
+
+describe('agentStateTone', () => {
+  it.each([
+    ['unchanged', 'neutral'],
+    ['modified', 'info'],
+    ['untracked', 'warning'],
+    ['unknown', 'neutral'],
+    ['in-sync', 'success'],
+    ['differs', 'warning'],
+    ['missing', 'warning'],
+    ['not-installed', 'neutral'],
+  ])('shows state %s in tone %s', (code, tone) => {
+    expect(agentStateTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown state as neutral', () => {
+    expect(agentStateTone('something-new')).toBe('neutral');
   });
 });

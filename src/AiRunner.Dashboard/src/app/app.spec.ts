@@ -30,6 +30,7 @@ describe('App shell', () => {
       'terminalJobs',
       'paymentsCost',
       'folder_copyWorkspaces',
+      'smart_toyAgents',
       'keySetup',
     ]);
   });

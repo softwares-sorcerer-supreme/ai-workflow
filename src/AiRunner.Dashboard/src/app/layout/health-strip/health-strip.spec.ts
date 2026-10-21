@@ -106,6 +106,25 @@ describe('HealthStrip', () => {
     expect(state?.tagName).toBe('STRONG');
   });
 
+  it('links the agent drift label to the Agents screen when the agents are out of sync', async () => {
+    resource = fakePollResource(sampleHealth({ hasAgentDrift: true, agentDriftLabel: 'Agents out of sync' }));
+
+    const fixture = await render();
+    const drift = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-agent-drift"]');
+
+    expect(drift?.tagName).toBe('A');
+    expect(drift?.getAttribute('href')).toBe('/agents');
+    expect(drift?.textContent).toContain('Agents out of sync');
+  });
+
+  it('shows no agent drift chip while the agents are in sync', async () => {
+    resource = fakePollResource(sampleHealth());
+
+    const fixture = await render();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-agent-drift"]')).toBeNull();
+  });
+
   it('uses a neutral tone for a state code it does not know', async () => {
     resource = fakePollResource(sampleHealth({ state: 'something-new', stateLabel: 'Something new' }));
 

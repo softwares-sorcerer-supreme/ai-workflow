@@ -182,3 +182,25 @@ export const WORKSPACE_WARNING_ICONS: Readonly<Record<string, string>> = {
 export function workspaceWarningIcon(code: string): string {
   return WORKSPACE_WARNING_ICONS[code] ?? 'warning';
 }
+
+/**
+ * Color per agent file state code (C# `Core/AgentStates`), git and sync states together (the codes do not overlap).
+ * Git: `unchanged` and `unknown` (not in a git repo) neutral, `modified` info (a local edit to commit), `untracked`
+ * warning (git does not know the file). Sync with `~/.copilot`: `in-sync` success, `differs` and `missing` warning
+ * (Copilot runs another version until a sync), `not-installed` (templates, never copied) neutral.
+ */
+export const AGENT_STATE_TONES: Readonly<Record<string, Tone>> = {
+  unchanged: 'neutral',
+  modified: 'info',
+  untracked: 'warning',
+  unknown: 'neutral',
+  'in-sync': 'success',
+  differs: 'warning',
+  missing: 'warning',
+  'not-installed': 'neutral',
+};
+
+/** The color of an agent file's git or sync state code, neutral for an unknown one. */
+export function agentStateTone(code: string): Tone {
+  return AGENT_STATE_TONES[code] ?? 'neutral';
+}

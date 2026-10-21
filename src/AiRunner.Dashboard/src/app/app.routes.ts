@@ -44,6 +44,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/workspaces/workspaces').then((page) => page.Workspaces),
   },
   {
+    path: 'agents',
+    title: titled('Agents'),
+    loadComponent: () => import('./pages/agents/agents').then((page) => page.Agents),
+  },
+  {
     path: 'setup',
     title: titled('Setup'),
     loadComponent: () => import('./pages/setup/setup').then((page) => page.Setup),

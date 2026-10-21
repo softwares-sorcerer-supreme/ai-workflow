@@ -41,9 +41,22 @@
 }
 
 .errors,
+.drift,
 .setup-link {
   color: inherit;
   font: var(--mat-sys-label-large);
+}
+
+// The agent drift is a warning on any state: a small pill in the warning tone, linked to the Agents screen.
+.drift {
+  padding: 0 var(--app-space-2);
+  border-radius: 999px;
+  background: var(--app-tone-warning-bg);
+  color: var(--app-tone-warning-fg);
+
+  mat-icon {
+    color: var(--app-tone-warning-dot);
+  }
 }
 
 .app-muted {
