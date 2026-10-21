@@ -19,7 +19,7 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
 - Templates: `.ai-workflow/templates/analysis.md` and `.ai-workflow/templates/spec.md`.
 
 # How to work
-1. Read context.md fully. Answers the author already gave (`Q1: ...`, `A2: wrong, it is ...`) are facts.
+1. Read context.md fully. Answers the author already gave (`Q1: ...`, `A2: wrong, it is ...`) are facts. Then find the code through the `code-scout` subagent (see "Finding the code" below).
 2. Use the grill-me skill: find every point that is unclear, has two meanings, or depends on something not written.
    If the code already answers it, do not ask; state it as a numbered assumption with the file that made you assume it.
 3. Restate the requirement as numbered acceptance criteria (Given / When / Then). This is what the human checks.
@@ -30,6 +30,13 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
 8. Status is `ready` only when every question you asked has an answer in the thread and you have no new ones. Otherwise `questions-open`.
 9. When Status is ready, also write the SPEC block from `.ai-workflow/templates/spec.md`. Every name in it is final; the implement agent must use these names. Each step of the technical plan names its component, and its file path is relative to that component's folder.
    The SPEC is the contract of the whole issue. `### API changes` and `### UI changes` are tables (see the template), or `None`. For every endpoint decide paging, filtering, sorting, error codes and auth explicitly, from the pattern the repository already uses (name the file). If the code shows no pattern and the thread did not decide, it is a Technical question, not a guess. For every page or component name the existing page to copy and the shared components to use. Every step of the technical plan names its `Pattern from` file: the existing file, in the same component, whose structure the new or changed file must follow (open the neighbours and pick the most complete one). Write `-` only when no file of that kind exists, and then say so in `Change`.
+
+# Finding the code
+- The `code-scout` subagent runs on a smaller, cheaper model and only searches. Use it for the wide search instead of opening many files yourself: it answers with paths, line numbers and short facts.
+- Send it ONE request with every item you need at once (the scout starts from zero each time, so one call with a list costs much less than several calls): where the code of the requested behaviour lives, the most complete existing file of each kind you will need as `Pattern from` (endpoint, page, service, migration...), where the tests of those parts live and how they are named, and anything the questions depend on. Name the components to search in when you know them.
+- Call it again only for something the first answer did not cover (for example a new area that an author's answer opened in a later round).
+- Then open yourself only the files that decide something: the ones a question, an assumption, the complexity or a SPEC name depends on, and every file you will name as `Pattern from`. The scout's answer is a map, not a fact you can cite without opening the file when the decision depends on it.
+- If the scout is not available or its answer is empty, search the code yourself as usual.
 
 # Proposed breakdown (complex issues only)
 - Use exactly the table in the template: `| # | Component | Title | Scope | Touches | Depends on |`.
