@@ -111,6 +111,13 @@ public sealed class IssueBoardReader(
         var claimedKey = ClaimedKey();
         var runnerName = config.EffectiveRunnerName();
 
+        JobActivity ActivityOfIssue(IssueSnapshot issue)
+        {
+            var claimHolder = comparer.Equals(issue.Key, claimedKey) ? runnerName : null;
+
+            return ActivityOf(jobsOf[issue.Key], claimHolder);
+        }
+
         // In build order, so each parent's sub-issues come out in it.
         var subIssuesOf = issues
             .Where(issue => issue.Parent is not null)
@@ -118,8 +125,7 @@ public sealed class IssueBoardReader(
             .ThenBy(issue => issue.Number)
             .ToLookup(issue => IssueBoard.KeyOf(issue.Repo, issue.Parent!.Value), comparer);
 
-        // First every stage, then the actions: "start the next sub-issue" reads the stages of the sub-issues.
-        var staged = new Dictionary<string, Staged>(comparer);
+        var entries = new Dictionary<string, IssueEntry>(comparer);
         foreach (var issue in issues)
         {
             var issueProject = config.ProjectNamed(issue.Project);
@@ -131,28 +137,11 @@ public sealed class IssueBoardReader(
             }
 
             var subIssues = subIssuesOf[issue.Key].ToList();
-            var claimHolder = comparer.Equals(issue.Key, claimedKey) ? runnerName : null;
-            var input = new StageInput(issueProject, issue, subIssues, pullsByRepo)
-            {
-                Jobs = ActivityOf(jobsOf[issue.Key], claimHolder),
-            };
+            var stagingInput = new StagingInput(issueProject, issue, subIssues, pullsByRepo, ActivityOfIssue);
+            var staged = IssueStaging.Build(stagingInput);
+            var actions = IssueActions.Available(staged.Actions);
 
-            staged[issue.Key] = new Staged(issueProject, issue, subIssues, IssueStage.Compute(input));
-        }
-
-        var entries = new Dictionary<string, IssueEntry>(comparer);
-        foreach (var (key, item) in staged)
-        {
-            var progress = item.SubIssues
-                .Select(subIssue => ProgressOf(subIssue, staged))
-                .ToList();
-            var autoStart = item.Project.Settings.AutoStartFirstSubIssue;
-            var waitingInput = new WaitingInput(item.Issue, item.Stage, autoStart, progress);
-            var waiting = WaitingOn.Of(waitingInput);
-            var actionInput = new IssueActionInput(waitingInput, item.Project.Settings, item.SubIssues);
-            var actions = IssueActions.Available(actionInput);
-
-            entries[key] = new IssueEntry(item.Project, item.Issue, item.SubIssues, item.Stage, waiting, actions);
+            entries[issue.Key] = new IssueEntry(issueProject, issue, subIssues, staged.Stage, staged.Waiting, actions);
         }
 
         return new IssueBoard(entries, pulls)
@@ -160,23 +149,6 @@ public sealed class IssueBoardReader(
             BotLogin = identity.Login,
             BusyKeys = jobsOf.Select(group => group.Key).ToHashSet(comparer),
         };
-    }
-
-    /// <summary>One issue after pass 1: its project, sub-issues and stage.</summary>
-    private sealed record Staged(
-        ProjectConfig Project,
-        IssueSnapshot Issue,
-        IReadOnlyList<IssueSnapshot> SubIssues,
-        StageResult Stage);
-
-    private static SubIssueProgress ProgressOf(IssueSnapshot subIssue, Dictionary<string, Staged> staged)
-    {
-        if (!staged.TryGetValue(subIssue.Key, out var item))
-        {
-            return new SubIssueProgress(subIssue.IsOpen, IssueStage.New, false);
-        }
-
-        return new SubIssueProgress(subIssue.IsOpen, item.Stage.Stage.Code, item.Stage.Badge is not null);
     }
 
     /// <summary>The issue or PR this runner's running job holds the claim on, or null.</summary>

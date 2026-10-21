@@ -50,9 +50,8 @@ public static class ActionsApi
         IRunnerActions actions,
         CancellationToken cancellationToken)
     {
-        var (owner, repo, number, code) = route;
-        var call = new ActionCall(code, request?.Text);
-        var result = await actions.RunIssueAsync(new IssueRef($"{owner}/{repo}", number), call, cancellationToken);
+        var (item, call) = Parse(route, request);
+        var result = await actions.RunIssueAsync(item, call, cancellationToken);
 
         return AnswerOf(result);
     }
@@ -63,11 +62,17 @@ public static class ActionsApi
         IRunnerActions actions,
         CancellationToken cancellationToken)
     {
-        var (owner, repo, number, code) = route;
-        var call = new ActionCall(code, request?.Text);
-        var result = await actions.RunPullAsync(new IssueRef($"{owner}/{repo}", number), call, cancellationToken);
+        var (item, call) = Parse(route, request);
+        var result = await actions.RunPullAsync(item, call, cancellationToken);
 
         return AnswerOf(result);
+    }
+
+    private static (IssueRef Item, ActionCall Call) Parse(ActionRoute route, ActionRequest? request)
+    {
+        var (owner, repo, number, code) = route;
+
+        return (new IssueRef($"{owner}/{repo}", number), new ActionCall(code, request?.Text));
     }
 
     private static ActionResponseKind AnswerOf(ActionReply result)

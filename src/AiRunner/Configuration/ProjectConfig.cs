@@ -49,6 +49,12 @@ public sealed class ProjectConfig
     public bool HasRepo(string repo) =>
         Components.Any(component => string.Equals(component.Repo, repo, StringComparison.OrdinalIgnoreCase));
 
+    public bool HasCodeRepo(string repo) =>
+        CodeRepos.Contains(repo, StringComparer.OrdinalIgnoreCase);
+
+    public bool IsIssuesRepo(string repo) =>
+        string.Equals(IssuesRepo, repo, StringComparison.OrdinalIgnoreCase);
+
     public IEnumerable<ComponentConfig> CodeComponentsIn(string repo) =>
         CodeComponents.Where(component => string.Equals(component.Repo, repo, StringComparison.OrdinalIgnoreCase));
 

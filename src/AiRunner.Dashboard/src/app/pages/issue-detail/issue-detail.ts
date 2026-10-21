@@ -8,7 +8,7 @@ import { getIssue } from '../../api/fn/issues/get-issue';
 import { JobResponse } from '../../api/models/job-response';
 import { PullResponse } from '../../api/models/pull-response';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
-import { ActionButtons, ActionTarget } from '../../shared/action-buttons/action-buttons';
+import { ActionButtons, issueTarget, pullTarget } from '../../shared/action-buttons/action-buttons';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { issueKey, issueLink } from '../../shared/issue-link';
@@ -93,16 +93,8 @@ export class IssueDetail {
   protected readonly markIcon = issueMarkIcon;
   protected readonly statusTone = jobStatusTone;
   protected readonly link = issueLink;
-  protected readonly issueTarget = (row: IssueRowResponse): ActionTarget => ({
-    kind: 'issue',
-    repo: row.repo,
-    number: row.number,
-  });
-  protected readonly pullTarget = (row: PullResponse): ActionTarget => ({
-    kind: 'pull',
-    repo: row.repo,
-    number: row.number,
-  });
+  protected readonly issueTarget = issueTarget;
+  protected readonly pullTarget = pullTarget;
 
   protected readonly trackBySubIssue = (_index: number, row: IssueRowResponse) => issueKey(row);
   protected readonly trackByPull = (_index: number, row: PullResponse) => issueKey(row);

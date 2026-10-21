@@ -121,9 +121,10 @@ public static class IssueActions
             actions.Add(Known[ActionCodes.StartNextSubIssue]);
         }
 
-        if (settings.IsEnabled(Workflows.Analyze))
+        var analysisAction = settings.IsEnabled(Workflows.Analyze) ? AnalysisActionOf(stage, issue) : null;
+        if (analysisAction is not null)
         {
-            AddAnalysisAction(actions, stage, issue);
+            actions.Add(analysisAction);
         }
 
         return actions;
@@ -228,22 +229,19 @@ public static class IssueActions
         return new ActionWrite(ActionWriteKind.Comment, target, body);
     }
 
-    private static void AddAnalysisAction(List<IssueAction> actions, StageResult stage, IssueSnapshot issue)
+    /// <summary>Answer when questions are open, Ask where the planner would run an analysis round, else null.</summary>
+    private static IssueAction? AnalysisActionOf(StageResult stage, IssueSnapshot issue)
     {
         if (stage.Stage.Code == IssueStage.QuestionsOpen)
         {
-            actions.Add(Known[ActionCodes.Answer]);
-
-            return;
+            return Known[ActionCodes.Answer];
         }
 
         // The planner reaches the analysis only for an issue that is not an implement or breakdown request.
         var isAnalysisStage = stage.Stage.Code is IssueStage.New or IssueStage.ReadySimple or IssueStage.ReadyComplex;
         var hasRequest = issue.HasLabel(Labels.Implement) || issue.HasLabel(Labels.Breakdown);
-        if (isAnalysisStage && !hasRequest)
-        {
-            actions.Add(Known[ActionCodes.Ask]);
-        }
+
+        return isAnalysisStage && !hasRequest ? Known[ActionCodes.Ask] : null;
     }
 
     private static bool IsCloudFallback(IssueSnapshot issue) =>

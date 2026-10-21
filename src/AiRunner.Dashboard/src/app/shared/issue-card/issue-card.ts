@@ -2,7 +2,7 @@ import { Component, computed, input, output } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
-import { ActionButtons, ActionTarget } from '../action-buttons/action-buttons';
+import { ActionButtons, issueTarget } from '../action-buttons/action-buttons';
 import { issueKey, issueLink } from '../issue-link';
 import { PullLink } from '../pull-link/pull-link';
 import { StageChip } from '../stage-chip/stage-chip';
@@ -27,11 +27,7 @@ export class IssueCard {
   /** After one of its actions was answered: the screen reloads (the card never changes itself). */
   readonly after = output<void>();
 
-  protected readonly actionTarget = computed<ActionTarget>(() => ({
-    kind: 'issue',
-    repo: this.issue().repo,
-    number: this.issue().number,
-  }));
+  protected readonly actionTarget = computed(() => issueTarget(this.issue()));
 
   protected readonly link = computed(() => issueLink(this.issue().repo, this.issue().number));
 

@@ -7,6 +7,7 @@ import { runIssueAction } from '../../api/fn/issues/run-issue-action';
 import { runPullAction } from '../../api/fn/pulls/run-pull-action';
 import { ActionResponse } from '../../api/models/action-response';
 import { CommandResponse } from '../../api/models/command-response';
+import { splitRepo } from '../issue-link';
 import { writeAction } from '../write-action';
 import { ActionTextDialog, ActionTextDialogData } from './action-text-dialog';
 
@@ -15,6 +16,16 @@ export interface ActionTarget {
   kind: 'issue' | 'pull';
   repo: string;
   number: number;
+}
+
+/** The target of the actions of an issue row. */
+export function issueTarget(row: { repo: string; number: number }): ActionTarget {
+  return { kind: 'issue', repo: row.repo, number: row.number };
+}
+
+/** The target of the actions of a PR row. */
+export function pullTarget(row: { repo: string; number: number }): ActionTarget {
+  return { kind: 'pull', repo: row.repo, number: row.number };
 }
 
 /**
@@ -98,7 +109,7 @@ export class ActionButtons {
 
   private call(code: string, text: string | null): Promise<CommandResponse> {
     const target = this.target();
-    const [owner, repo] = target.repo.split('/');
+    const [owner, repo] = splitRepo(target.repo);
     const params = { owner, repo, number: target.number, code, body: { text } };
 
     if (target.kind === 'pull') {

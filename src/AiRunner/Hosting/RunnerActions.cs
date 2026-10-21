@@ -57,47 +57,49 @@ public sealed class RunnerActions(
     /// <summary>One action at a time: a double click must not write twice.</summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public async Task<ActionReply> RunIssueAsync(IssueRef issue, ActionCall call, CancellationToken cancellationToken)
+    public Task<ActionReply> RunIssueAsync(IssueRef issue, ActionCall call, CancellationToken cancellationToken)
     {
-        var known = IssueActions.Find(call.Code);
         var project = config.FindProject(issue.Repo);
-        if (known is null || project is null || !IsIssuesRepo(project, issue.Repo))
-        {
-            return new ActionReply(ActionOutcome.NotFound, "No such issue or action.");
-        }
+        var isIssuesRepo = project?.IsIssuesRepo(issue.Repo) == true;
 
-        var refusal = WhyInvalid(known, call);
-        if (refusal is not null)
-        {
-            return refusal;
-        }
-
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            return await RunIssueLockedAsync(new FreshRequest(project, issue, call), cancellationToken);
-        }
-        catch (CodeHostException exception)
-        {
-            return Failure(call.Code, exception);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        return RunGuardedAsync(
+            new FreshRequest(project, isIssuesRepo, issue, call, "No such issue or action."),
+            RunIssueLockedAsync,
+            cancellationToken);
     }
 
-    public async Task<ActionReply> RunPullAsync(IssueRef pull, ActionCall call, CancellationToken cancellationToken)
+    public Task<ActionReply> RunPullAsync(IssueRef pull, ActionCall call, CancellationToken cancellationToken)
     {
-        var known = IssueActions.Find(call.Code);
         var project = config.FindProject(pull.Repo);
-        var isCodeRepo = project?.CodeRepos.Contains(pull.Repo, StringComparer.OrdinalIgnoreCase) == true;
-        if (known is null || project is null || !isCodeRepo)
+        var isCodeRepo = project?.HasCodeRepo(pull.Repo) == true;
+
+        return RunGuardedAsync(
+            new FreshRequest(project, isCodeRepo, pull, call, "No such PR or action."),
+            RunPullLockedAsync,
+            cancellationToken);
+    }
+
+    /// <summary>The item to act on; <c>IsInProject</c> says its repo is the kind of repo this action needs.</summary>
+    private sealed record FreshRequest(
+        ProjectConfig? Project,
+        bool IsInProject,
+        IssueRef Item,
+        ActionCall Call,
+        string NotFoundMessage);
+
+    /// <summary>The checks that need no code-host call, then one action at a time with code-host errors caught.</summary>
+    private async Task<ActionReply> RunGuardedAsync(
+        FreshRequest request,
+        Func<ProjectConfig, FreshRequest, CancellationToken, Task<ActionReply>> locked,
+        CancellationToken cancellationToken)
+    {
+        var known = IssueActions.Find(request.Call.Code);
+        if (known is null || request.Project is not { } project || !request.IsInProject)
         {
-            return new ActionReply(ActionOutcome.NotFound, "No such PR or action.");
+            return new ActionReply(ActionOutcome.NotFound, request.NotFoundMessage);
         }
 
-        var refusal = WhyInvalid(known, call);
+        var refusal = WhyInvalid(known, request.Call);
         if (refusal is not null)
         {
             return refusal;
@@ -106,11 +108,11 @@ public sealed class RunnerActions(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return await RunPullLockedAsync(new FreshRequest(project, pull, call), cancellationToken);
+            return await locked(project, request, cancellationToken);
         }
         catch (CodeHostException exception)
         {
-            return Failure(call.Code, exception);
+            return Failure(request.Call.Code, exception);
         }
         finally
         {
@@ -118,11 +120,12 @@ public sealed class RunnerActions(
         }
     }
 
-    private sealed record FreshRequest(ProjectConfig Project, IssueRef Item, ActionCall Call);
-
-    private async Task<ActionReply> RunIssueLockedAsync(FreshRequest request, CancellationToken cancellationToken)
+    private async Task<ActionReply> RunIssueLockedAsync(
+        ProjectConfig project,
+        FreshRequest request,
+        CancellationToken cancellationToken)
     {
-        var (project, item, call) = request;
+        var (_, _, item, call, _) = request;
 
         var host = await codeHost.GetIssueAsync(item.Repo, item.Number, cancellationToken);
         if (host.IsPullRequest())
@@ -150,9 +153,12 @@ public sealed class RunnerActions(
         return await WriteAsync(context, call.Code, cancellationToken);
     }
 
-    private async Task<ActionReply> RunPullLockedAsync(FreshRequest request, CancellationToken cancellationToken)
+    private async Task<ActionReply> RunPullLockedAsync(
+        ProjectConfig project,
+        FreshRequest request,
+        CancellationToken cancellationToken)
     {
-        var (project, item, call) = request;
+        var (_, _, item, call, _) = request;
 
         var pull = await codeHost.GetPullAsync(item.Repo, item.Number, cancellationToken);
         var activeJobs = jobs.ListActive();
@@ -185,17 +191,14 @@ public sealed class RunnerActions(
         var pullsByRepo = await ReadPullsAsync(project, cancellationToken);
         var activeJobs = jobs.ListActive();
 
-        var progress = subIssues
-            .Select(subIssue => ProgressOf(new StageInput(project, subIssue, [], pullsByRepo), activeJobs))
-            .ToList();
-        var stageInput = new StageInput(project, row, subIssues, pullsByRepo)
-        {
-            Jobs = ActivityOf(row.Repo, row.Number, activeJobs),
-        };
-        var stage = IssueStage.Compute(stageInput);
-        var waiting = new WaitingInput(row, stage, project.Settings.AutoStartFirstSubIssue, progress);
+        var stagingInput = new StagingInput(
+            project,
+            row,
+            subIssues,
+            pullsByRepo,
+            issue => ActivityOf(issue.Repo, issue.Number, activeJobs));
 
-        return new IssueActionInput(waiting, project.Settings, subIssues);
+        return IssueStaging.Build(stagingInput).Actions;
     }
 
     /// <summary>The sub-issues of a parent in build order, from the list the breakdown keeps on it.</summary>
@@ -315,9 +318,6 @@ public sealed class RunnerActions(
             $"The code host did not accept it ({exception.Status}). Nothing may have been written; reload to check.");
     }
 
-    private static bool IsIssuesRepo(ProjectConfig project, string repo) =>
-        string.Equals(project.IssuesRepo, repo, StringComparison.OrdinalIgnoreCase);
-
     private static bool IsJobOf(JobRecord job, IssueRef item) =>
         job.Number == item.Number && string.Equals(job.Repo, item.Repo, StringComparison.OrdinalIgnoreCase);
 
@@ -329,13 +329,5 @@ public sealed class RunnerActions(
             .ToList();
 
         return new JobActivity(statuses.Contains(JobStatus.Pending), statuses.Contains(JobStatus.Running));
-    }
-
-    private static SubIssueProgress ProgressOf(StageInput input, IReadOnlyList<JobRecord> activeJobs)
-    {
-        var activity = ActivityOf(input.Issue.Repo, input.Issue.Number, activeJobs);
-        var stage = IssueStage.Compute(input with { Jobs = activity });
-
-        return new SubIssueProgress(input.Issue.IsOpen, stage.Stage.Code, stage.Badge is not null);
     }
 }
