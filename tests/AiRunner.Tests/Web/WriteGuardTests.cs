@@ -110,6 +110,9 @@ public sealed class WriteGuardTests : IAsyncDisposable
     [InlineData("POST", "api/workspaces/mbh/backend/fetch")]
     [InlineData("POST", "api/workspaces/mbh/backend/reclone")]
     [InlineData("DELETE", "api/workspaces/orphans/old-project")]
+    [InlineData("PUT", "api/agents/file?path=agents/a.agent.md")]
+    [InlineData("POST", "api/agents/revert?path=agents/a.agent.md")]
+    [InlineData("POST", "api/agents/sync")]
     public async Task Every_write_route_without_the_header_is_403(string method, string path)
     {
         var client = await StartAsync();
@@ -126,6 +129,8 @@ public sealed class WriteGuardTests : IAsyncDisposable
     [InlineData("DELETE", "api/setup/web-password")]
     [InlineData("POST", "api/workspaces/mbh/backend/reclone")]
     [InlineData("DELETE", "api/workspaces/orphans/old-project")]
+    [InlineData("PUT", "api/agents/file?path=agents/a.agent.md")]
+    [InlineData("POST", "api/agents/sync")]
     public async Task A_setup_write_from_a_foreign_origin_is_403(string method, string path)
     {
         var client = await StartAsync();

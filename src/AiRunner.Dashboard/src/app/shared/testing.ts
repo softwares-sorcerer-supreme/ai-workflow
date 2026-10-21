@@ -174,6 +174,8 @@ export function sampleHealth(overrides: Partial<HealthResponse> = {}): HealthRes
     isPolling: false,
     isPaused: false,
     isSetupNeeded: false,
+    hasAgentDrift: false,
+    agentDriftLabel: null,
     worker: { state: 'idle', stateLabel: 'Idle', since: null },
     errorsLabel: 'No poll errors',
     errors: [],

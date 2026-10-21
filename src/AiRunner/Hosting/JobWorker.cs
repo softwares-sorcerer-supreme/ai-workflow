@@ -77,14 +77,28 @@ public sealed class JobWorker(
                 break;
             }
 
+            // The job holds the slot to its end: an agent sync waits for it and never changes ~/.copilot/ under a run.
+            IDisposable jobSlot;
             try
             {
-                await RunOneAsync(job, cancellationToken);
+                jobSlot = await commands.HoldJobSlotAsync(cancellationToken);
             }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                // Never let one job stop the worker (and with it the whole host).
-                logger.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, exception);
+                break;
+            }
+
+            using (jobSlot)
+            {
+                try
+                {
+                    await RunOneAsync(job, cancellationToken);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Never let one job stop the worker (and with it the whole host).
+                    logger.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, exception);
+                }
             }
         }
     }

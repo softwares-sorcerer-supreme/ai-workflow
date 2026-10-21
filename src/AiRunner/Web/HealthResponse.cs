@@ -34,7 +34,8 @@ public sealed record PollErrorResponse(string Project, string Message, DateTimeO
 /// <summary>
 /// <c>GET /api/health</c>: is the runner working? Every state comes as a stable code (for styling) plus the text to
 /// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button;
-/// <c>IsSetupNeeded</c> shows the setup banner on every screen. Times are UTC.
+/// <c>IsSetupNeeded</c> shows the setup banner on every screen; <c>HasAgentDrift</c> says ~/.copilot/ differs from
+/// agents/ and skills/ (the label is for the health strip, a flag and not a state: the runner still works). Times are UTC.
 /// </summary>
 public sealed record HealthResponse(
     string State,
@@ -49,10 +50,13 @@ public sealed record HealthResponse(
     bool IsPolling,
     bool IsPaused,
     bool IsSetupNeeded,
+    bool HasAgentDrift,
+    string? AgentDriftLabel,
     WorkerHealth Worker,
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
 {
+    private const string AgentDriftText = "Agents out of sync";
     private const string WorkerIdle = "idle";
     private const string WorkerBusy = "busy";
 
@@ -91,6 +95,8 @@ public sealed record HealthResponse(
             status.IsPolling,
             status.IsPaused,
             status.IsSetupNeeded,
+            status.HasAgentDrift,
+            status.HasAgentDrift ? AgentDriftText : null,
             worker,
             ErrorsLabelOf(errors.Count),
             errors);

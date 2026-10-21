@@ -97,6 +97,14 @@ _Avoid_: mutex, semaphore
 A folder under `work/` that is no project of `repos.yml` (a project that was removed or renamed). The dashboard may delete it, and only it: a plain folder name that resolves directly inside `work/`, never a project folder.
 _Avoid_: stale folder, leftover
 
+**Sync**:
+Copying the shared `agents/` and `skills/` of this repo to the Copilot home (`~/.copilot/`), so Copilot uses the version in the repo. It runs at startup and from the dashboard, always between jobs: at once when no job runs, else right after the running job, so one Copilot run never mixes old and new agents. A sync only copies; a file in `~/.copilot/` the repo does not have (an **extra** file) is never deleted.
+_Avoid_: deploy, publish, install (the installer is the code that does a sync)
+
+**Drift**:
+The difference between the shared `agents/` and `skills/` of this repo and their copy in `~/.copilot/`, by content hash per file: `in-sync`, `differs`, or `missing` (not installed). The poller checks it every poll; while a file differs or is missing the health strip says "Agents out of sync" and a **Sync** fixes it.
+_Avoid_: stale, out of date
+
 **Snapshot**:
 The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.
 _Avoid_: cache, mirror, sync

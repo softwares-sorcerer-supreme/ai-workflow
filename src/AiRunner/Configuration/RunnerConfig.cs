@@ -24,7 +24,7 @@ public sealed class RunnerConfig
     public List<ProjectConfig> Projects { get; set; } = [];
 
     /// <summary>Folder of repos.yml; the shared agents/, skills/ and templates/ live here.</summary>
-    [YamlIgnore] public string RootDir { get; private set; } = "";
+    [YamlIgnore] public string RootDir { get; set; } = "";
 
     public string ResolvePath(string path)
     {

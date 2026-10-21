@@ -483,6 +483,137 @@
         }
       }
     },
+    "/api/agents": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "The shared agents, skills and templates with their git state and sync state.",
+        "operationId": "getAgents",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/file": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "One file: its text, its hash and the diff against git HEAD.",
+        "operationId": "getAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFileDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Save an existing agent or skill file. 409 when it changed since it was read, 400 when it breaks the rules.",
+        "operationId": "saveAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runner/poll": {
       "post": {
         "tags": [
@@ -1170,6 +1301,118 @@
           }
         }
       }
+    },
+    "/api/agents/revert": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Restore one file from git HEAD.",
+        "operationId": "revertAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/sync": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Copy the shared agents and skills to ~/.copilot between jobs (right after the running job).",
+        "operationId": "syncAgents",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1204,6 +1447,111 @@
           },
           "needsText": {
             "type": "boolean"
+          }
+        }
+      },
+      "AgentFileDetailResponse": {
+        "required": [
+          "file",
+          "text",
+          "hash",
+          "diff"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/AgentFileResponse"
+          },
+          "text": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentFileResponse": {
+        "required": [
+          "path",
+          "kind",
+          "gitState",
+          "gitStateLabel",
+          "syncState",
+          "syncStateLabel",
+          "isEditable"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "gitState": {
+            "type": "string"
+          },
+          "gitStateLabel": {
+            "type": "string"
+          },
+          "syncState": {
+            "type": "string"
+          },
+          "syncStateLabel": {
+            "type": "string"
+          },
+          "isEditable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AgentsResponse": {
+        "required": [
+          "files",
+          "extra",
+          "isOutOfSync",
+          "templatesNote"
+        ],
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentFileResponse"
+            }
+          },
+          "extra": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isOutOfSync": {
+            "type": "boolean"
+          },
+          "templatesNote": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentValidationError": {
+        "required": [
+          "message",
+          "reasons"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -1504,6 +1852,8 @@
           "isPolling",
           "isPaused",
           "isSetupNeeded",
+          "hasAgentDrift",
+          "agentDriftLabel",
           "worker",
           "errorsLabel",
           "errors"
@@ -1555,6 +1905,15 @@
           },
           "isSetupNeeded": {
             "type": "boolean"
+          },
+          "hasAgentDrift": {
+            "type": "boolean"
+          },
+          "agentDriftLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "worker": {
             "$ref": "#/components/schemas/WorkerHealth"
@@ -2350,6 +2709,21 @@
           }
         }
       },
+      "SaveAgentRequest": {
+        "required": [
+          "text",
+          "baseHash"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "baseHash": {
+            "type": "string"
+          }
+        }
+      },
       "SetupChangeResponse": {
         "required": [
           "message",
@@ -2602,6 +2976,9 @@
     },
     {
       "name": "Workspaces"
+    },
+    {
+      "name": "Agents"
     },
     {
       "name": "Runner"

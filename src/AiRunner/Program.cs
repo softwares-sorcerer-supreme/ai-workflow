@@ -81,6 +81,8 @@ builder.Services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.Ge
 builder.Services.AddSingleton<ICostLog, CostLog>();
 builder.Services.AddSingleton<JobLog>();
 builder.Services.AddSingleton<AgentInstaller>();
+builder.Services.AddSingleton(CopilotHome.FromUserProfile());
+builder.Services.AddSingleton<AgentFiles>();
 builder.Services.AddSingleton<AgentSession>();
 builder.Services.AddSingleton<AttachmentFetcher>();
 
@@ -113,6 +115,8 @@ builder.Services.AddSingleton<WorkspaceLocks>();
 builder.Services.AddSingleton<DirectorySizes>();
 builder.Services.AddSingleton<WorkspaceInspector>();
 builder.Services.AddSingleton<IRunnerWorkspaces, RunnerWorkspaces>();
+builder.Services.AddSingleton<AgentSync>();
+builder.Services.AddSingleton<IRunnerAgents, RunnerAgents>();
 builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
     config.EffectiveRunnerName(),
     fullConfigPath,
@@ -188,7 +192,8 @@ services.GetRequiredService<Poller>().DryRun = mode.DryRun;
 
 if (!mode.DryRun)
 {
-    services.GetRequiredService<AgentInstaller>().Install();
+    var copilotHome = services.GetRequiredService<CopilotHome>();
+    services.GetRequiredService<AgentInstaller>().Install(copilotHome.Path);
     services.GetRequiredService<JobLog>().Cleanup();
 }
 

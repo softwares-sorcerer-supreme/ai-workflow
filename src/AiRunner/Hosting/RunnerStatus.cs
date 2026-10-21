@@ -39,6 +39,9 @@ public sealed record RunnerStatusSnapshot(
     /// <summary>No code-host token yet (setup mode); set from <see cref="IRunnerSetup"/>, which owns it.</summary>
     public bool IsSetupNeeded { get; init; }
 
+    /// <summary>~/.copilot/ differs from agents/ and skills/ (a file differs or is not installed); see <c>AgentDrift</c>.</summary>
+    public bool HasAgentDrift { get; init; }
+
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);
 }
@@ -60,12 +63,22 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
     private DateTimeOffset? _lastPollEndedAt;
     private DateTimeOffset? _workerBusySince;
     private RunningJob? _running;
+    private bool _hasAgentDrift;
 
     public void SetCopilotVersion(string? version)
     {
         lock (_lock)
         {
             _copilotVersion = string.IsNullOrWhiteSpace(version) ? UnknownVersion : version.Trim();
+        }
+    }
+
+    /// <summary>The poller's latest drift check of the shared agents and skills.</summary>
+    public void AgentDriftChecked(bool hasDrift)
+    {
+        lock (_lock)
+        {
+            _hasAgentDrift = hasDrift;
         }
     }
 
@@ -173,7 +186,10 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
                 _lastPollEndedAt,
                 _workerBusySince,
                 errors,
-                _running);
+                _running)
+            {
+                HasAgentDrift = _hasAgentDrift,
+            };
         }
     }
 }

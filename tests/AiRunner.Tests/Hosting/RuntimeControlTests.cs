@@ -145,6 +145,59 @@ public sealed class RuntimeControlTests : IDisposable
     }
 
     [Fact]
+    public async Task Work_between_jobs_waits_for_the_running_job_and_runs_before_the_next_one()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var job = new StubJob(async () =>
+        {
+            started.TrySetResult();
+            await release.Task;
+
+            return JobOutcome.Ok("fine");
+        });
+        var (worker, queue, _) = _kit.CreateWorker(job);
+        await _kit.NewPoller(queue).PollOnceAsync(default);
+        using var stop = new CancellationTokenSource();
+        await worker.StartAsync(stop.Token);
+        await started.Task.WaitAsync(TestTimeout);
+
+        var hasSynced = false;
+        var between = _kit.Commands.RunBetweenJobsAsync(() => hasSynced = true, default);
+        await Task.Delay(200);
+
+        Assert.False(hasSynced);
+
+        release.SetResult();
+        await between.WaitAsync(TestTimeout);
+
+        Assert.True(hasSynced);
+        await stop.CancelAsync();
+        await worker.StopAsync(default);
+    }
+
+    [Fact]
+    public async Task A_poll_notes_when_the_installed_agents_differ_from_the_repo()
+    {
+        var root = Directory.CreateTempSubdirectory("ai-runner-drift-").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "agents"));
+            File.WriteAllText(Path.Combine(root, "agents", "a.agent.md"), "x");
+            _kit.Config.RootDir = root;
+            var (_, queue, _) = _kit.CreateWorker();
+
+            await _kit.NewPoller(queue).PollOnceAsync(default);
+
+            Assert.True(_kit.Status.Snapshot().HasAgentDrift);
+        }
+        finally
+        {
+            FileSystem.DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task A_wake_gives_exactly_one_more_poll()
     {
         _kit.Config.PollIntervalSeconds = 3600;

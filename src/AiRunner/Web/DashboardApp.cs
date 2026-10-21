@@ -48,6 +48,12 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
     /// </summary>
     public IRunnerWorkspaces Workspaces { get; init; } = NoWorkspaces.Instance;
 
+    /// <summary>
+    /// The shared agents and skills and the actions on them, shared with the runner; the default shows nothing (the
+    /// OpenAPI export runs no runner).
+    /// </summary>
+    public IRunnerAgents Agents { get; init; } = NoAgents.Instance;
+
     /// <summary>The runner's login on the code host, for the scope of the PR actions; a login, never a secret.</summary>
     public RunnerIdentity Identity { get; init; } = new();
 }
@@ -137,6 +143,7 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Setup);
         builder.Services.AddSingleton(options.Actions);
         builder.Services.AddSingleton(options.Workspaces);
+        builder.Services.AddSingleton(options.Agents);
         builder.Services.AddSingleton(options.Identity);
         builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();

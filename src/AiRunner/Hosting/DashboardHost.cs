@@ -22,6 +22,7 @@ public sealed class DashboardHost(
     IRunnerSetup setup,
     IRunnerActions actions,
     IRunnerWorkspaces workspaces,
+    IRunnerAgents agents,
     RunnerIdentity identity,
     ILogger<DashboardHost> logger) : BackgroundService
 {
@@ -40,6 +41,7 @@ public sealed class DashboardHost(
             Setup = setup,
             Actions = actions,
             Workspaces = workspaces,
+            Agents = agents,
             Identity = identity,
         };
         var builder = DashboardApp.CreateBuilder(options);

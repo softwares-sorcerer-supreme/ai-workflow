@@ -3,6 +3,10 @@
 
 export type { ActionRequest } from './models/action-request';
 export type { ActionResponse } from './models/action-response';
+export type { AgentFileDetailResponse } from './models/agent-file-detail-response';
+export type { AgentFileResponse } from './models/agent-file-response';
+export type { AgentsResponse } from './models/agents-response';
+export type { AgentValidationError } from './models/agent-validation-error';
 export type { AnalysisSummaryResponse } from './models/analysis-summary-response';
 export type { ApiError } from './models/api-error';
 export type { CloneResponse } from './models/clone-response';
@@ -28,6 +32,7 @@ export type { ProjectOptionResponse } from './models/project-option-response';
 export type { ProjectWorkspaceResponse } from './models/project-workspace-response';
 export type { PullResponse } from './models/pull-response';
 export type { RunningJobResponse } from './models/running-job-response';
+export type { SaveAgentRequest } from './models/save-agent-request';
 export type { SetupChangeResponse } from './models/setup-change-response';
 export type { SetupResponse } from './models/setup-response';
 export type { SubIssueCountResponse } from './models/sub-issue-count-response';

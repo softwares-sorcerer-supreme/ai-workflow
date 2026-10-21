@@ -457,6 +457,7 @@ public sealed class JobTestKit : IDisposable
             Status,
             recorder,
             Commands,
+            new AgentFiles(Config, new CopilotHome(Path.Combine(_tempFolder, "copilot-home")), Processes),
             logger);
     }
 

@@ -248,6 +248,16 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   delete is a security boundary: `Core/OrphanRules` (plain name only, no dot names, never a project, any case), then the resolved path must be a
   direct child of `work/` and not a link. `IRunnerWorkspaces` is what the web app gets (no git client there).
 
+- **Agents and skills** (`Core/AgentPaths`, `Core/AgentFileRules`, `Core/AgentDrift`, `Infrastructure/AgentFiles`, `Hosting/RunnerAgents`,
+  `Hosting/AgentSync`, `Web/AgentsApi`): `GET /api/agents` lists `agents/*.agent.md`, `skills/**` and `templates/*` (read-only) with git
+  state (`git status --porcelain`; `unknown` outside a repo) and sync state; `GET`/`PUT /api/agents/file?path=`, `POST /api/agents/revert?path=`,
+  `POST /api/agents/sync`. The path is a query value (it holds slashes) and `AgentPaths` is the one boundary: only `agents/<n>.agent.md`,
+  `skills/<folder>/...`, `templates/<file>`, never `..`, a rooted path or a backslash. A save needs the file's `baseHash` (409 when stale),
+  passes `AgentFileRules` (400 with every reason), only replaces an existing file (temp + move, CRLF kept) and asks for a sync; no create,
+  no delete, templates 400. The Copilot home is a `CopilotHome` parameter (tests use a temp folder, never the real one). **Sync** =
+  `AgentInstaller.Install(home)` between jobs: `JobWorker` holds `RunnerCommands.HoldJobSlotAsync` for a whole job and `AgentSync` takes the
+  same slot, so a sync waits for the running job. It only copies; extra files in `~/.copilot/` stay. `Poller` compares hashes every poll
+  (`AgentFiles.CheckDrift`) and `/api/health` carries `hasAgentDrift` + `agentDriftLabel`.
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
   is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on

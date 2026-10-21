@@ -41,6 +41,16 @@ export type { RecloneWorkspace$Params as RecloneWorkspace$Params } from './fn/wo
 export { recloneWorkspace as recloneWorkspace } from './fn/workspaces/reclone-workspace';
 export type { DeleteOrphanWorkspace$Params as DeleteOrphanWorkspace$Params } from './fn/workspaces/delete-orphan-workspace';
 export { deleteOrphanWorkspace as deleteOrphanWorkspace } from './fn/workspaces/delete-orphan-workspace';
+export type { GetAgents$Params as GetAgents$Params } from './fn/agents/get-agents';
+export { getAgents as getAgents } from './fn/agents/get-agents';
+export type { GetAgentFile$Params as GetAgentFile$Params } from './fn/agents/get-agent-file';
+export { getAgentFile as getAgentFile } from './fn/agents/get-agent-file';
+export type { SaveAgentFile$Params as SaveAgentFile$Params } from './fn/agents/save-agent-file';
+export { saveAgentFile as saveAgentFile } from './fn/agents/save-agent-file';
+export type { RevertAgentFile$Params as RevertAgentFile$Params } from './fn/agents/revert-agent-file';
+export { revertAgentFile as revertAgentFile } from './fn/agents/revert-agent-file';
+export type { SyncAgents$Params as SyncAgents$Params } from './fn/agents/sync-agents';
+export { syncAgents as syncAgents } from './fn/agents/sync-agents';
 export type { PollNow$Params as PollNow$Params } from './fn/runner/poll-now';
 export { pollNow as pollNow } from './fn/runner/poll-now';
 export type { PauseRunner$Params as PauseRunner$Params } from './fn/runner/pause-runner';

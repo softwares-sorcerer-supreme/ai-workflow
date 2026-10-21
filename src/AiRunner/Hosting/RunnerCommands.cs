@@ -22,6 +22,9 @@ public sealed class RunnerCommands
     private readonly Channel<bool> _wakes = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
+    // One holder at a time: the worker for the whole of a job, or work that must not overlap a job (an agent sync).
+    private readonly SemaphoreSlim _jobSlot = new(1, 1);
+
     private TaskCompletionSource? _resumed;
     private RunningJob? _running;
 
@@ -89,6 +92,38 @@ public sealed class RunnerCommands
         if (resumed is not null)
         {
             await resumed.WaitAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// The worker takes the slot for the whole of one job, so work that must not overlap a job (an agent sync) waits for
+    /// the job to end and then runs before the next one. Dispose the result to give the slot back.
+    /// </summary>
+    public async Task<IDisposable> HoldJobSlotAsync(CancellationToken cancellationToken)
+    {
+        await _jobSlot.WaitAsync(cancellationToken);
+
+        return new SlotHolder(_jobSlot);
+    }
+
+    /// <summary>Runs <paramref name="work"/> when no job holds the slot (at once when idle, else right after the job).</summary>
+    public async Task RunBetweenJobsAsync(Action work, CancellationToken cancellationToken)
+    {
+        using var slot = await HoldJobSlotAsync(cancellationToken);
+
+        work();
+    }
+
+    private sealed class SlotHolder(SemaphoreSlim slot) : IDisposable
+    {
+        private int _isReleased;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _isReleased, 1) == 0)
+            {
+                slot.Release();
+            }
         }
     }
 

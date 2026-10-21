@@ -29,6 +29,7 @@ public sealed class Poller(
     RunnerStatus status,
     SnapshotRecorder snapshot,
     RunnerCommands commands,
+    AgentFiles agentFiles,
     ILogger<Poller> logger) : BackgroundService
 {
     private int _pollCount;
@@ -136,6 +137,7 @@ public sealed class Poller(
             }
         }
 
+        RecordAgentDrift();
         status.PollEnded();
 
         if (DryRun)
@@ -252,6 +254,23 @@ public sealed class Poller(
         }
 
         return pulls;
+    }
+
+    /// <summary>
+    /// Compares ~/.copilot/ with agents/ and skills/ for the health strip, so a git pull of this repo while the runner
+    /// runs is noticed. Local file reads only; a read error is a warning, never a failed poll.
+    /// </summary>
+    private void RecordAgentDrift()
+    {
+        try
+        {
+            var drift = agentFiles.CheckDrift();
+            status.AgentDriftChecked(drift.IsOutOfSync);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Could not compare the agents with ~/.copilot: {Error}", exception.Message);
+        }
     }
 
     private void Handle(PlanDecision decision, string what)
