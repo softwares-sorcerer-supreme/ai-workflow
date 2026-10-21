@@ -401,6 +401,19 @@ public sealed class WorkspaceActionsTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_orphan_is_busy_while_the_same_folder_is_being_deleted()
+    {
+        var folder = Path.Combine(WorkFolder, "old-project");
+        Directory.CreateDirectory(folder);
+        using var other = _locks.TryHoldForAction("old-project");
+
+        var reply = await _workspaces.DeleteOrphanAsync("old-project", default);
+
+        Assert.Equal(WorkspaceOutcome.Busy, reply.Outcome);
+        Assert.True(Directory.Exists(folder));
+    }
+
+    [Fact]
     public async Task Delete_orphan_of_a_folder_that_is_not_there_is_not_found()
     {
         var reply = await _workspaces.DeleteOrphanAsync("never-existed", default);

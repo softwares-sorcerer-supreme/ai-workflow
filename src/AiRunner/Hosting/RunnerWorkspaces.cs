@@ -88,8 +88,9 @@ public sealed class RunnerWorkspaces(
         catch (InvalidOperationException exception)
         {
             logger.LogWarning("Fetch of {Repo} from the dashboard failed: {Message}", target.Repo, exception.Message);
+            var fetchMessage = Text.Short(exception.Message);
 
-            return new WorkspaceReply(WorkspaceOutcome.Failed, Text.Short(exception.Message));
+            return new WorkspaceReply(WorkspaceOutcome.Failed, fetchMessage);
         }
 
         logger.LogInformation("{Project}: {Repo} fetched from the dashboard", target.Project.Name, target.Repo);
@@ -117,7 +118,9 @@ public sealed class RunnerWorkspaces(
         }
         catch (IOException exception)
         {
-            return Reply(WorkspaceOutcome.Failed, Text.Short(exception.Message));
+            var discardMessage = Text.Short(exception.Message);
+
+            return Reply(WorkspaceOutcome.Failed, discardMessage);
         }
 
         logger.LogInformation("{Project}: clone of {Repo} deleted from the dashboard", target.Project.Name, target.Repo);
@@ -156,6 +159,13 @@ public sealed class RunnerWorkspaces(
         if (isLink)
         {
             return Reply(WorkspaceOutcome.Refused, "The folder is a link; delete it by hand.");
+        }
+
+        // No project owns an orphan, so the lock is keyed by the folder: two deletes of it never run together.
+        using var hold = locks.TryHoldForAction(folder);
+        if (hold is null)
+        {
+            return Reply(WorkspaceOutcome.Busy, "This folder is being deleted already.");
         }
 
         if (!FileSystem.DeleteDirectory(directory))

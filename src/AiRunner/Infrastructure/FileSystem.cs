@@ -15,7 +15,9 @@ public static class FileSystem
 
         try
         {
-            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            // Links are skipped: a junction inside the folder must not lead this loop to files outside it.
+            var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
+            foreach (var file in Directory.EnumerateFiles(directory, "*", options))
             {
                 File.SetAttributes(file, FileAttributes.Normal);
             }
