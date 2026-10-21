@@ -11,7 +11,6 @@ export interface IssueRowResponse {
   flags: Array<CodeLabelResponse>;
   htmlUrl: (string | null);
   lane: string;
-  laneLabel: string;
   number: number;
   parent: (number | null);
   progress: (null | SubIssueCountResponse);

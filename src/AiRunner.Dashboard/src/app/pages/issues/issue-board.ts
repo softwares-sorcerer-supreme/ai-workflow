@@ -12,7 +12,8 @@ export interface BoardLane extends CountResponse {
 }
 
 /**
- * The board of the issues screen: one lane per entry the API sends (label, the API's count, a tone dot) with one card per issue.
+ * The board of the issues screen: one lane per entry the API sends (label, the API's count, a tone dot) with one
+ * card per issue.
  * It scrolls sideways inside its own box; at 1280 px and wider all five lanes fit.
  */
 @Component({

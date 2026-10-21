@@ -77,6 +77,7 @@ In a component's SCSS, give the host the tone variables with the shared mixin an
 ```
 A template that repeats toned items itself (pipeline segments, focus chips, board lane heads) puts `tone-<tone>` on
 each element and uses `@include tones.class-variants(segment);` instead (sets `--segment-bg/fg/dot` on `.tone-<tone>`).
+A solid tone dot is `.dot { @include tones.dot(segment); }`, never its own width/height/radius block.
 
 ### Spacing, shape, type
 
@@ -321,9 +322,9 @@ protected readonly issues = pollResource(() => this.api.invoke(getIssues, { proj
 `reload()` during a running call loads once more right after it, so a changed filter is never left with the old
 answer. `value` keeps the last good answer when a call fails; `error` holds the failure text until the next success
 (for a 400 the API's own `ApiError.message`). Prefer filter options the API sends (`/api/issues` sends its projects,
-components, stages, and lanes and focuses with their counts: show the counts as sent, never count rows). Options the
-API cannot list live in one constant per filter next to the screen (`pages/jobs/job-filters.ts`,
-`pages/issues/issue-filters.ts`), typed with `FilterOption` from `shared/filter-option.ts`.
+components, stages, states, sorts, and lanes and focuses with their counts: show the counts as sent, never count
+rows). Options the API cannot list live in one constant per filter next to the screen (`pages/jobs/job-filters.ts`),
+typed with `FilterOption` from `shared/filter-option.ts`.
 
 ### Filters in the URL
 

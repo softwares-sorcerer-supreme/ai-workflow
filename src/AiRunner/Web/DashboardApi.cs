@@ -144,12 +144,10 @@ public static class DashboardApi
         return TypedResults.Ok(found);
     }
 
-    /// <summary>The <c>state</c> of <c>GET /api/issues</c> that keeps open and closed issues (the same as none).</summary>
-    private const string AnyState = "all";
-
     /// <summary>
     /// The query string of <c>GET /api/issues</c>. <c>Search</c> (<c>q</c>) is part of the title or the issue number
-    /// ("12" or "#12"); <c>State</c> is <c>open</c>, <c>closed</c> or <c>all</c> (the same as none); <c>Sort</c> is <c>number</c> (default, newest first) or <c>updated</c> (last updated first).
+    /// ("12" or "#12"); <c>State</c> is <c>open</c>, <c>closed</c> or <c>all</c> (the same as none); <c>Sort</c> is
+    /// <c>number</c> (default, newest first) or <c>updated</c> (last updated first).
     /// </summary>
     public sealed record IssuesFilter(
         [FromQuery(Name = "project")] string? Project,
@@ -175,7 +173,7 @@ public static class DashboardApi
         }
 
         var search = string.IsNullOrWhiteSpace(filter.Search) ? null : filter.Search.Trim();
-        var state = filter.State == AnyState ? null : filter.State;
+        var state = filter.State == IssueReader.AllStates ? null : filter.State;
         var query = new IssueQuery(
             Project: filter.Project,
             Component: filter.Component,
@@ -216,8 +214,7 @@ public static class DashboardApi
             return $"Unknown stage '{stage}'.";
         }
 
-        if (filter.State is { } state &&
-            state != SnapshotRules.Open && state != SnapshotRules.Closed && state != AnyState)
+        if (filter.State is { } state && !IssueReader.States.Any(known => known.Code == state))
         {
             return $"Unknown state '{state}'. Use open, closed or all.";
         }
@@ -232,7 +229,7 @@ public static class DashboardApi
             return $"Unknown focus '{focus}'.";
         }
 
-        if (filter.Sort is { } sort && sort != IssueReader.SortByNumber && sort != IssueReader.SortByUpdate)
+        if (filter.Sort is { } sort && !IssueReader.Sorts.Any(known => known.Code == sort))
         {
             return $"Unknown sort '{sort}'. Use number or updated.";
         }

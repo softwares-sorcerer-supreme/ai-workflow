@@ -20,8 +20,7 @@ describe('Issues', () => {
           stage: 'broken-down',
           stageLabel: 'Broken down (1/2)',
           lane: 'in-progress',
-          laneLabel: 'In progress',
-          progress: { closed: 1, total: 2 },
+                    progress: { closed: 1, total: 2 },
           waiting: { code: 'start-next', label: 'Start the next sub-issue' },
           subIssues: [
             sampleIssue({
@@ -30,8 +29,7 @@ describe('Issues', () => {
               stage: 'done',
               stageLabel: 'Done',
               lane: 'finished',
-              laneLabel: 'Done',
-              state: 'closed',
+                            state: 'closed',
               stateLabel: 'Closed',
               pulls: [samplePull({ number: 50, state: 'merged', stateLabel: 'Merged' })],
             }),
@@ -41,8 +39,7 @@ describe('Issues', () => {
               stage: 'implementing',
               stageLabel: 'Implementing',
               lane: 'in-progress',
-              laneLabel: 'In progress',
-              badge: { code: 'running', label: 'Running' },
+                            badge: { code: 'running', label: 'Running' },
               waiting: { code: 'wait', label: 'Should not show under a badge' },
               flags: [{ code: 'claimed', label: 'Claimed by laptop-1' }],
             }),
@@ -63,6 +60,15 @@ describe('Issues', () => {
       stages: [
         { code: 'implementing', label: 'Implementing' },
         { code: 'pr-open', label: 'PR open' },
+      ],
+      states: [
+        { code: 'open', label: 'Open' },
+        { code: 'closed', label: 'Closed' },
+        { code: 'all', label: 'All' },
+      ],
+      sorts: [
+        { code: 'number', label: 'Newest' },
+        { code: 'updated', label: 'Recently updated' },
       ],
       total: 16,
       lanes: [

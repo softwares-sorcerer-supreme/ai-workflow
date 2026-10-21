@@ -172,7 +172,7 @@ public sealed class IssuesApiTests : IAsyncDisposable
         var list = await GetListAsync(client);
 
         var parent = list.Items[0];
-        Assert.Equal(("in-progress", "In progress"), (parent.Lane, parent.LaneLabel));
+        Assert.Equal("in-progress", parent.Lane);
         Assert.Equal((1, 2), (parent.Progress?.Closed, parent.Progress?.Total));
         Assert.Null(parent.Waiting);
         Assert.Null(parent.SubIssues[0].Progress);
@@ -354,5 +354,7 @@ public sealed class IssuesApiTests : IAsyncDisposable
             [("shop", "api,web"), ("blog", "blog")],
             list.Projects.Select(project => (project.Name, string.Join(",", project.Components))));
         Assert.Equal(IssueStage.Stages.Select(stage => stage.Code), list.Stages.Select(stage => stage.Code));
+        Assert.Equal(["open", "closed", "all"], list.States.Select(state => state.Code));
+        Assert.Equal(["number", "updated"], list.Sorts.Select(sort => sort.Code));
     }
 }

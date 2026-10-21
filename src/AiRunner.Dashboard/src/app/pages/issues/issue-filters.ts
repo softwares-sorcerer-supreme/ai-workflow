@@ -1,28 +1,8 @@
 import { ParamMap, Params } from '@angular/router';
 import { GetIssues$Params } from '../../api/fn/issues/get-issues';
-import { FilterOption } from '../../shared/filter-option';
 
 /** List: the table with nested sub-issues and the pipeline summary. Board: one column per lane. */
 export type IssueView = 'list' | 'board';
-
-/** "All" in the State select: `state=all` in the URL and in the request (the API keeps open and closed issues). */
-export const ALL_STATES = 'all';
-
-/**
- * The state filter of the issues screen (open or closed on GitBucket, not the stage). Projects, components, stages,
- * lanes and focuses come with the API's answer; `open` and `closed` are fixed by C# `SnapshotRules.Open` / `Closed`.
- */
-export const ISSUE_STATE_OPTIONS: readonly FilterOption[] = [
-  { code: 'open', label: 'Open' },
-  { code: 'closed', label: 'Closed' },
-  { code: ALL_STATES, label: 'All' },
-];
-
-/** The sort codes of `GET /api/issues` (C# `IssueReader.SortByNumber` / `SortByUpdate`). */
-export const ISSUE_SORT_OPTIONS: readonly FilterOption[] = [
-  { code: 'number', label: 'Newest' },
-  { code: 'updated', label: 'Recently updated' },
-];
 
 /** The filters of the issues screen as they stand in the URL (`/issues?state=closed&q=login&view=board`). */
 export interface IssueFilters {
@@ -105,25 +85,28 @@ export function issueRequest(filters: IssueFilters): GetIssues$Params {
   };
 }
 
-/** True when a filter the current view uses differs from its default: "Clear filters" is then offered. */
+/**
+ * True when a filter the current view uses differs from its default: "Clear filters" is then offered. It compares
+ * requests, so a filter the view does not send (stage and lane on the board) never counts.
+ */
 export function hasIssueFilters(filters: IssueFilters): boolean {
-  const defaults = DEFAULT_ISSUE_FILTERS;
-  const isListFiltered = filters.view === 'list' && (!!filters.stage || !!filters.lane || filters.flat);
+  const request = issueRequest(filters);
+  const defaultRequest = issueRequest({ ...DEFAULT_ISSUE_FILTERS, view: filters.view });
 
-  return (
-    !!filters.project ||
-    !!filters.component ||
-    filters.state !== defaults.state ||
-    !!filters.focus ||
-    !!filters.q ||
-    filters.sort !== defaults.sort ||
-    isListFiltered
-  );
+  return JSON.stringify(request) !== JSON.stringify(defaultRequest);
 }
 
 /**
- * True when the list is narrowed to some issues (lane, focus, stage or search): the matching sub-issues are then the
- * point, so parents start expanded.
+ * The filters that narrow the list to some issues (lane, focus, stage, search), as one key: the expand state of the
+ * list starts again when it changes.
+ */
+export function issueNarrowingKey(filters: IssueFilters): string {
+  return [filters.lane, filters.focus, filters.stage, filters.q].join('\u0000');
+}
+
+/**
+ * True when the list is narrowed to some issues: the matching sub-issues are then the point, so parents start
+ * expanded.
  */
 export function isIssueListNarrowed(filters: IssueFilters): boolean {
   return !!(filters.lane || filters.focus || filters.stage || filters.q);

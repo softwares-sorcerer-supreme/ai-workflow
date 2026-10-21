@@ -24,6 +24,15 @@ public sealed record IssueBoard(
     /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
     public static StringComparer KeyComparer { get; } = StringComparer.OrdinalIgnoreCase;
 
+    /// <summary>Built once per board, so finding the PRs of every row is not one scan of all PRs per issue.</summary>
+    private readonly ILookup<string, PullSnapshot> _pullsByLinkedIssue = Pulls
+        .Where(pull => pull.LinkedIssue is not null)
+        .ToLookup(pull => pull.LinkedIssue!, KeyComparer);
+
+    private readonly ILookup<string, PullSnapshot> _pullsByHead = Pulls.ToLookup(
+        pull => pull.HeadRef,
+        StringComparer.Ordinal);
+
     public static string KeyOf(string repo, int number) => new IssueRef(repo, number).ToString();
 
     /// <summary>
@@ -33,22 +42,17 @@ public sealed record IssueBoard(
     public IReadOnlyList<PullResponse> PullsOf(IssueEntry entry)
     {
         var repos = entry.Project.CodeRepos.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var linking = _pullsByLinkedIssue[entry.Issue.Key];
+        var itsPulls = entry.Stage.Pulls.SelectMany(itsPull =>
+            _pullsByHead[itsPull.Head.Ref].Where(pull => pull.Number == itsPull.Number));
 
-        return Pulls
-            .Where(pull => repos.Contains(pull.Repo) && IsOfIssue(pull, entry))
+        return linking
+            .Concat(itsPulls)
+            .Where(pull => repos.Contains(pull.Repo))
+            .Distinct()
             .OrderByDescending(pull => pull.UpdatedAt)
             .Select(PullOf)
             .ToList();
-    }
-
-    private static bool IsOfIssue(PullSnapshot pull, IssueEntry entry)
-    {
-        if (KeyComparer.Equals(pull.LinkedIssue, entry.Issue.Key))
-        {
-            return true;
-        }
-
-        return entry.Stage.Pulls.Any(itsPull => itsPull.Number == pull.Number && itsPull.Head.Ref == pull.HeadRef);
     }
 
     private static PullResponse PullOf(PullSnapshot pull)

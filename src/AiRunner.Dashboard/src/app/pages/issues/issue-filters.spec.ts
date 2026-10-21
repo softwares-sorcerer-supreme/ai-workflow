@@ -33,7 +33,7 @@ describe('issue filters', () => {
     expect(issueRequest(filters)).toMatchObject({ state: 'all', stage: undefined, lane: undefined, flat: true });
   });
 
-  it('counts stage, lane and flat as filters in the list only', () => {
+  it('counts as a filter only what the current view sends', () => {
     const listFilters = { ...DEFAULT_ISSUE_FILTERS, lane: 'ready' };
 
     expect(hasIssueFilters(DEFAULT_ISSUE_FILTERS)).toBe(false);

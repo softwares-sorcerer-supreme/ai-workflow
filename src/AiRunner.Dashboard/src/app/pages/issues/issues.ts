@@ -9,7 +9,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subject, debounceTime } from 'rxjs';
+import { Subject, debounceTime, filter } from 'rxjs';
 import { Api } from '../../api/api';
 import { getIssues } from '../../api/fn/issues/get-issues';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
@@ -28,12 +28,10 @@ import { focusTone, issueMarkIcon, issueMarkTone, laneTone } from '../../shared/
 import { ViewState } from '../../shared/view-state/view-state';
 import {
   DEFAULT_ISSUE_FILTERS,
-  ISSUE_SORT_OPTIONS,
-  ISSUE_STATE_OPTIONS,
   IssueFilters,
-  IssueView,
   hasIssueFilters,
   isIssueListNarrowed,
+  issueNarrowingKey,
   issueQueryParams,
   issueRequest,
   readIssueFilters,
@@ -47,7 +45,6 @@ export const SEARCH_DEBOUNCE_MS = 300;
 export interface IssueTableRow extends IssueRowResponse {
   key: string;
   isSubIssue: boolean;
-  hasSubIssues: boolean;
   isExpanded: boolean;
 }
 
@@ -89,9 +86,6 @@ export class Issues {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly stateOptions = ISSUE_STATE_OPTIONS;
-  protected readonly sortOptions = ISSUE_SORT_OPTIONS;
-
   private readonly queryParams = toSignal(this.route.queryParamMap, { requireSync: true });
 
   protected readonly filters = computed(() => readIssueFilters(this.queryParams()));
@@ -107,6 +101,8 @@ export class Issues {
 
   protected readonly projectOptions = computed(() => this.issues.value()?.projects ?? []);
   protected readonly stageOptions = computed(() => this.issues.value()?.stages ?? []);
+  protected readonly stateOptions = computed(() => this.issues.value()?.states ?? []);
+  protected readonly sortOptions = computed(() => this.issues.value()?.sorts ?? []);
   protected readonly lanes = computed(() => this.issues.value()?.lanes ?? []);
   protected readonly focuses = computed(() => this.issues.value()?.focuses ?? []);
   protected readonly total = computed(() => this.issues.value()?.total);
@@ -134,11 +130,7 @@ export class Issues {
    * stage or search starts from its default (expanded when narrowed, collapsed otherwise).
    */
   private readonly expandedByHand = linkedSignal<string, ReadonlyMap<string, boolean>>({
-    source: () => {
-      const filters = this.filters();
-
-      return [filters.lane, filters.focus, filters.stage, filters.q].join('\u0000');
-    },
+    source: () => issueNarrowingKey(this.filters()),
     computation: () => new Map(),
   });
   private readonly isExpandedByDefault = computed(() => isIssueListNarrowed(this.filters()));
@@ -153,9 +145,8 @@ export class Issues {
   protected readonly rows = computed<IssueTableRow[] | undefined>(() =>
     this.issues.value()?.items.flatMap((item) => {
       const key = issueKey(item);
-      const hasSubIssues = item.subIssues.length > 0;
-      const isExpanded = hasSubIssues && this.isExpanded(key);
-      const parent: IssueTableRow = { ...item, key, isSubIssue: false, hasSubIssues, isExpanded };
+      const isExpanded = item.subIssues.length > 0 && this.isExpanded(key);
+      const parent: IssueTableRow = { ...item, key, isSubIssue: false, isExpanded };
 
       if (!isExpanded) {
         return [parent];
@@ -165,7 +156,6 @@ export class Issues {
         ...subIssue,
         key: issueKey(subIssue),
         isSubIssue: true,
-        hasSubIssues: false,
         isExpanded: false,
       }));
 
@@ -202,6 +192,7 @@ export class Issues {
   protected readonly laneTone = laneTone;
   protected readonly focusTone = focusTone;
   protected readonly trackByIssue = (_index: number, row: IssueTableRow) => row.key;
+  protected readonly issueKey = issueKey;
 
   constructor() {
     // A new request (a filter set here, or the URL changed by back/forward) is loaded at once, not on the next poll.
@@ -230,8 +221,13 @@ export class Issues {
       });
     });
 
+    // A text equal to what was sent (or what a reset emptied) changes nothing, so it is not sent again.
     this.searchInput
-      .pipe(debounceTime(SEARCH_DEBOUNCE_MS), takeUntilDestroyed())
+      .pipe(
+        debounceTime(SEARCH_DEBOUNCE_MS),
+        filter((text) => text.trim() !== this.sentSearch),
+        takeUntilDestroyed(),
+      )
       .subscribe((text) => this.sendSearch(text));
   }
 
@@ -240,32 +236,9 @@ export class Issues {
     this.update({ project: name, component: '' });
   }
 
-  protected setComponent(name: string): void {
-    this.update({ component: name });
-  }
-
-  protected setState(code: string): void {
-    this.update({ state: code });
-  }
-
-  protected setStage(code: string): void {
-    this.update({ stage: code });
-  }
-
-  protected setSort(code: string): void {
-    this.update({ sort: code });
-  }
-
-  protected setFlat(isFlat: boolean): void {
-    this.update({ flat: isFlat });
-  }
-
-  protected setView(view: IssueView): void {
-    this.update({ view });
-  }
-
-  protected setFocus(code: string): void {
-    this.update({ focus: code });
+  /** One filter written into the URL as chosen. */
+  protected set<K extends keyof IssueFilters>(key: K, value: IssueFilters[K]): void {
+    this.update({ [key]: value });
   }
 
   /** A click on the selected lane clears it. */
@@ -278,19 +251,22 @@ export class Issues {
     this.searchInput.next(text);
   }
 
-  /** Clears at once; the empty text also replaces a search still waiting for its debounce. */
   protected clearSearch(): void {
-    this.searchText.set('');
-    this.searchInput.next('');
-    this.sendSearch('');
+    this.resetSearch();
+    this.update({ q: '' }, true);
   }
 
   /** Back to the default filters; the chosen view stays. */
   protected clearFilters(): void {
-    this.searchText.set('');
-    this.searchInput.next('');
-    this.sentSearch = DEFAULT_ISSUE_FILTERS.q;
+    this.resetSearch();
     this.update({ ...DEFAULT_ISSUE_FILTERS, view: this.filters().view });
+  }
+
+  /** Empties the box at once; the empty text replaces a search still waiting for its debounce, which then drops it. */
+  private resetSearch(): void {
+    this.searchText.set('');
+    this.sentSearch = '';
+    this.searchInput.next('');
   }
 
   private sendSearch(text: string): void {

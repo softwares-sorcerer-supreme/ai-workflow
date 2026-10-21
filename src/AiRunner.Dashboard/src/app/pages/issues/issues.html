@@ -24,7 +24,7 @@
     aria-label="View"
     hideSingleSelectionIndicator
     [value]="current.view"
-    (change)="setView($event.value)"
+    (change)="set('view', $event.value)"
   >
     <mat-button-toggle value="list" aria-label="List view" matTooltip="List">
       <mat-icon>view_list</mat-icon>
@@ -49,7 +49,7 @@
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
       <mat-label>Component</mat-label>
-      <mat-select [value]="current.component" (selectionChange)="setComponent($event.value)">
+      <mat-select [value]="current.component" (selectionChange)="set('component', $event.value)">
         <mat-option value="">All components</mat-option>
         @for (name of componentOptions(); track name) {
           <mat-option [value]="name">{{ name }}</mat-option>
@@ -59,8 +59,8 @@
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
       <mat-label>State</mat-label>
-      <mat-select [value]="current.state" (selectionChange)="setState($event.value)">
-        @for (option of stateOptions; track option.code) {
+      <mat-select [value]="current.state" (selectionChange)="set('state', $event.value)">
+        @for (option of stateOptions(); track option.code) {
           <mat-option [value]="option.code">{{ option.label }}</mat-option>
         }
       </mat-select>
@@ -69,7 +69,7 @@
     @if (!isBoard()) {
       <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
         <mat-label>Stage</mat-label>
-        <mat-select [value]="current.stage" (selectionChange)="setStage($event.value)">
+        <mat-select [value]="current.stage" (selectionChange)="set('stage', $event.value)">
           <mat-option value="">All stages</mat-option>
           @for (option of stageOptions(); track option.code) {
             <mat-option [value]="option.code">{{ option.label }}</mat-option>
@@ -80,15 +80,15 @@
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
       <mat-label>Sort</mat-label>
-      <mat-select [value]="current.sort" (selectionChange)="setSort($event.value)">
-        @for (option of sortOptions; track option.code) {
+      <mat-select [value]="current.sort" (selectionChange)="set('sort', $event.value)">
+        @for (option of sortOptions(); track option.code) {
           <mat-option [value]="option.code">{{ option.label }}</mat-option>
         }
       </mat-select>
     </mat-form-field>
 
     @if (!isBoard()) {
-      <mat-slide-toggle [checked]="current.flat" (change)="setFlat($event.checked)">Flat list</mat-slide-toggle>
+      <mat-slide-toggle [checked]="current.flat" (change)="set('flat', $event.checked)">Flat list</mat-slide-toggle>
     }
 
     @if (hasFilters()) {
@@ -100,7 +100,7 @@
   </div>
 
   <div class="focuses" role="group" aria-label="Focus">
-    <button appCountToggle label="All" [count]="total()" [pressed]="!current.focus" (click)="setFocus('')"></button>
+    <button appCountToggle label="All" [count]="total()" [pressed]="!current.focus" (click)="set('focus', '')"></button>
     @for (focus of focuses(); track focus.code) {
       <button
         appCountToggle
@@ -109,7 +109,7 @@
         [tone]="focusTone(focus.code)"
         [pressed]="current.focus === focus.code"
         [attr.data-focus]="focus.code"
-        (click)="setFocus(focus.code)"
+        (click)="set('focus', focus.code)"
       ></button>
     }
   </div>
@@ -177,7 +177,7 @@
       >
         <ng-template appCell="issue" let-row>
           <div class="issue" [class.sub-issue]="row.isSubIssue">
-            @if (row.hasSubIssues) {
+            @if (row.subIssues.length > 0) {
               <button
                 mat-icon-button
                 type="button"
@@ -245,7 +245,7 @@
         </ng-template>
         <ng-template appCell="pulls" let-row>
           <div class="pulls">
-            @for (pull of row.pulls; track pull.repo + '#' + pull.number) {
+            @for (pull of row.pulls; track issueKey(pull)) {
               <app-pull-link [pull]="pull" />
             } @empty {
               <span class="app-muted">-</span>

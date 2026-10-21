@@ -41,9 +41,13 @@ public static class IssueLane
     }
 }
 
+/// <summary>What the focus of one issue is decided from.</summary>
+/// <param name="Waiting">The <see cref="WaitingOn"/> action of the issue, or null.</param>
+public sealed record FocusInput(IssueSnapshot Issue, StageResult Stage, CodeLabel? Waiting);
+
 /// <summary>
 /// Quick views across lanes: what needs a person, what the runner is on, what failed. An issue can be in more than
-/// one (a failed issue also needs a person).
+/// one (a failed issue also needs a person). A focus is about work still to do, so a closed issue is in none.
 /// </summary>
 public static class IssueFocus
 {
@@ -59,13 +63,19 @@ public static class IssueFocus
         new(Failed, "Failed"),
     ];
 
-    /// <param name="waiting">The <see cref="WaitingOn"/> action of the issue, or null.</param>
-    public static bool Matches(string focus, StageResult stage, CodeLabel? waiting) =>
-        focus switch
+    public static bool Matches(string focus, FocusInput input)
+    {
+        if (!input.Issue.IsOpen)
         {
-            NeedsYou => waiting is not null,
-            Working => stage.Badge is not null,
-            Failed => stage.Flags.Any(flag => flag.Code == IssueMarks.Failed),
+            return false;
+        }
+
+        return focus switch
+        {
+            NeedsYou => input.Waiting is not null,
+            Working => input.Stage.Badge is not null,
+            Failed => input.Stage.IsFailed,
             _ => false,
         };
+    }
 }

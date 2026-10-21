@@ -5,26 +5,14 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { Api } from '../../api/api';
 import { getIssue } from '../../api/fn/issues/get-issue';
 import { IssueDetailResponse } from '../../api/models/issue-detail-response';
-import { FakeApi, fixedClock, sampleIssue, sampleJob, settle } from '../../shared/testing';
+import { FakeApi, fixedClock, sampleIssue, sampleJob, samplePull, settle } from '../../shared/testing';
 import { IssueDetail } from './issue-detail';
 
 const SIMPLE: IssueDetailResponse = {
   issue: sampleIssue({
     flags: [{ code: 'failed', label: 'Failed' }],
     waiting: { code: 'add-ai-implement', label: 'Add the ai-implement label' },
-    pulls: [
-      {
-        repo: 'team/shop',
-        number: 50,
-        title: 'Export orders',
-        state: 'open',
-        stateLabel: 'Open',
-        headRef: 'ai/issue-42',
-        baseRef: 'main',
-        htmlUrl: 'http://gitbucket.local/team/shop/pull/50',
-        updatedAt: '2026-01-01T11:00:00Z',
-      },
-    ],
+    pulls: [samplePull({ title: 'Export orders' })],
   }),
   analysis: {
     status: { code: 'ready', label: 'Ready' },
@@ -45,19 +33,7 @@ const PARENT: IssueDetailResponse = {
       stage: 'done',
       stageLabel: 'Done',
       parent: 12,
-      pulls: [
-        {
-          repo: 'team/shop',
-          number: 51,
-          title: 'Cart API',
-          state: 'merged',
-          stateLabel: 'Merged',
-          headRef: 'ai/issue-12-20',
-          baseRef: 'feat/issue-12',
-          htmlUrl: 'http://gitbucket.local/team/shop/pull/51',
-          updatedAt: '2026-01-01T11:00:00Z',
-        },
-      ],
+      pulls: [samplePull({ number: 51, title: 'Cart API', state: 'merged', stateLabel: 'Merged' })],
     }),
   ],
   timeline: [],

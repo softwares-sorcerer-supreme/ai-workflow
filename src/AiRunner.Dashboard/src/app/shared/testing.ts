@@ -122,7 +122,6 @@ export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRow
     stage: 'ready-simple',
     stageLabel: 'Ready - simple',
     lane: 'ready',
-    laneLabel: 'Ready',
     flags: [],
     badge: null,
     waiting: null,

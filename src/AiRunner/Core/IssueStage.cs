@@ -47,8 +47,22 @@ public sealed record StageInput(
 /// <param name="Badge">Queued or Running, when this runner has a job for the issue.</param>
 public sealed record StageResult(CodeLabel Stage, IReadOnlyList<CodeLabel> Flags, CodeLabel? Badge)
 {
+    /// <summary>The issue carries the Failed flag (<c>ai:failed</c>).</summary>
+    public bool IsFailed => Flags.Any(flag => flag.Code == IssueMarks.Failed);
+
     /// <summary>"Its PRs" the stage was read from (final PRs of a parent), for the PR links and the waiting-on action.</summary>
     public IReadOnlyList<GbPull> Pulls { get; init; } = [];
+}
+
+/// <summary>How far the sub-issues of a parent are: closed ones of all. The n/m of "Broken down (n/m)".</summary>
+public sealed record SubIssueCount(int Closed, int Total)
+{
+    public static SubIssueCount Of(IReadOnlyList<IssueSnapshot> subIssues)
+    {
+        var closedCount = subIssues.Count(subIssue => !subIssue.IsOpen);
+
+        return new SubIssueCount(closedCount, subIssues.Count);
+    }
 }
 
 /// <summary>
@@ -124,8 +138,8 @@ public static class IssueStage
 
         if (issue.HasLabel(Labels.Parent))
         {
-            var closedCount = input.SubIssues.Count(subIssue => !subIssue.IsOpen);
-            return new CodeLabel(BrokenDown, $"Broken down ({closedCount}/{input.SubIssues.Count})");
+            var count = SubIssueCount.Of(input.SubIssues);
+            return new CodeLabel(BrokenDown, $"Broken down ({count.Closed}/{count.Total})");
         }
 
         if (issue.HasLabel(Labels.Implementing))

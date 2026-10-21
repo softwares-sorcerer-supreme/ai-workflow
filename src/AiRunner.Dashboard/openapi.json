@@ -722,6 +722,8 @@
           "items",
           "projects",
           "stages",
+          "states",
+          "sorts",
           "total",
           "lanes",
           "focuses"
@@ -741,6 +743,18 @@
             }
           },
           "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "sorts": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CodeLabelResponse"
@@ -775,7 +789,6 @@
           "stage",
           "stageLabel",
           "lane",
-          "laneLabel",
           "flags",
           "badge",
           "waiting",
@@ -816,9 +829,6 @@
             "type": "string"
           },
           "lane": {
-            "type": "string"
-          },
-          "laneLabel": {
             "type": "string"
           },
           "flags": {

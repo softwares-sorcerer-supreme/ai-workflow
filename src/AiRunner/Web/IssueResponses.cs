@@ -12,11 +12,12 @@ public sealed record CodeLabelResponse(string Code, string Label)
 /// <summary>A lane or a focus with the number of issues in it, for the summary above the list.</summary>
 public sealed record CountResponse(string Code, string Label, int Count);
 
-/// <summary>How far the sub-issues of a parent are: <c>Closed</c> of <c>Total</c> (the n/m of its stage label).</summary>
+/// <summary>How far the sub-issues of a parent are: <c>Closed</c> of <c>Total</c> (the n/m of its stage).</summary>
 public sealed record SubIssueCountResponse(int Closed, int Total);
 
 /// <summary>
-/// One issue of the snapshot with its stage, lane, flags, badge and what it waits on. <c>SubIssues</c> holds the
+/// One issue of the snapshot with its stage, lane (a code of <c>IssueListResponse.Lanes</c>), flags, badge and what
+/// it waits on. <c>SubIssues</c> holds the
 /// sub-issues of a parent in the nested list and is empty in the flat list. <c>Progress</c> is set for a parent only.
 /// <c>Pulls</c> are its PRs (found by branch, or linking the issue), newest first.
 /// </summary>
@@ -30,7 +31,6 @@ public sealed record IssueRowResponse(
     string Stage,
     string StageLabel,
     string Lane,
-    string LaneLabel,
     IReadOnlyList<CodeLabelResponse> Flags,
     CodeLabelResponse? Badge,
     CodeLabelResponse? Waiting,
@@ -47,7 +47,8 @@ public sealed record IssueRowResponse(
 public sealed record ProjectOptionResponse(string Name, IReadOnlyList<string> Components);
 
 /// <summary>
-/// <c>GET /api/issues</c>: the issue rows and the options of the filters. The counts take every issue (sub-issues
+/// <c>GET /api/issues</c>: the issue rows and the options of the filters (<c>States</c> and <c>Sorts</c> are the values
+/// <c>state</c> and <c>sort</c> accept). The counts take every issue (sub-issues
 /// too) that matches the project, component, state and search filters, so the summary shows what each choice would
 /// give: <c>Total</c> and <c>Focuses</c> whatever lane, stage or focus is chosen, <c>Lanes</c> under the chosen focus
 /// (a lane on the board then says how many cards it shows).
@@ -56,6 +57,8 @@ public sealed record IssueListResponse(
     IReadOnlyList<IssueRowResponse> Items,
     IReadOnlyList<ProjectOptionResponse> Projects,
     IReadOnlyList<CodeLabelResponse> Stages,
+    IReadOnlyList<CodeLabelResponse> States,
+    IReadOnlyList<CodeLabelResponse> Sorts,
     int Total,
     IReadOnlyList<CountResponse> Lanes,
     IReadOnlyList<CountResponse> Focuses);
@@ -86,42 +89,49 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
     public const string SortByNumber = "number";
     public const string SortByUpdate = "updated";
 
+    /// <summary>The <c>state</c> that keeps open and closed issues (the same as none).</summary>
+    public const string AllStates = "all";
+
+    public static IReadOnlyList<CodeLabel> States { get; } =
+    [
+        new(SnapshotRules.Open, "Open"),
+        new(SnapshotRules.Closed, "Closed"),
+        new(AllStates, "All"),
+    ];
+
+    public static IReadOnlyList<CodeLabel> Sorts { get; } =
+    [
+        new(SortByNumber, "Newest"),
+        new(SortByUpdate, "Recently updated"),
+    ];
+
     public IssueListResponse Read(IssueQuery query)
     {
         var board = boardReader.Read(query.Project);
-        var comparer = IssueBoard.KeyComparer;
-        var rows = board.Entries.ToDictionary(
-            entry => entry.Key,
-            entry => RowOf(entry.Value, board),
-            comparer);
-        var subIssuesOf = board.Entries.Values
-            .SelectMany(entry => entry.SubIssues)
-            .ToLookup(subIssue => IssueBoard.KeyOf(subIssue.Repo, subIssue.Parent!.Value), comparer);
 
         var inScope = board.Entries.Values
-            .Where(entry => IsInScope(rows[entry.Issue.Key], query))
+            .Where(entry => IsInScope(entry, query))
             .ToList();
         var matching = inScope
             .Where(entry => IsChosen(entry, query))
             .Select(entry => entry.Issue.Key)
-            .ToHashSet(comparer);
-        IEnumerable<IssueRowResponse> shown;
+            .ToHashSet(IssueBoard.KeyComparer);
+        List<IssueRowResponse> shown;
         if (query.IsFlat)
         {
-            shown = matching.Select(key => rows[key]);
+            shown = matching
+                .Select(key => RowOf(board.Entries[key], board))
+                .ToList();
         }
         else
         {
-            shown = Nest(rows, matching, subIssuesOf);
+            shown = Nest(board, matching);
         }
 
         var items = Sorted(shown, query);
 
         var projectOptions = config.Projects
             .Select(project => new ProjectOptionResponse(project.Name, project.CodeComponentNames))
-            .ToList();
-        var stageOptions = IssueStage.Stages
-            .Select(CodeLabelResponse.From)
             .ToList();
         var inFocus = inScope
             .Where(entry => query.Focus is null || IsInFocus(entry, query.Focus))
@@ -133,8 +143,21 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             .Select(focus => CountOf(focus, inScope.Count(entry => IsInFocus(entry, focus.Code))))
             .ToList();
 
-        return new IssueListResponse(items, projectOptions, stageOptions, inScope.Count, laneCounts, focusCounts);
+        return new IssueListResponse(
+            items,
+            projectOptions,
+            Options(IssueStage.Stages),
+            Options(States),
+            Options(Sorts),
+            inScope.Count,
+            laneCounts,
+            focusCounts);
     }
+
+    private static List<CodeLabelResponse> Options(IReadOnlyList<CodeLabel> values) =>
+        values
+            .Select(CodeLabelResponse.From)
+            .ToList();
 
     /// <summary>The list row of one entry, without sub-issues.</summary>
     public static IssueRowResponse RowOf(IssueEntry entry, IssueBoard board)
@@ -162,7 +185,6 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             stage.Stage.Code,
             stage.Stage.Label,
             lane.Code,
-            lane.Label,
             flags,
             badge,
             waiting,
@@ -176,7 +198,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             []);
     }
 
-    /// <summary>Closed of all sub-issues, the same count the stage label "Broken down (n/m)" shows.</summary>
+    /// <summary>The count the stage label "Broken down (n/m)" shows; null for an issue without sub-issues.</summary>
     private static SubIssueCountResponse? ProgressOf(IssueEntry entry)
     {
         if (entry.SubIssues.Count == 0)
@@ -184,9 +206,9 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             return null;
         }
 
-        var closedCount = entry.SubIssues.Count(subIssue => !subIssue.IsOpen);
+        var count = SubIssueCount.Of(entry.SubIssues);
 
-        return new SubIssueCountResponse(closedCount, entry.SubIssues.Count);
+        return new SubIssueCountResponse(count.Closed, count.Total);
     }
 
     private static CountResponse CountOf(CodeLabel value, int count) => new(value.Code, value.Label, count);
@@ -194,11 +216,15 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
     private static CodeLabel LaneOf(IssueEntry entry) => IssueLane.Of(entry.Stage.Stage.Code);
 
     /// <summary>The filters the summary counts are taken under: project, component, state and search.</summary>
-    private static bool IsInScope(IssueRowResponse row, IssueQuery query) =>
-        (query.Project is null || row.Project == query.Project) &&
-        (query.Component is null || row.Component == query.Component) &&
-        (query.State is null || row.State == query.State) &&
-        (query.Search is null || IsFound(row, query.Search));
+    private static bool IsInScope(IssueEntry entry, IssueQuery query)
+    {
+        var issue = entry.Issue;
+
+        return (query.Project is null || issue.Project == query.Project) &&
+            (query.Component is null || SnapshotRules.ComponentOf(issue, entry.Project) == query.Component) &&
+            (query.State is null || issue.State == query.State) &&
+            (query.Search is null || IsFound(issue, query.Search));
+    }
 
     /// <summary>The choices the summary counts: stage, lane and focus.</summary>
     private static bool IsChosen(IssueEntry entry, IssueQuery query) =>
@@ -206,20 +232,19 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
         (query.Lane is null || LaneOf(entry).Code == query.Lane) &&
         (query.Focus is null || IsInFocus(entry, query.Focus));
 
-    /// <summary>A focus is about work still to do, so a closed issue is in none.</summary>
     private static bool IsInFocus(IssueEntry entry, string focus) =>
-        entry.Issue.IsOpen && IssueFocus.Matches(focus, entry.Stage, entry.Waiting);
+        IssueFocus.Matches(focus, new FocusInput(entry.Issue, entry.Stage, entry.Waiting));
 
-    private static bool IsFound(IssueRowResponse row, string search)
+    private static bool IsFound(IssueSnapshot issue, string search)
     {
         var number = search.TrimStart('#');
 
-        if (int.TryParse(number, out var wanted) && wanted == row.Number)
+        if (int.TryParse(number, out var wanted) && wanted == issue.Number)
         {
             return true;
         }
 
-        return row.Title.Contains(search, StringComparison.OrdinalIgnoreCase);
+        return issue.Title.Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Newest number first, or most recently updated first; the repo breaks a tie.</summary>
@@ -236,25 +261,25 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
 
     /// <summary>
     /// Sub-issues go under their parent, in build order. A parent shows when it or one of its sub-issues matches the
-    /// filters, with the matching sub-issues only. A sub-issue whose parent is not in the snapshot stands on its own.
+    /// filters, with the matching sub-issues only. A sub-issue whose parent is not on the board stands on its own.
+    /// Rows are built only for what is shown.
     /// </summary>
-    private static List<IssueRowResponse> Nest(
-        IReadOnlyDictionary<string, IssueRowResponse> rows,
-        IReadOnlySet<string> matching,
-        ILookup<string, IssueSnapshot> subIssuesOf)
+    private static List<IssueRowResponse> Nest(IssueBoard board, IReadOnlySet<string> matching)
     {
         var items = new List<IssueRowResponse>();
-        foreach (var (key, row) in rows)
+        foreach (var (key, entry) in board.Entries)
         {
+            var issue = entry.Issue;
+
             // A sub-issue of a parent that is shown goes under that parent instead.
-            if (row.Parent is { } parent && rows.ContainsKey(IssueBoard.KeyOf(row.Repo, parent)))
+            if (issue.Parent is { } parent && board.Entries.ContainsKey(IssueBoard.KeyOf(issue.Repo, parent)))
             {
                 continue;
             }
 
-            var subIssues = subIssuesOf[key]
+            var subIssues = entry.SubIssues
                 .Where(subIssue => matching.Contains(subIssue.Key))
-                .Select(subIssue => rows[subIssue.Key])
+                .Select(subIssue => RowOf(board.Entries[subIssue.Key], board))
                 .ToList();
 
             if (subIssues.Count == 0 && !matching.Contains(key))
@@ -262,6 +287,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
                 continue;
             }
 
+            var row = RowOf(entry, board);
             items.Add(row with
             {
                 SubIssues = subIssues

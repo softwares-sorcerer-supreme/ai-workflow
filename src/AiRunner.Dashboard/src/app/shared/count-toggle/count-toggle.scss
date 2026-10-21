@@ -31,11 +31,7 @@
 }
 
 .dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--toggle-dot);
+  @include tones.dot(toggle);
 }
 
 // ----- chip: a pill with the count in a small badge -----

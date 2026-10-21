@@ -10,6 +10,8 @@ export interface IssueListResponse {
   items: Array<IssueRowResponse>;
   lanes: Array<CountResponse>;
   projects: Array<ProjectOptionResponse>;
+  sorts: Array<CodeLabelResponse>;
   stages: Array<CodeLabelResponse>;
+  states: Array<CodeLabelResponse>;
   total: number;
 }
