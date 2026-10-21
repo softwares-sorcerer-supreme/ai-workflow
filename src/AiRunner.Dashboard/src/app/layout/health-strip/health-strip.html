@@ -9,7 +9,11 @@
     </span>
   }
 } @else if (health(); as health) {
-  <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
+  @if (health.isSetupNeeded) {
+    <a class="state setup-link" routerLink="/setup" data-testid="health-state">{{ health.stateLabel }}</a>
+  } @else {
+    <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
+  }
 
   <span class="item">
     <mat-icon aria-hidden="true">sync</mat-icon>

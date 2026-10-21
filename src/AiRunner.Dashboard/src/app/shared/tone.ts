@@ -28,6 +28,8 @@ const HEALTH_TONES: Readonly<Record<string, Tone>> = {
   stale: 'warning',
   // Paused from the dashboard: a person must resume it before a new job starts.
   paused: 'warning',
+  // No GitBucket token yet: nothing is polled until a person saves one on the Setup screen.
+  'needs-setup': 'warning',
   error: 'danger',
 };
 

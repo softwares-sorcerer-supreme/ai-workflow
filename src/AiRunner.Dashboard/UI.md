@@ -5,7 +5,7 @@ what is here before you create anything new. If you add a shared piece, add it t
 
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
 The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
-(Poll now, Pause / Resume, Cancel) follow section 8.
+(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove) follow section 8.
 
 ## 1. Ground rules
 
@@ -122,14 +122,19 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | health strip (every screen, tone colored)                    |  layout/health-strip
 +-----------+--------------------------------------------------+
 | side menu | <main class="content">  (max 1280 px, centered) |
-| Overview  |   <app-page-header>                              |
+| Overview  |   <app-setup-banner> (only in setup mode)        |
+|           |   <app-page-header>                              |
 | Issues    |   <div class="app-stack">                        |
 | Jobs      |     <section class="app-card"> ... </section>    |
 | Cost      |     <section class="app-card"> ... </section>    |
+| Setup     |                                                  |
 +-----------+--------------------------------------------------+
 ```
 
 - The toolbar and the health strip never scroll; the page scrolls below them.
+- `layout/setup-banner` stands above every routed screen except `/setup`: while `health.isSetupNeeded` (the runner
+  has no GitBucket token) it says nothing is polled and no job runs, and links to Setup. It reads `HealthStore`;
+  the health strip's state label links to `/setup` at the same time.
 - At 900 px and wider the menu stands beside the page; below it slides over the page (menu button in the toolbar).
   The breakpoint is `NARROW_QUERY` in `app.ts`. Inside screens use the same two widths: `599.98px` (phone) and
   `899.98px` (tablet) in `@media (max-width: ...)`.
@@ -359,9 +364,11 @@ the focus chips (All + the API's `focuses` with counts), then:
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
 data injects `HealthStore` and reads `health.value()`; it never polls `/api/health` itself. Health codes map to
-tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success, `starting` info, `stale` and
-`paused` warning, `error` danger. Paused shows through the state chip and the strip's tone like any other state; the
-Pause / Resume button reads `health.isPaused`, never a state of its own.
+tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success, `starting` info, `stale`,
+`paused` and `needs-setup` warning, `error` danger. Setup mode (no token yet) is read from `health.isSetupNeeded`,
+never from the state code: it shows the setup banner and turns the strip's state label into a link to `/setup`.
+Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
+`health.isPaused`, never a state of its own.
 
 ### Charts
 
@@ -403,7 +410,8 @@ keep data on screen while reloading, never show the loading state again after th
 ## 8. Buttons that write
 
 Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
-the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card.
+the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
+Check and save / Remove for the token and the web password on the Setup screen.
 
 1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The
    `writeGuardInterceptor` (`shared/write-guard.interceptor.ts`) gives every request that is not a GET the header
@@ -444,6 +452,13 @@ the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner ca
    button; Escape and a click outside write nothing. The title is a question ("Cancel the running job?"), the
    message says what happens and what the person must do afterwards, the confirm label is a verb ("Cancel job"),
    the dismiss label keeps things as they are ("Keep running"). Call `run` only after it resolved to true.
+7. **A write that answers with the new state** (`SetupChangeResponse { message, setup }`): pass a call to `run` that
+   puts the answer's state into a `linkedSignal` over the poll's value, then returns the answer, so the screen shows
+   what the runner sent until the next poll replaces it (`pages/setup`). Still no guess of our own.
+8. **Secrets** (Setup screen): a `type="password"` field with `autocomplete="new-password"`, bound to a plain
+   component signal (never a service, storage or the URL), never filled from the server, emptied the moment the
+   call is sent (success or failure). The runner checks the value and its refusal ("not accepted", "not reachable
+   (VPN?)") is shown in the snack bar like any other write.
 
 ## 9. Accessibility
 

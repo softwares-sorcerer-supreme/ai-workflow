@@ -116,6 +116,7 @@ describe('healthTone', () => {
     ['starting', 'info'],
     ['stale', 'warning'],
     ['paused', 'warning'],
+    ['needs-setup', 'warning'],
     ['error', 'danger'],
   ])('shows %s as %s', (code, tone) => {
     expect(healthTone(code)).toBe(tone);

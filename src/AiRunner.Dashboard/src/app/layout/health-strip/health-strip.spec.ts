@@ -82,6 +82,30 @@ describe('HealthStrip', () => {
     expect(element.classList).toContain('tone-danger');
   });
 
+  it('links the state to the Setup screen while the runner has no token', async () => {
+    resource = fakePollResource(
+      sampleHealth({ state: 'needs-setup', stateLabel: 'Needs setup: no GitBucket token', isSetupNeeded: true }),
+    );
+
+    const fixture = await render();
+    const element = fixture.nativeElement as HTMLElement;
+    const state = element.querySelector('[data-testid="health-state"]');
+
+    expect(state?.tagName).toBe('A');
+    expect(state?.getAttribute('href')).toBe('/setup');
+    expect(state?.textContent?.trim()).toBe('Needs setup: no GitBucket token');
+    expect(element.classList).toContain('tone-warning');
+  });
+
+  it('shows the state as plain text when no setup is needed', async () => {
+    resource = fakePollResource(sampleHealth());
+
+    const fixture = await render();
+    const state = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-state"]');
+
+    expect(state?.tagName).toBe('STRONG');
+  });
+
   it('uses a neutral tone for a state code it does not know', async () => {
     resource = fakePollResource(sampleHealth({ state: 'something-new', stateLabel: 'Something new' }));
 

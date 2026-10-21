@@ -12,4 +12,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: '/issues', label: 'Issues', icon: 'assignment' },
   { path: '/jobs', label: 'Jobs', icon: 'terminal' },
   { path: '/cost', label: 'Cost', icon: 'payments' },
+  { path: '/setup', label: 'Setup', icon: 'key' },
 ];

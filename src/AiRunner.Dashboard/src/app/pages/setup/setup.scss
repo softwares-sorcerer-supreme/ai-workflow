@@ -1,0 +1,57 @@
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2) var(--app-space-3);
+  margin-bottom: var(--app-space-3);
+
+  .app-card-title {
+    margin: 0;
+  }
+}
+
+.intro,
+.hint {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+}
+
+.hint {
+  margin-top: var(--app-space-1);
+}
+
+.note,
+.facts {
+  margin-top: var(--app-space-3);
+}
+
+code {
+  font-family: var(--app-font-mono);
+}
+
+.secret-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-3);
+  margin-top: var(--app-space-4);
+}
+
+.secret-field {
+  flex: 1 1 280px;
+  min-width: 0;
+  max-width: 480px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+// The spinner stands where the button's icon was, at the icon's size, so the label does not move.
+.busy {
+  display: inline-block;
+  margin-right: var(--app-space-2);
+  vertical-align: middle;
+}
