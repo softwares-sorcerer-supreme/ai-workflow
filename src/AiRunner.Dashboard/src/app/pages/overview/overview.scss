@@ -11,6 +11,23 @@
   }
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+.spacer {
+  flex: 1;
+}
+
+// The spinner stands where the button's icon was, at the icon's size, so the label does not move.
+.busy {
+  display: inline-block;
+  margin-right: var(--app-space-2);
+  vertical-align: middle;
+}
+
 .message {
   overflow-wrap: anywhere;
 }

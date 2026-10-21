@@ -5,6 +5,7 @@ import {
   LANE_TONES,
   PULL_STATE_TONES,
   focusTone,
+  healthTone,
   issueMarkIcon,
   issueMarkTone,
   jobStatusTone,
@@ -106,5 +107,22 @@ describe('pullStateTone', () => {
 
   it('has a color for every pull state the API sends', () => {
     expect(Object.keys(PULL_STATE_TONES).sort()).toEqual(['closed', 'merged', 'open']);
+  });
+});
+
+describe('healthTone', () => {
+  it.each([
+    ['ok', 'success'],
+    ['starting', 'info'],
+    ['stale', 'warning'],
+    ['paused', 'warning'],
+    ['error', 'danger'],
+  ])('shows %s as %s', (code, tone) => {
+    expect(healthTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown or missing state as neutral', () => {
+    expect(healthTone('something-new')).toBe('neutral');
+    expect(healthTone(undefined)).toBe('neutral');
   });
 });

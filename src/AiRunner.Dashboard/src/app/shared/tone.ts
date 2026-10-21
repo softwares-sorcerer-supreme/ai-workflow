@@ -26,6 +26,8 @@ const HEALTH_TONES: Readonly<Record<string, Tone>> = {
   ok: 'success',
   starting: 'info',
   stale: 'warning',
+  // Paused from the dashboard: a person must resume it before a new job starts.
+  paused: 'warning',
   error: 'danger',
 };
 

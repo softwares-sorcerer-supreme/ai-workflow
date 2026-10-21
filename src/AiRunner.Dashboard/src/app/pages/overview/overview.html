@@ -5,10 +5,32 @@
     <div class="card-head">
       <h2 id="running-title" class="app-card-title">Running job</h2>
       @if (overview.value()?.runningJob; as running) {
-        <a mat-button [routerLink]="['/jobs', running.id]">
-          <mat-icon aria-hidden="true">article</mat-icon>
-          Open log
-        </a>
+        <div class="actions">
+          <a mat-button [routerLink]="['/jobs', running.id]">
+            <mat-icon aria-hidden="true">article</mat-icon>
+            Open log
+          </a>
+          <button
+            mat-stroked-button
+            type="button"
+            data-testid="cancel-job"
+            [disabled]="cancel.isBusy()"
+            [attr.aria-busy]="cancel.isBusy()"
+            (click)="cancelJob(running)"
+          >
+            @if (cancel.isBusy()) {
+              <mat-progress-spinner
+                class="busy"
+                mode="indeterminate"
+                diameter="18"
+                aria-hidden="true"
+              />
+            } @else {
+              <mat-icon aria-hidden="true">stop_circle</mat-icon>
+            }
+            Cancel
+          </button>
+        </div>
       }
     </div>
 
@@ -128,6 +150,51 @@
       <div class="card-head">
         <h2 id="runner-title" class="app-card-title">Runner</h2>
         <app-status-chip [label]="health.stateLabel" [tone]="healthTone()" />
+        <span class="spacer"></span>
+        <div class="actions">
+          <button
+            mat-stroked-button
+            type="button"
+            data-testid="poll-now"
+            [disabled]="pollNow.isBusy()"
+            [attr.aria-busy]="pollNow.isBusy()"
+            (click)="startPoll()"
+          >
+            @if (pollNow.isBusy()) {
+              <mat-progress-spinner
+                class="busy"
+                mode="indeterminate"
+                diameter="18"
+                aria-hidden="true"
+              />
+            } @else {
+              <mat-icon aria-hidden="true">sync</mat-icon>
+            }
+            Poll now
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            data-testid="pause-resume"
+            [disabled]="pauseOrResume.isBusy()"
+            [attr.aria-busy]="pauseOrResume.isBusy()"
+            (click)="togglePause(health.isPaused)"
+          >
+            @if (pauseOrResume.isBusy()) {
+              <mat-progress-spinner
+                class="busy"
+                mode="indeterminate"
+                diameter="18"
+                aria-hidden="true"
+              />
+            } @else if (health.isPaused) {
+              <mat-icon aria-hidden="true">play_arrow</mat-icon>
+            } @else {
+              <mat-icon aria-hidden="true">pause</mat-icon>
+            }
+            {{ health.isPaused ? 'Resume' : 'Pause' }}
+          </button>
+        </div>
       </div>
 
       <dl class="app-facts">

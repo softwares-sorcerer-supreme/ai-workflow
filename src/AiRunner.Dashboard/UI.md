@@ -4,7 +4,8 @@ The rules every screen of the ai-runner dashboard follows. Read this before you 
 what is here before you create anything new. If you add a shared piece, add it to this file in the same change.
 
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
-The dashboard is **read-only** and **local** (served by the runner on `127.0.0.1`).
+The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
+(Poll now, Pause / Resume, Cancel) follow section 8.
 
 ## 1. Ground rules
 
@@ -22,7 +23,9 @@ The dashboard is **read-only** and **local** (served by the runner on `127.0.0.1
 4. **Refresh by polling** with `pollResource` (section 7). No websockets, no `setInterval` in components.
 5. **Times are UTC ISO-8601 from the API, shown in local time** with `<app-time>`; durations with `| duration`.
 6. **No new colors.** Status colors are the six tones (section 2); everything else is a `--mat-sys-*` token.
-7. **A new component gets a unit test** (`*.spec.ts` next to it). Run `npm test` and `npm run build` before you finish.
+7. **Writes go through `writeAction`** (section 8): busy button, the runner's message in a snack bar, a confirmation
+   for anything destructive, never an optimistic update.
+8. **A new component gets a unit test** (`*.spec.ts` next to it). Run `npm test` and `npm run build` before you finish.
 
 ## 2. Theme tokens
 
@@ -114,7 +117,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 
 ```
 +--------------------------------------------------------------+
-| toolbar: [menu]  ai-runner   dashboard - read only           |  app.html
+| toolbar: [menu]  ai-runner   dashboard - local               |  app.html
 +--------------------------------------------------------------+
 | health strip (every screen, tone colored)                    |  layout/health-strip
 +-----------+--------------------------------------------------+
@@ -158,6 +161,9 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-time` | every point in time | durations |
 | `duration` pipe | every duration in seconds | points in time |
 | `pollResource` | every API read | one-off actions |
+| `writeAction` | every button that writes: busy state, the runner's message in a snack bar (section 8) | reads |
+| `confirmWrite` + `ConfirmDialog` | the confirmation before a destructive write (section 8) | harmless writes, information |
+| `writeGuardInterceptor` | adds the guard header to every non-GET request (registered once in `app.config.ts`) | anything set by hand |
 | `.app-card`, `.app-stack`, `.app-facts`, `.app-muted`, `.app-mono` | page structure and text (global CSS) | |
 
 ### `app-page-header`
@@ -353,7 +359,9 @@ the focus chips (All + the API's `focuses` with counts), then:
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
 data injects `HealthStore` and reads `health.value()`; it never polls `/api/health` itself. Health codes map to
-tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`).
+tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success, `starting` info, `stale` and
+`paused` warning, `error` danger. Paused shows through the state chip and the strip's tone like any other state; the
+Pause / Resume button reads `health.isPaused`, never a state of its own.
 
 ### Charts
 
@@ -388,17 +396,63 @@ Write state text for the user, in plain words: what is shown, what it means, wha
 ## 7. Refresh
 
 Each screen polls its own endpoint every 3 s while visible, with `pollResource`. Do not add refresh buttons for
-normal use (the "Try again" of an error state calls `reload()`). Avoid layout jumps on refresh: track rows by id,
+normal use (the "Try again" of an error state calls `reload()`). "Poll now" is not one: it asks the runner to poll
+GitBucket now, a write (section 8). Avoid layout jumps on refresh: track rows by id,
 keep data on screen while reloading, never show the loading state again after the first answer.
 
-## 8. Accessibility
+## 8. Buttons that write
+
+Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
+the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card.
+
+1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The
+   `writeGuardInterceptor` (`shared/write-guard.interceptor.ts`) gives every request that is not a GET the header
+   `X-AiRunner-Request: 1`, `Content-Type: application/json` and the body `{}` when it has none. Never set that
+   header by hand, and never send a write with `HttpClient` directly.
+2. **One `writeAction` per button**, created in a field initializer:
+   ```ts
+   protected readonly pollNow = writeAction({
+     failure: 'The runner did not start a poll.',   // shown when the runner sends no message
+     after: () => this.health.reload(),              // reload what the write changes
+   });
+   protected startPoll(): void {
+     void this.pollNow.run(() => this.api.invoke(pollNow));
+   }
+   ```
+   `run` ignores a click while the call runs and resolves to true when the runner accepted it.
+3. **Busy state on the button** while the call runs: disabled, `aria-busy`, and an 18 px spinner in place of the icon.
+   ```html
+   <button mat-stroked-button type="button" [disabled]="pollNow.isBusy()" [attr.aria-busy]="pollNow.isBusy()"
+           (click)="startPoll()">
+     @if (pollNow.isBusy()) {
+       <mat-progress-spinner class="busy" mode="indeterminate" diameter="18" aria-hidden="true" />
+     } @else {
+       <mat-icon aria-hidden="true">sync</mat-icon>
+     }
+     Poll now
+   </button>
+   ```
+4. **The runner's message in a snack bar**, as sent: `CommandResponse.message` on success, `ApiError.message` on a
+   403, 409 or any other failure, "The runner is not reachable." without an answer, else the action's `failure`
+   sentence. `writeAction` does this; never build the text from a status code.
+5. **No optimistic update.** The screen changes only when the next poll shows the real state: `after` reloads the
+   resources the write touches (a `pollResource`'s `reload()`, `HealthStore.health.reload()`). A label that depends
+   on the state (Pause or Resume) reads the API's field (`health.isPaused`), never a local flag.
+6. **Confirm anything destructive** (it stops work, posts to GitBucket or cannot be undone; Cancel is destructive)
+   with `confirmWrite(dialog, { title, message, confirmLabel, dismissLabel })` (`shared/confirm-dialog`). It opens
+   an `alertdialog` with the dismiss button first (it gets the focus) and resolves to true only on the confirm
+   button; Escape and a click outside write nothing. The title is a question ("Cancel the running job?"), the
+   message says what happens and what the person must do afterwards, the confirm label is a verb ("Cancel job"),
+   the dismiss label keeps things as they are ("Keep running"). Call `run` only after it resolved to true.
+
+## 9. Accessibility
 
 - One `h1` per screen (the page header), `h2` per card; `aria-labelledby` from the `section` to its `h2`.
 - Color is never the only signal: every chip has text, every state has a label.
 - Clickable rows and buttons are reachable by keyboard and show the focus ring (`--mat-sys-primary`).
 - Live areas: the health strip is `role="status"`; error states are `role="alert"` (the components set this).
 
-## 9. Tests
+## 10. Tests
 
 Vitest through `ng test` (`npm test` runs once, `npm run test:watch` watches). Test what the user sees: text,
 tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePollResource(value)` (set `value`,
@@ -408,10 +462,14 @@ its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().ans
 `callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`,
 `sampleIssue(overrides)` or `samplePull(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
-`MatPaginatorHarness`). For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
+`MatPaginatorHarness`, `MatButtonHarness`). A write test answers the write in `FakeApi` (throw an
+`HttpErrorResponse` for a 409 or 403), provides `{ provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } }`
+and finds the dialog and the snack bar with `TestbedHarnessEnvironment.documentRootLoader(fixture)`
+(`MatDialogHarness`, `MatSnackBarHarness`; they live in the overlay, outside the fixture); see
+`pages/overview/overview.spec.ts`. For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
 and `HttpTestingController`.
 
-## 10. Commands (in `src/AiRunner.Dashboard/`)
+## 11. Commands (in `src/AiRunner.Dashboard/`)
 
 | Command | Does |
 |---|---|
