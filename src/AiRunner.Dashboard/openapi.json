@@ -274,6 +274,34 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "lane",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "focus",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -568,6 +596,26 @@
           }
         }
       },
+      "CountResponse": {
+        "required": [
+          "code",
+          "label",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "HealthResponse": {
         "required": [
           "state",
@@ -691,7 +739,10 @@
         "required": [
           "items",
           "projects",
-          "stages"
+          "stages",
+          "total",
+          "lanes",
+          "focuses"
         ],
         "type": "object",
         "properties": {
@@ -712,6 +763,22 @@
             "items": {
               "$ref": "#/components/schemas/CodeLabelResponse"
             }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            }
+          },
+          "focuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            }
           }
         }
       },
@@ -725,8 +792,13 @@
           "stateLabel",
           "stage",
           "stageLabel",
+          "lane",
+          "laneLabel",
           "flags",
           "badge",
+          "waiting",
+          "progress",
+          "pulls",
           "component",
           "htmlUrl",
           "updatedAt",
@@ -761,6 +833,12 @@
           "stageLabel": {
             "type": "string"
           },
+          "lane": {
+            "type": "string"
+          },
+          "laneLabel": {
+            "type": "string"
+          },
           "flags": {
             "type": "array",
             "items": {
@@ -776,6 +854,32 @@
                 "$ref": "#/components/schemas/CodeLabelResponse"
               }
             ]
+          },
+          "waiting": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubIssueCountResponse"
+              }
+            ]
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PullResponse"
+            }
           },
           "component": {
             "type": [
@@ -1213,6 +1317,23 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SubIssueCountResponse": {
+        "required": [
+          "closed",
+          "total"
+        ],
+        "type": "object",
+        "properties": {
+          "closed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

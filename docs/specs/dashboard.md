@@ -153,7 +153,7 @@ dashboard:
 | `GET /api/jobs?status=&type=&project=&page=` | job history page |
 | `GET /api/jobs/{id}` | one job with its cost row |
 | `GET /api/jobs/{id}/files`, `GET /api/jobs/{id}/files/{name}` | log viewer |
-| `GET /api/issues?project=&component=&stage=&state=&flat=` | issue rows with stage, flags, badge, sub-issues nested unless `flat` |
+| `GET /api/issues?project=&component=&stage=&state=&flat=&lane=&focus=&q=&sort=` | issue rows with stage, lane (`Core/IssueLane`: five columns of the board), flags, badge, waiting-on, sub-issue progress and PRs, sub-issues nested unless `flat`; plus per-lane and per-focus (`Core/IssueFocus`: needs you, runner working, failed) counts under the project/component/state/search filters |
 | `GET /api/issues/{owner}/{repo}/{number}` | issue detail: stage, waiting-on, analysis summary from labels, sub-issues, PRs, job timeline |
 | `GET /api/cost?by=day\|project\|issue\|model&from=&to=` | Copilot calls, billed (`nanoAiu`) and tokens, job count, total duration per group; an issue's total includes its sub-issues; `model` is one row per model and agent |
 

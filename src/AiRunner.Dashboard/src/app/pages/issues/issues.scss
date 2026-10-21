@@ -1,25 +1,183 @@
+@use '../../shared/tones';
+
+// ----- Header and filter bar -----
+
+.search {
+  width: 260px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2) var(--app-space-3);
+}
+
 .filter {
   width: 170px;
 }
 
-.issue {
+// ----- Focus chips and pipeline: toned toggle buttons -----
+
+@include tones.class-variants(toggle);
+
+.focuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+.focus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-1) var(--app-space-3);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-label-large);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &.selected {
+    border-color: var(--toggle-dot);
+    background: var(--toggle-bg);
+    color: var(--toggle-fg);
+  }
+
+  .count {
+    padding: 0 var(--app-space-2);
+    border-radius: 999px;
+    background: var(--mat-sys-surface-container-highest);
+    font: var(--mat-sys-label-medium);
+  }
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--toggle-dot);
+}
+
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--app-space-2);
+}
+
+.segment {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-top: 4px solid var(--toggle-dot);
+  border-radius: var(--app-radius-small);
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface);
+  text-align: start;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &.selected {
+    border-color: var(--toggle-dot);
+    background: var(--toggle-bg);
+    color: var(--toggle-fg);
+  }
+}
+
+.segment-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  font: var(--mat-sys-label-large);
+}
+
+.segment-count {
+  font: var(--mat-sys-title-large);
+}
+
+.focus,
+.segment {
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+// ----- List view -----
+
+.card-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--app-space-2);
+
+  .app-card-title {
+    margin-bottom: var(--app-space-2);
+  }
+}
+
+.issue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-1);
   min-width: 0;
+  padding: var(--app-space-1) 0;
 }
 
 // A sub-issue sits one step in, under its parent.
 .issue.sub-issue {
-  padding-left: var(--app-space-4);
+  padding-left: var(--app-space-6);
+}
+
+.chevron {
+  flex: none;
+  margin: -4px 0;
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+
+  mat-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+  }
+}
+
+// With parents in the list, a top-level row without sub-issues keeps the chevron's room, so numbers line up.
+.chevron-space {
+  flex: none;
+  width: 36px;
 }
 
 .nest {
+  flex: none;
   width: 18px;
   height: 18px;
   font-size: 18px;
-  align-self: center;
   color: var(--mat-sys-on-surface-variant);
+}
+
+.issue-text {
+  min-width: 0;
+}
+
+.issue-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  min-width: 0;
 }
 
 .number {
@@ -47,14 +205,42 @@ a.external {
   }
 }
 
-.marks {
+.where {
+  font: var(--mat-sys-body-small);
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+}
+
+.next {
+  min-width: 0;
+  max-width: 220px;
+}
+
+.marks,
+.pulls {
   display: flex;
   flex-wrap: wrap;
   gap: var(--app-space-1);
 }
 
+// ----- Board view -----
+
+.stale {
+  margin-bottom: var(--app-space-3);
+}
+
 @media (max-width: 599.98px) {
+  .search,
   .filter {
     width: 100%;
+  }
+
+  .issue.sub-issue {
+    padding-left: var(--app-space-4);
   }
 }

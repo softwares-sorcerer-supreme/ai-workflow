@@ -1,0 +1,73 @@
+@use '../../shared/tones';
+
+@include tones.class-variants(lane);
+
+// The board scrolls sideways inside its own box; the page never does.
+:host {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: var(--app-space-3);
+  overflow-x: auto;
+  padding-bottom: var(--app-space-2);
+}
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  min-width: 0;
+  padding: var(--app-space-2);
+  border-radius: var(--app-radius-small);
+  background: var(--mat-sys-surface-container);
+}
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin: 0;
+  padding: var(--app-space-1) var(--app-space-1) 0;
+  font: var(--mat-sys-title-small);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lane-dot);
+}
+
+.lane-label {
+  flex: 1 1 auto;
+}
+
+.count {
+  padding: 0 var(--app-space-2);
+  border-radius: 999px;
+  background: var(--lane-bg);
+  color: var(--lane-fg);
+  font: var(--mat-sys-label-medium);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nothing {
+  padding: var(--app-space-3) var(--app-space-1);
+  font: var(--mat-sys-body-small);
+}
+
+// Wide screens: all five lanes fit next to the menu without scrolling.
+@media (min-width: 1280px) {
+  :host {
+    grid-auto-columns: minmax(180px, 1fr);
+  }
+}

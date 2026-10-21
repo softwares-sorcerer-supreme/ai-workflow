@@ -2,6 +2,7 @@ import { WritableSignal, signal } from '@angular/core';
 import { HealthResponse } from '../api/models/health-response';
 import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
+import { PullResponse } from '../api/models/pull-response';
 import { PollResource } from './poll-resource';
 import { Clock } from './time/clock';
 
@@ -109,7 +110,7 @@ export function sampleJob(overrides: Partial<JobResponse> = {}): JobResponse {
   };
 }
 
-/** An open issue in the ready-simple stage, without flags, badge or sub-issues; override fields per test. */
+/** An open issue in the ready-simple stage (lane Ready), without flags, badge, action, PRs or sub-issues. */
 export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRowResponse {
   return {
     project: 'shop',
@@ -120,14 +121,35 @@ export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRow
     stateLabel: 'Open',
     stage: 'ready-simple',
     stageLabel: 'Ready - simple',
+    lane: 'ready',
+    laneLabel: 'Ready',
     flags: [],
     badge: null,
+    waiting: null,
+    progress: null,
+    pulls: [],
     component: 'api',
     htmlUrl: 'http://gitbucket.local/team/shop/issues/42',
     updatedAt: '2026-01-01T11:30:00Z',
     closedAt: null,
     parent: null,
     subIssues: [],
+    ...overrides,
+  };
+}
+
+/** An open pull request of the sample issue; override fields per test. */
+export function samplePull(overrides: Partial<PullResponse> = {}): PullResponse {
+  return {
+    repo: 'team/shop',
+    number: 50,
+    title: 'Export orders as CSV',
+    state: 'open',
+    stateLabel: 'Open',
+    headRef: 'ai/issue-42',
+    baseRef: 'main',
+    htmlUrl: 'http://gitbucket.local/team/shop/pull/50',
+    updatedAt: '2026-01-01T11:40:00Z',
     ...overrides,
   };
 }

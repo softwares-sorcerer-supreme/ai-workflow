@@ -15,6 +15,10 @@ export interface GetIssues$Params {
   stage?: string;
   state?: string;
   flat?: boolean;
+  lane?: string;
+  focus?: string;
+  q?: string;
+  sort?: string;
 }
 
 export function getIssues(http: HttpClient, rootUrl: string, params?: GetIssues$Params, context?: HttpContext): Observable<StrictHttpResponse<IssueListResponse>> {
@@ -25,6 +29,10 @@ export function getIssues(http: HttpClient, rootUrl: string, params?: GetIssues$
     rb.query('stage', params.stage, {});
     rb.query('state', params.state, {});
     rb.query('flat', params.flat, {});
+    rb.query('lane', params.lane, {});
+    rb.query('focus', params.focus, {});
+    rb.query('q', params.q, {});
+    rb.query('sort', params.sort, {});
   }
 
   return http.request(

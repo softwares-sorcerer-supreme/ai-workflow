@@ -25,6 +25,52 @@ public sealed record IssueBoard(
     public static StringComparer KeyComparer { get; } = StringComparer.OrdinalIgnoreCase;
 
     public static string KeyOf(string repo, int number) => new IssueRef(repo, number).ToString();
+
+    /// <summary>
+    /// The PRs of an issue, newest first: the ones the stage counts as "its PR" (found by branch) and any PR whose
+    /// body links the issue. A PR of another project's repo never matches.
+    /// </summary>
+    public IReadOnlyList<PullResponse> PullsOf(IssueEntry entry)
+    {
+        var repos = entry.Project.CodeRepos.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return Pulls
+            .Where(pull => repos.Contains(pull.Repo) && IsOfIssue(pull, entry))
+            .OrderByDescending(pull => pull.UpdatedAt)
+            .Select(PullOf)
+            .ToList();
+    }
+
+    private static bool IsOfIssue(PullSnapshot pull, IssueEntry entry)
+    {
+        if (KeyComparer.Equals(pull.LinkedIssue, entry.Issue.Key))
+        {
+            return true;
+        }
+
+        return entry.Stage.Pulls.Any(itsPull => itsPull.Number == pull.Number && itsPull.Head.Ref == pull.HeadRef);
+    }
+
+    private static PullResponse PullOf(PullSnapshot pull)
+    {
+        var (state, label) = pull switch
+        {
+            { IsMerged: true } => ("merged", "Merged"),
+            { State: SnapshotRules.Open } => ("open", "Open"),
+            _ => ("closed", "Closed"),
+        };
+
+        return new PullResponse(
+            pull.Repo,
+            pull.Number,
+            pull.Title,
+            state,
+            label,
+            pull.HeadRef,
+            pull.BaseRef,
+            pull.HtmlUrl,
+            pull.UpdatedAt);
+    }
 }
 
 /// <summary>Reads the snapshot, the job table and the running job, and asks Core for every issue's stage and action.</summary>

@@ -164,6 +164,91 @@ public sealed class IssuesApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Rows_carry_their_lane_the_action_they_wait_on_sub_issue_progress_and_their_pulls()
+    {
+        Arrange();
+        var client = await StartAsync();
+
+        var list = await GetListAsync(client);
+
+        var parent = list.Items[0];
+        Assert.Equal(("in-progress", "In progress"), (parent.Lane, parent.LaneLabel));
+        Assert.Equal((1, 2), (parent.Progress?.Closed, parent.Progress?.Total));
+        Assert.Null(parent.Waiting);
+        Assert.Null(parent.SubIssues[0].Progress);
+
+        var simple = list.Items[1];
+        Assert.Equal(("in-review", "review-and-merge"), (simple.Lane, simple.Waiting?.Code));
+        Assert.Equal("Review and merge PR #50", simple.Waiting?.Label);
+        var pull = Assert.Single(simple.Pulls);
+        Assert.Equal(("o/shop-api", 50, "open"), (pull.Repo, pull.Number, pull.State));
+
+        // Queued: the runner is on it, so nobody is waited on, even though it failed before.
+        var blog = list.Items[2];
+        Assert.Equal(("todo", null), (blog.Lane, blog.Waiting?.Code));
+        Assert.Empty(blog.Pulls);
+    }
+
+    [Fact]
+    public async Task Lanes_and_focuses_are_counted_over_every_issue_in_scope_whatever_is_chosen()
+    {
+        Arrange();
+        var client = await StartAsync();
+
+        var all = await GetListAsync(client);
+        var chosen = await GetListAsync(client, "?lane=finished&stage=done");
+        var working = await GetListAsync(client, "?focus=working");
+        var blog = await GetListAsync(client, "?project=blog");
+
+        static string Counts(IEnumerable<CountResponse> counts) =>
+            string.Join(",", counts.Select(count => $"{count.Code}={count.Count}"));
+
+        Assert.Equal("todo=1,ready=0,in-progress=2,in-review=1,finished=1", Counts(all.Lanes));
+        Assert.Equal("needs-you=1,working=2,failed=1", Counts(all.Focuses));
+        Assert.Equal(Counts(all.Lanes), Counts(chosen.Lanes));
+        Assert.Equal(Counts(all.Focuses), Counts(chosen.Focuses));
+        Assert.Equal((5, 5), (all.Total, chosen.Total));
+
+        // Lanes follow the chosen focus, so a board column counts the cards it shows; focuses and the total do not.
+        Assert.Equal("todo=1,ready=0,in-progress=1,in-review=0,finished=0", Counts(working.Lanes));
+        Assert.Equal(Counts(all.Focuses), Counts(working.Focuses));
+        Assert.Equal(5, working.Total);
+        Assert.Equal("todo=1,ready=0,in-progress=0,in-review=0,finished=0", Counts(blog.Lanes));
+        Assert.Equal("needs-you=0,working=1,failed=1", Counts(blog.Focuses));
+        Assert.Equal(["To do", "Ready", "In progress", "In review", "Done"], all.Lanes.Select(lane => lane.Label));
+    }
+
+    [Fact]
+    public async Task A_closed_issue_is_in_no_focus()
+    {
+        _store.SaveIssues([Issue("blog", "o/blog", 3, "ai", Labels.Failed) with { State = "closed" }]);
+        var client = await StartAsync();
+
+        var list = await GetListAsync(client, "?focus=failed");
+
+        Assert.Empty(list.Items);
+        Assert.All(list.Focuses, focus => Assert.Equal(0, focus.Count));
+    }
+
+    [Fact]
+    public async Task Sort_by_update_puts_the_last_updated_first()
+    {
+        _store.SaveIssues(
+        [
+            Issue("blog", "o/blog", 1, "ai") with { UpdatedAt = Seen.AddHours(2) },
+            Issue("blog", "o/blog", 2, "ai") with { UpdatedAt = Seen },
+            Issue("blog", "o/blog", 3, "ai") with { UpdatedAt = Seen.AddHours(1) },
+        ]);
+        var client = await StartAsync();
+
+        var byNumber = await GetListAsync(client, "?sort=number");
+        var byUpdate = await GetListAsync(client, "?sort=updated");
+
+        Assert.Equal([3, 2, 1], Numbers(byNumber.Items));
+        Assert.Equal([1, 3, 2], Numbers(byUpdate.Items));
+    }
+
+    [Fact]
     public async Task Sub_issues_come_in_build_order_not_number_order()
     {
         _store.SaveIssues(
@@ -214,6 +299,15 @@ public sealed class IssuesApiTests : IAsyncDisposable
     [InlineData("?state=closed", "12:20")]
     [InlineData("?state=closed&flat=true", "20")]
     [InlineData("?stage=pr-open", "7")]
+    [InlineData("?lane=in-progress", "12:21")]
+    [InlineData("?lane=finished", "12:20")]
+    [InlineData("?focus=needs-you", "7")]
+    [InlineData("?focus=working", "12:21,3")]
+    [InlineData("?focus=failed", "3")]
+    [InlineData("?q=%2312", "12")]
+    [InlineData("?q=issue%202", "12:20,21")]
+    [InlineData("?q=%20%20", "12:20,21,7,3")]
+    [InlineData("?state=all", "12:20,21,7,3")]
     public async Task Filters_match_issues_and_keep_the_parent_of_a_matching_sub_issue(string query, string expected)
     {
         Arrange();
@@ -234,6 +328,9 @@ public sealed class IssuesApiTests : IAsyncDisposable
     [InlineData("?state=nope", "Unknown state")]
     [InlineData("?component=nope", "Unknown component")]
     [InlineData("?project=blog&component=api", "Unknown component")]
+    [InlineData("?lane=nope", "Unknown lane")]
+    [InlineData("?focus=nope", "Unknown focus")]
+    [InlineData("?sort=nope", "Unknown sort")]
     public async Task Unknown_filter_values_are_a_bad_request(string query, string message)
     {
         var client = await StartAsync();

@@ -68,6 +68,10 @@ _Avoid_: AI fix, patch round
 Where an issue is in the workflow, from new to done, worked out from its labels, its pull requests and its sub-issues. It is separate from whether the issue is open or closed on GitBucket: an issue can be merged and still open.
 _Avoid_: status, state, phase
 
+**Lane**:
+One of five groups of stages (to do, ready, in progress, in review, done), the columns of the dashboard's issue board.
+_Avoid_: column, bucket, phase
+
 **Waiting on**:
 The one action a person must take before an issue can move to its next stage, such as answering questions or merging a pull request. An issue that is queued or running waits on nobody.
 _Avoid_: blocked, pending, todo

@@ -51,17 +51,25 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
             return null;
         }
 
-        var row = IssueReader.RowOf(entry);
+        var row = IssueReader.RowOf(entry, board);
         var waiting = entry.Waiting is { } action ? CodeLabelResponse.From(action) : null;
-        var pulls = PullsOf(entry, board);
+        var pulls = board.PullsOf(entry);
         var subIssues = entry.SubIssues
             .Select(subIssue => board.Entries.GetValueOrDefault(subIssue.Key))
             .OfType<IssueEntry>()
-            .Select(subEntry => new SubIssueDetailResponse(IssueReader.RowOf(subEntry), PullsOf(subEntry, board)))
+            .Select(subEntry => SubIssueOf(subEntry, board))
             .ToList();
         var timeline = TimelineOf(entry, pulls);
 
         return new IssueDetailResponse(row, waiting, AnalysisOf(entry), subIssues, pulls, timeline);
+    }
+
+    private static SubIssueDetailResponse SubIssueOf(IssueEntry subEntry, IssueBoard board)
+    {
+        var row = IssueReader.RowOf(subEntry, board);
+        var pulls = board.PullsOf(subEntry);
+
+        return new SubIssueDetailResponse(row, pulls);
     }
 
     private static AnalysisSummaryResponse AnalysisOf(IssueEntry entry)
@@ -73,52 +81,6 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
             CodeLabelResponse.From(summary.Status),
             CodeLabelResponse.From(summary.Complexity),
             component);
-    }
-
-    /// <summary>
-    /// The PRs of the issue: the ones the stage counts as "its PR" (found by branch) and any PR whose body links the
-    /// issue. A PR of another project's repo never matches.
-    /// </summary>
-    private static List<PullResponse> PullsOf(IssueEntry entry, IssueBoard board)
-    {
-        var repos = entry.Project.CodeRepos.ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        return board.Pulls
-            .Where(pull => repos.Contains(pull.Repo) && IsOfIssue(pull, entry))
-            .OrderByDescending(pull => pull.UpdatedAt)
-            .Select(PullOf)
-            .ToList();
-    }
-
-    private static bool IsOfIssue(PullSnapshot pull, IssueEntry entry)
-    {
-        if (IssueBoard.KeyComparer.Equals(pull.LinkedIssue, entry.Issue.Key))
-        {
-            return true;
-        }
-
-        return entry.Stage.Pulls.Any(itsPull => itsPull.Number == pull.Number && itsPull.Head.Ref == pull.HeadRef);
-    }
-
-    private static PullResponse PullOf(PullSnapshot pull)
-    {
-        var (state, label) = pull switch
-        {
-            { IsMerged: true } => ("merged", "Merged"),
-            { State: SnapshotRules.Open } => ("open", "Open"),
-            _ => ("closed", "Closed"),
-        };
-
-        return new PullResponse(
-            pull.Repo,
-            pull.Number,
-            pull.Title,
-            state,
-            label,
-            pull.HeadRef,
-            pull.BaseRef,
-            pull.HtmlUrl,
-            pull.UpdatedAt);
     }
 
     /// <summary>The jobs on the issue and on its PRs (reviews and fixes), newest first.</summary>
