@@ -58,8 +58,25 @@ public sealed class RunnerWorkspaces(
 {
     private const string BusyMessage = "A job is using this project; try again when it has ended.";
 
-    public Task<WorkspaceListing> ListAsync(CancellationToken cancellationToken) =>
-        inspector.ListAsync(cancellationToken);
+    private readonly object _listingGate = new();
+    private Task<WorkspaceListing>? _listing;
+
+    /// <summary>
+    /// Two open dashboard tabs, or a slow answer that overlaps the next 3 s poll, share one inspection: it spawns
+    /// several git processes per clone, so a second one must not start while the first is still running.
+    /// </summary>
+    public Task<WorkspaceListing> ListAsync(CancellationToken cancellationToken)
+    {
+        lock (_listingGate)
+        {
+            if (_listing is null || _listing.IsCompleted)
+            {
+                _listing = inspector.ListAsync(CancellationToken.None);
+            }
+
+            return _listing.WaitAsync(cancellationToken);
+        }
+    }
 
     public async Task<WorkspaceReply> FetchAsync(string project, string folder, CancellationToken cancellationToken)
     {
@@ -137,15 +154,10 @@ public sealed class RunnerWorkspaces(
             return Reply(WorkspaceOutcome.Refused, reason);
         }
 
-        // The name is plain, but the resolved path is the last word: it must be a direct child of work/.
+        // The name is plain, but the resolved path is the last word: it must stay inside work/.
         var workFolder = Path.GetFullPath(WorkspacePaths.WorkFolder(config));
         var directory = Path.GetFullPath(Path.Combine(workFolder, folder));
-        var parent = Path.GetDirectoryName(directory);
-        var isDirectChild = string.Equals(
-            parent?.TrimEnd(Path.DirectorySeparatorChar),
-            workFolder.TrimEnd(Path.DirectorySeparatorChar),
-            StringComparison.OrdinalIgnoreCase);
-        if (!isDirectChild || !GitClient.IsInside(workFolder, directory))
+        if (!GitClient.IsInside(workFolder, directory))
         {
             return Reply(WorkspaceOutcome.Refused, "The folder is not inside the work folder.");
         }
@@ -155,8 +167,7 @@ public sealed class RunnerWorkspaces(
             return Reply(WorkspaceOutcome.NotFound, "No such folder.");
         }
 
-        var isLink = new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint);
-        if (isLink)
+        if (FileSystem.IsLink(directory))
         {
             return Reply(WorkspaceOutcome.Refused, "The folder is a link; delete it by hand.");
         }

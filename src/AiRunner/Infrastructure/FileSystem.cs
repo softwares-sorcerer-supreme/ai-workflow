@@ -31,6 +31,10 @@ public static class FileSystem
         }
     }
 
+    /// <summary>True when the folder is a link (symlink or junction), which must never be walked or deleted through.</summary>
+    public static bool IsLink(string directory) =>
+        new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint);
+
     /// <summary>
     /// Clears the read-only attribute of every folder and file under a clone, except its .git folder, so that
     /// git can remove them. Best effort: an entry that cannot be changed is skipped.

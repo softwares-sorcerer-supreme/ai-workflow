@@ -41,7 +41,7 @@ public sealed class WorkspaceInspector(
 
     public async Task<WorkspaceListing> ListAsync(CancellationToken cancellationToken)
     {
-        var installedAgents = InstalledAgents();
+        var installedAgents = NamesOfAgentFiles(config.ResolvePath("agents"));
         var projects = new List<ProjectWorkspace>();
 
         foreach (var project in config.Projects)
@@ -88,7 +88,7 @@ public sealed class WorkspaceInspector(
         var facts = new CloneFacts(
             true,
             changedPaths,
-            RepoAgentFiles(directory),
+            NamesOfAgentFiles(Path.Combine(directory, ".github", "agents")),
             MissingInstructions(project, repo, directory));
         var warnings = WorkspaceChecks.For(facts, installedAgents);
         var size = sizes.Get(directory);
@@ -114,20 +114,6 @@ public sealed class WorkspaceInspector(
         var fetchFile = Path.Combine(gitFolder, "FETCH_HEAD");
 
         return File.Exists(fetchFile) ? new DateTimeOffset(File.GetLastWriteTimeUtc(fetchFile), TimeSpan.Zero) : null;
-    }
-
-    private static List<string> RepoAgentFiles(string directory)
-    {
-        var agentsFolder = Path.Combine(directory, ".github", "agents");
-
-        return NamesOfAgentFiles(agentsFolder);
-    }
-
-    private List<string> InstalledAgents()
-    {
-        var sharedFolder = config.ResolvePath("agents");
-
-        return NamesOfAgentFiles(sharedFolder);
     }
 
     private static List<string> NamesOfAgentFiles(string folder)
@@ -185,8 +171,7 @@ public sealed class WorkspaceInspector(
         foreach (var directory in Directory.EnumerateDirectories(workFolder).Order(StringComparer.OrdinalIgnoreCase))
         {
             var name = Path.GetFileName(directory);
-            var isLink = new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint);
-            var isOrphan = !isLink &&
+            var isOrphan = !FileSystem.IsLink(directory) &&
                            !name.StartsWith('.') &&
                            !projectNames.Contains(name, StringComparer.OrdinalIgnoreCase);
             if (isOrphan)
