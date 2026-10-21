@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: superseded by 0004
 ---
 
 # Future dashboard actions go through GitBucket; settings stay in repos.yml
