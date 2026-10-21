@@ -87,7 +87,9 @@ public sealed class RunnerActions(
         ActionCall Call,
         string NotFoundMessage);
 
-    /// <summary>The checks that need no code-host call, then one action at a time with code-host errors caught.</summary>
+    /// <summary>
+    /// The checks that need no code-host call, then one action at a time with code-host errors caught.
+    /// </summary>
     private async Task<ActionReply> RunGuardedAsync(
         FreshRequest request,
         Func<ProjectConfig, FreshRequest, CancellationToken, Task<ActionReply>> locked,
