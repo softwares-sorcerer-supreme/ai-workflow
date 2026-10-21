@@ -336,8 +336,16 @@ public sealed class FakeCodeHost : ICodeHost
     /// <summary>Every label added, issues and PRs alike, in order.</summary>
     public List<(int Number, string Label)> AddedLabels { get; } = [];
 
+    /// <summary>When set, adding a label fails with this message (no write access, host down).</summary>
+    public string? AddLabelError { get; set; }
+
     public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken)
     {
+        if (AddLabelError is not null)
+        {
+            throw new CodeHostException(System.Net.HttpStatusCode.Forbidden, AddLabelError);
+        }
+
         _labelWrites++;
         var added = labels.ToList();
         AddedLabels.AddRange(added.Select(label => (number, label)));

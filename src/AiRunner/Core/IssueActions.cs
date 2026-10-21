@@ -2,7 +2,10 @@ using AiRunner.Configuration;
 
 namespace AiRunner.Core;
 
-/// <summary>One thing a person can ask the runner to do from the dashboard: a code, its button text, and whether the user types a text.</summary>
+/// <summary>
+/// One thing a person can ask the runner to do from the dashboard: a code, its button text, and whether the user
+/// types a text.
+/// </summary>
 public sealed record IssueAction(string Code, string Label, bool NeedsText);
 
 /// <summary>The codes of the actions. The UI keys its text box and icons on them, so they never change.</summary>
@@ -18,7 +21,9 @@ public static class ActionCodes
     public const string Fix = "fix";
 }
 
-/// <summary>What the actions of one issue are computed from: the inputs of <see cref="WaitingOn"/> plus the project's settings.</summary>
+/// <summary>
+/// What the actions of one issue are computed from: the inputs of <see cref="WaitingOn"/> plus the project's settings.
+/// </summary>
 /// <param name="SubIssues">The issue's sub-issues in build order, parallel to <c>Waiting.SubIssues</c>.</param>
 public sealed record IssueActionInput(
     WaitingInput Waiting,
@@ -175,11 +180,11 @@ public static class IssueActions
 
     /// <summary>
     /// The write of an action, or null when the action needs a text and has none (or the code is unknown). The comment
-    /// is a people's comment: no bot marker, so the planner takes it as a trigger like one typed on the code host.
+    /// is a person's comment: no bot marker, so the planner takes it as a trigger like one typed on the code host.
     /// </summary>
     public static ActionWrite? WriteOf(string code, ActionWriteContext context)
     {
-        var (target, text, settings, runnerName) = context;
+        var target = context.Target;
 
         switch (code)
         {
@@ -228,6 +233,7 @@ public static class IssueActions
         if (stage.Stage.Code == IssueStage.QuestionsOpen)
         {
             actions.Add(Known[ActionCodes.Answer]);
+
             return;
         }
 

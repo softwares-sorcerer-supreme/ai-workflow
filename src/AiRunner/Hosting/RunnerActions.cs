@@ -19,7 +19,7 @@ public enum ActionOutcome
     /// <summary>The request itself is wrong (a text is missing).</summary>
     Invalid,
 
-    /// <summary>The code host refused or could not be reached; nothing is known to be written.</summary>
+    /// <summary>The code host refused or could not be reached; nothing is known to be written (a 502).</summary>
     Failed,
 }
 
@@ -145,7 +145,9 @@ public sealed class RunnerActions(
             target = new IssueRef(item.Repo, next.Number);
         }
 
-        return await WriteAsync(new ActionWriteContext(target, call.Text, project.Settings, RunnerName), call.Code, cancellationToken);
+        var context = new ActionWriteContext(target, call.Text, project.Settings, RunnerName);
+
+        return await WriteAsync(context, call.Code, cancellationToken);
     }
 
     private async Task<ActionReply> RunPullLockedAsync(FreshRequest request, CancellationToken cancellationToken)
@@ -235,7 +237,10 @@ public sealed class RunnerActions(
         return pullsByRepo;
     }
 
-    private async Task<ActionReply> WriteAsync(ActionWriteContext context, string code, CancellationToken cancellationToken)
+    private async Task<ActionReply> WriteAsync(
+        ActionWriteContext context,
+        string code,
+        CancellationToken cancellationToken)
     {
         var write = IssueActions.WriteOf(code, context);
         if (write is null)
@@ -297,7 +302,8 @@ public sealed class RunnerActions(
 
         return new ActionReply(
             ActionOutcome.NotOffered,
-            $"\"{label}\" is not available for #{number} any more ({state}). Reload the page to see what it can do now.");
+            $"\"{label}\" is not available for #{number} any more ({state}). " +
+            "Reload the page to see what it can do now.");
     }
 
     private ActionReply Failure(string code, CodeHostException exception)

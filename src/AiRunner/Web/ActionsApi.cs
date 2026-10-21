@@ -9,7 +9,8 @@ using ActionResponseKind = Microsoft.AspNetCore.Http.HttpResults.Results<
     Microsoft.AspNetCore.Http.HttpResults.Accepted<AiRunner.Web.CommandResponse>,
     Microsoft.AspNetCore.Http.HttpResults.BadRequest<AiRunner.Web.ApiError>,
     Microsoft.AspNetCore.Http.HttpResults.NotFound<AiRunner.Web.ApiError>,
-    Microsoft.AspNetCore.Http.HttpResults.Conflict<AiRunner.Web.ApiError>>;
+    Microsoft.AspNetCore.Http.HttpResults.Conflict<AiRunner.Web.ApiError>,
+    Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<AiRunner.Web.ApiError>>;
 
 namespace AiRunner.Web;
 
@@ -78,6 +79,7 @@ public static class ActionsApi
             ActionOutcome.Done => TypedResults.Accepted((string?)null, new CommandResponse(result.Message)),
             ActionOutcome.NotFound => TypedResults.NotFound(error),
             ActionOutcome.NotOffered => TypedResults.Conflict(error),
+            ActionOutcome.Failed => TypedResults.Json(error, statusCode: StatusCodes.Status502BadGateway),
             _ => TypedResults.BadRequest(error),
         };
     }

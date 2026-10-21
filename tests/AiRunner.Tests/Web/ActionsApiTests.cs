@@ -164,6 +164,21 @@ public sealed class ActionsApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_code_host_failure_is_a_502_and_does_not_wake_the_poller()
+    {
+        ReadySimple();
+        _host.AddLabelError = "no write access";
+        var client = await StartAsync();
+
+        var (status, message) = await IssueActionAsync(client, 7, "implement");
+
+        Assert.Equal(HttpStatusCode.BadGateway, status);
+        Assert.Contains("did not accept", message);
+        Assert.False(IsPollerWoken());
+        AssertNothingQueued();
+    }
+
+    [Fact]
     public async Task Breakdown_adds_ai_breakdown_to_a_ready_complex_issue()
     {
         _host.AddIssue(8, "Big", null, "ai", Labels.Ready, Labels.Complex);
