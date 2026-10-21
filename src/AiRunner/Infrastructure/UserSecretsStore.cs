@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration.UserSecrets;
@@ -42,8 +43,6 @@ public sealed class UserSecretsStore(string path)
         }
     }
 
-    public string? Get(string key) => Read().GetValueOrDefault(key);
-
     public void Set(string key, string value)
     {
         lock (_lock)
@@ -83,61 +82,30 @@ public sealed class UserSecretsStore(string path)
             return values;
         }
 
-        JsonNode? root;
+        // The configuration reader itself, so the keys are exactly the ones the runner's configuration would see.
+        IConfigurationRoot configuration;
         try
         {
-            root = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+            configuration = new ConfigurationBuilder()
+                .AddJsonStream(stream)
+                .Build();
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is FormatException or JsonException)
         {
             // The parser's message quotes the text near the error, which may be a secret: name the file only.
-            throw new InvalidDataException($"The user-secrets file is not valid JSON: {FilePath}");
+            throw new InvalidDataException($"The user-secrets file is not a valid JSON object: {FilePath}");
         }
 
-        if (root is not JsonObject rootObject)
+        foreach (var (key, value) in configuration.AsEnumerable())
         {
-            throw new InvalidDataException($"The user-secrets file does not hold a JSON object: {FilePath}");
+            if (value is not null)
+            {
+                values[key] = value;
+            }
         }
-
-        Flatten(rootObject, "", values);
 
         return values;
-    }
-
-    private static void Flatten(JsonNode? node, string prefix, Dictionary<string, string> values)
-    {
-        switch (node)
-        {
-            case JsonObject jsonObject:
-                foreach (var (name, child) in jsonObject)
-                {
-                    var key = prefix.Length == 0 ? name : $"{prefix}:{name}";
-                    Flatten(child, key, values);
-                }
-
-                break;
-            case JsonArray jsonArray:
-                for (var index = 0; index < jsonArray.Count; index++)
-                {
-                    Flatten(jsonArray[index], $"{prefix}:{index}", values);
-                }
-
-                break;
-            case JsonValue jsonValue:
-                var text = jsonValue.GetValueKind() == JsonValueKind.String
-                    ? jsonValue.GetValue<string>()
-                    : jsonValue.ToJsonString();
-                values[prefix] = text;
-                break;
-            default:
-                // A JSON null: the configuration reader keeps it as an empty value.
-                values[prefix] = "";
-                break;
-        }
     }
 
     /// <summary>A temp file beside the target, then one move over it: readers see the old file or the new.</summary>

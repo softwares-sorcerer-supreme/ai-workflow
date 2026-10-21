@@ -10,7 +10,7 @@
   }
 } @else if (health(); as health) {
   @if (health.isSetupNeeded) {
-    <a class="state setup-link" routerLink="/setup" data-testid="health-state">{{ health.stateLabel }}</a>
+    <a class="state setup-link" [routerLink]="setupPath" data-testid="health-state">{{ health.stateLabel }}</a>
   } @else {
     <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
   }

@@ -51,7 +51,7 @@ var credentialSources = new CredentialSources(secretsStore, environment, configF
 var credentialValues = credentialSources.Load();
 var credentials = new RunnerCredentials(credentialValues);
 var isSetupMode = !credentials.IsTokenSet && mode.CanStartInSetupMode;
-if (!credentials.IsTokenSet && !isSetupMode && !mode.CopilotTest)
+if (!credentials.IsTokenSet && !isSetupMode && mode.NeedsToken)
 {
     throw new InvalidOperationException(RunMode.NoTokenMessage(config.Dashboard.Port));
 }

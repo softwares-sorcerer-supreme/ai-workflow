@@ -4,6 +4,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using SetupAnswer = Microsoft.AspNetCore.Http.HttpResults.Results<
+    Microsoft.AspNetCore.Http.HttpResults.Ok<AiRunner.Web.SetupChangeResponse>,
+    Microsoft.AspNetCore.Http.HttpResults.BadRequest<AiRunner.Web.ApiError>,
+    Microsoft.AspNetCore.Http.HttpResults.Conflict<AiRunner.Web.ApiError>>;
 
 namespace AiRunner.Web;
 
@@ -117,7 +121,7 @@ public static class SetupApi
         return TypedResults.Ok(response);
     }
 
-    private static async Task<Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>>>
+    private static async Task<SetupAnswer>
         SaveTokenAsync(TokenRequest request, IRunnerSetup setup, CancellationToken cancellationToken)
     {
         var result = await setup.SaveTokenAsync(request.Token ?? "", cancellationToken);
@@ -125,15 +129,14 @@ public static class SetupApi
         return AnswerOf(result, setup);
     }
 
-    private static async Task<Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>>>
-        RemoveTokenAsync(IRunnerSetup setup, CancellationToken cancellationToken)
+    private static async Task<SetupAnswer> RemoveTokenAsync(IRunnerSetup setup, CancellationToken cancellationToken)
     {
         var result = await setup.RemoveTokenAsync(cancellationToken);
 
         return AnswerOf(result, setup);
     }
 
-    private static async Task<Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>>>
+    private static async Task<SetupAnswer>
         SaveWebPasswordAsync(WebPasswordRequest request, IRunnerSetup setup, CancellationToken cancellationToken)
     {
         var result = await setup.SaveWebPasswordAsync(request.Password ?? "", cancellationToken);
@@ -141,7 +144,7 @@ public static class SetupApi
         return AnswerOf(result, setup);
     }
 
-    private static async Task<Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>>>
+    private static async Task<SetupAnswer>
         RemoveWebPasswordAsync(IRunnerSetup setup, CancellationToken cancellationToken)
     {
         var result = await setup.RemoveWebPasswordAsync(cancellationToken);
@@ -149,7 +152,7 @@ public static class SetupApi
         return AnswerOf(result, setup);
     }
 
-    private static Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>> AnswerOf(
+    private static SetupAnswer AnswerOf(
         SetupResult result,
         IRunnerSetup setup)
     {
@@ -169,8 +172,8 @@ public static class SetupApi
 }
 
 /// <summary>
-/// The setup of a web app that runs without a runner (the OpenAPI export, tests of other routes): it reports a token
-/// as set, so the health is not "needs-setup", and refuses every change.
+/// The setup of a web app that runs without a runner (the OpenAPI export, tests of other routes): there is nothing to
+/// set up, so it never asks for setup, and it refuses every change.
 /// </summary>
 public sealed class NoSetup : IRunnerSetup
 {
@@ -178,8 +181,10 @@ public sealed class NoSetup : IRunnerSetup
 
     public static NoSetup Instance { get; } = new();
 
+    public bool IsSetupNeeded => false;
+
     public SetupState Read() => new(
-        IsTokenSet: true,
+        IsTokenSet: false,
         TokenSource: CredentialSource.None,
         Login: "",
         BaseUrl: "",

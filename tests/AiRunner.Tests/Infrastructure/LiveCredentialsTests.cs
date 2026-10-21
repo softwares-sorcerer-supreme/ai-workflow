@@ -202,7 +202,7 @@ public class LiveCredentialsTests
         var check = new GitBucketCredentialCheck(
             _ => throw new InvalidOperationException(),
             password => new GitBucketWeb(
-                new HttpClient(handler) { BaseAddress = new Uri("http://gb/") },
+                new HttpClient(handler, disposeHandler: false) { BaseAddress = new Uri("http://gb/") },
                 RunnerCredentials.Of(webPassword: password)));
 
         var right = await check.CheckWebPasswordAsync("bot", "right", default);

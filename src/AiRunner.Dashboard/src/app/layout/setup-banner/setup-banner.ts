@@ -4,9 +4,7 @@ import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { HealthStore } from '../health-store';
-
-/** The route of the Setup screen: the banner points there and is not shown on it. */
-export const SETUP_PATH = '/setup';
+import { SETUP_PATH } from '../nav-items';
 
 /**
  * The banner above every screen while the runner has no GitBucket token (`health.isSetupNeeded`, decided by the

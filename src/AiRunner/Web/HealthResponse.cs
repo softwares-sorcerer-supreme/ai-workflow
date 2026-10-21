@@ -17,7 +17,7 @@ public sealed class HealthReader(
 {
     public HealthResponse Read()
     {
-        var isSetupNeeded = !setup.Read().IsTokenSet;
+        var isSetupNeeded = setup.IsSetupNeeded;
         var snapshot = status.Snapshot() with { IsPaused = commands.IsPaused, IsSetupNeeded = isSetupNeeded };
         var now = time.GetUtcNow();
 

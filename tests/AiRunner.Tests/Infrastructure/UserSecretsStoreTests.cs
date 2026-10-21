@@ -49,7 +49,7 @@ public sealed class UserSecretsStoreTests : IDisposable
 
         Store().Set(UserSecretsStore.TokenKey, "new-token");
 
-        Assert.Equal("new-token", Store().Get(UserSecretsStore.TokenKey));
+        Assert.Equal("new-token", Store().Read().GetValueOrDefault(UserSecretsStore.TokenKey));
         Assert.Equal([SecretsFile], Directory.GetFiles(_folder));
     }
 
@@ -76,7 +76,7 @@ public sealed class UserSecretsStoreTests : IDisposable
 
         store.Set(UserSecretsStore.WebPasswordKey, "web");
 
-        Assert.Equal("web", new UserSecretsStore(deepFile).Get(UserSecretsStore.WebPasswordKey));
+        Assert.Equal("web", new UserSecretsStore(deepFile).Read().GetValueOrDefault(UserSecretsStore.WebPasswordKey));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class UserSecretsStoreTests : IDisposable
     {
         File.WriteAllText(SecretsFile, """{ "gitbucket:token": "t" }""");
 
-        Assert.Equal("t", Store().Get(UserSecretsStore.TokenKey));
+        Assert.Equal("t", Store().Read().GetValueOrDefault(UserSecretsStore.TokenKey));
     }
 
     [Fact]

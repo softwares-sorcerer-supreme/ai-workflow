@@ -40,7 +40,8 @@ public sealed class RunnerCredentials
     private const string Hidden = "***";
 
     private readonly Lock _lock = new();
-    private CredentialValues _values;
+    private volatile CredentialValues _values;
+    private volatile int _version;
     private TaskCompletionSource _changed = NewSignal();
 
     public RunnerCredentials(CredentialValues values)
@@ -58,18 +59,10 @@ public sealed class RunnerCredentials
         return new RunnerCredentials(values);
     }
 
-    public CredentialValues Current
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return _values;
-            }
-        }
-    }
+    /// <summary>An immutable record behind a volatile field: every request reads it without taking the lock.</summary>
+    public CredentialValues Current => _values;
 
-    public int Version { get; private set; }
+    public int Version => _version;
 
     public bool IsTokenSet => Current.IsTokenSet;
 
@@ -80,7 +73,7 @@ public sealed class RunnerCredentials
         lock (_lock)
         {
             _values = values;
-            Version++;
+            _version++;
             changed = _changed;
             _changed = NewSignal();
         }
@@ -112,11 +105,9 @@ public sealed class RunnerCredentials
     /// The text with every current secret replaced by "***": for a message that quotes what a server answered, in
     /// case the server echoed a secret.
     /// </summary>
-    public string Redact(string text) => RedactWith(text, Current);
-
-    /// <summary>Same, for secrets that are not (yet) the current ones, such as a token under check.</summary>
-    public static string RedactWith(string text, CredentialValues values)
+    public string Redact(string text)
     {
+        var values = Current;
         string[] secrets = [values.Token, values.GitSecret, values.WebPassword];
         var redacted = text;
         foreach (var secret in secrets.Where(secret => secret.Length > 0).OrderByDescending(secret => secret.Length))

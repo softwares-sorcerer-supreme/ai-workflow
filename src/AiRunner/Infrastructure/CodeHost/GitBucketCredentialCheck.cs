@@ -4,7 +4,7 @@ namespace AiRunner.Infrastructure.CodeHost;
 /// The Setup page's checks on GitBucket: GET /user with the new token, and the web sign-in with the new password.
 /// </summary>
 /// <param name="codeHostFor">A code host that sends the given token; a throwaway one per check.</param>
-/// <param name="webFor">A web client that signs in with the given password, with its own cookies.</param>
+/// <param name="webFor">A new web client with its own cookies that signs in with the password; disposed after.</param>
 public sealed class GitBucketCredentialCheck(
     Func<string, ICodeHost> codeHostFor,
     Func<string, GitBucketWeb> webFor) : ICredentialCheck
@@ -29,7 +29,7 @@ public sealed class GitBucketCredentialCheck(
         string password,
         CancellationToken cancellationToken)
     {
-        var web = webFor(password);
+        using var web = webFor(password);
         try
         {
             await web.CheckSignInAsync(login, cancellationToken);

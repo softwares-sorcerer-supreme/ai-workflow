@@ -12,7 +12,7 @@ namespace AiRunner.Infrastructure.CodeHost;
 /// The web password is read at each sign-in (Setup page, else code_host.web_password). Empty = not set: posting a
 /// form then fails.
 /// </param>
-public sealed class GitBucketWeb(HttpClient client, RunnerCredentials credentials)
+public sealed class GitBucketWeb(HttpClient client, RunnerCredentials credentials) : IDisposable
 {
     /// <summary>
     /// The credentials version the session cookie was got with, or null before a sign-in. A new web password or a new
@@ -85,6 +85,9 @@ public sealed class GitBucketWeb(HttpClient client, RunnerCredentials credential
     /// redirect to the sign-in page, so the next form signs in again.
     /// </summary>
     public void ForgetSession() => _signedInVersion = null;
+
+    /// <summary>The runner's web side lives as long as the runner; a check disposes its own after use.</summary>
+    public void Dispose() => client.Dispose();
 
     /// <summary>
     /// Signs in as <paramref name="login"/>: the Setup page's check of a new web password, on a web client built for

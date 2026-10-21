@@ -12,8 +12,6 @@ namespace AiRunner.Tests.Hosting;
 /// </summary>
 public sealed class SetupModeTests : IDisposable
 {
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
-
     private readonly SetupFixture _setup = new();
     private readonly JobTestKit _kit;
 
@@ -49,7 +47,7 @@ public sealed class SetupModeTests : IDisposable
 
         var setup = _setup.CreateSetup(_kit.Identity, _kit.Commands);
         var result = await setup.SaveTokenAsync("new-token", default);
-        await WaitUntilAsync(() => _kit.CodeHost.ReposOf("issues").Any());
+        await Wait.UntilAsync(() => _kit.CodeHost.ReposOf("issues").Any());
 
         await stop.CancelAsync();
         await poller.StopAsync(default);
@@ -83,26 +81,12 @@ public sealed class SetupModeTests : IDisposable
         var callsInSetupMode = _kit.CodeHost.CallCount;
 
         _setup.Credentials.Apply(RunnerCredentials.Of(token: "new-token").Current);
-        await WaitUntilAsync(() => _kit.CodeHost.CommentsOf(7).Any());
+        await Wait.UntilAsync(() => _kit.CodeHost.CommentsOf(7).Any());
 
         await stop.CancelAsync();
         await worker.StopAsync(default);
 
         Assert.Equal(0, callsInSetupMode);
         Assert.Contains("stopped twice", _kit.CodeHost.CommentsOf(7).Single().Body);
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow + TestTimeout;
-        while (!condition())
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                throw new TimeoutException("The condition did not hold in time.");
-            }
-
-            await Task.Delay(20);
-        }
     }
 }

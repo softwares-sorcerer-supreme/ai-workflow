@@ -44,6 +44,9 @@ public sealed record RunMode
     /// </summary>
     public bool CanStartInSetupMode => IsPollingLoop && !DryRun;
 
+    /// <summary>Every mode talks to the code host except the Copilot check (the OpenAPI export ends earlier).</summary>
+    public bool NeedsToken => !CopilotTest;
+
     /// <summary>
     /// Only the real loop serves the dashboard: a one-off mode or a dry run must never open a port. In setup mode it
     /// is served even when disabled, since the Setup page is the way out (still on 127.0.0.1 only).

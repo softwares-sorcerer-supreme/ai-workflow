@@ -40,7 +40,7 @@ public sealed class RunnerSetupTests : IDisposable
         Assert.Equal(SetupOutcome.Saved, result.Outcome);
         Assert.Contains("alice", result.Message);
         Assert.Equal([NewToken], _fixture.CheckedTokens);
-        Assert.Equal(NewToken, _fixture.Store.Get(UserSecretsStore.TokenKey));
+        Assert.Equal(NewToken, _fixture.Store.Read().GetValueOrDefault(UserSecretsStore.TokenKey));
         Assert.Equal(NewToken, _fixture.Credentials.Current.Token);
         Assert.Equal(CredentialSource.UserSecrets, _fixture.Credentials.Current.TokenSource);
         Assert.Equal("alice", identity.Login);
@@ -134,7 +134,7 @@ public sealed class RunnerSetupTests : IDisposable
 
         Assert.Equal(SetupOutcome.Saved, result.Outcome);
         Assert.False(_fixture.Credentials.IsTokenSet);
-        Assert.Null(_fixture.Store.Get(UserSecretsStore.TokenKey));
+        Assert.Null(_fixture.Store.Read().GetValueOrDefault(UserSecretsStore.TokenKey));
         Assert.Equal("", identity.Login);
         Assert.False(setup.Read().IsTokenSet);
     }
@@ -187,7 +187,7 @@ public sealed class RunnerSetupTests : IDisposable
 
         await setup.SaveTokenAsync(NewToken, default);
 
-        Assert.Equal("keep", _fixture.Store.Get("Other:Key"));
+        Assert.Equal("keep", _fixture.Store.Read().GetValueOrDefault("Other:Key"));
         Assert.Equal("git-pass", _fixture.Credentials.Current.GitSecret);
     }
 
@@ -219,7 +219,7 @@ public sealed class RunnerSetupTests : IDisposable
         Assert.Contains("did not accept the web sign-in of alice", wrong.Message);
         Assert.False(wrongState.IsWebPasswordSet);
         Assert.Equal(SetupOutcome.Saved, right.Outcome);
-        Assert.Equal(SetupFixture.RightWebPassword, _fixture.Store.Get(UserSecretsStore.WebPasswordKey));
+        Assert.Equal(SetupFixture.RightWebPassword, _fixture.Store.Read().GetValueOrDefault(UserSecretsStore.WebPasswordKey));
         Assert.Equal(SetupFixture.RightWebPassword, _fixture.Credentials.Current.WebPassword);
         Assert.Equal(CredentialSource.UserSecrets, setup.Read().WebPasswordSource);
     }

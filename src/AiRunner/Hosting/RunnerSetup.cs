@@ -43,6 +43,9 @@ public sealed record SetupResult(SetupOutcome Outcome, string Message);
 /// </summary>
 public interface IRunnerSetup
 {
+    /// <summary>Setup mode: the runner has no token, so nothing polls and no job runs until one is saved.</summary>
+    bool IsSetupNeeded { get; }
+
     SetupState Read();
 
     Task<SetupResult> SaveTokenAsync(string token, CancellationToken cancellationToken);
@@ -73,6 +76,8 @@ public sealed class RunnerSetup(
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private string BaseUrl => config.CodeHost.BaseUrl;
+
+    public bool IsSetupNeeded => !credentials.IsTokenSet;
 
     public SetupState Read()
     {

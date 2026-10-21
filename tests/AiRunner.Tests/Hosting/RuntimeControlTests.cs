@@ -239,17 +239,7 @@ public sealed class RuntimeControlTests : IDisposable
 
     private int IssueListCalls() => _kit.CodeHost.RepoCalls.Count(call => call.Operation == "issues");
 
-    private async Task WaitForPollsAsync(int polls)
-    {
-        var deadline = DateTime.UtcNow + TestTimeout;
-        while (IssueListCalls() < polls * IssueListsPerPoll || _kit.Status.Snapshot().IsPolling)
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                throw new TimeoutException($"Expected {polls} polls, saw {IssueListCalls() / IssueListsPerPoll}.");
-            }
-
-            await Task.Delay(20);
-        }
-    }
+    private Task WaitForPollsAsync(int polls) => Wait.UntilAsync(
+        () => IssueListCalls() >= polls * IssueListsPerPoll && !_kit.Status.Snapshot().IsPolling,
+        () => $"Expected {polls} polls, saw {IssueListCalls() / IssueListsPerPoll}.");
 }

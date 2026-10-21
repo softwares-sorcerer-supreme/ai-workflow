@@ -48,18 +48,24 @@ public static class CodeHostRegistration
             Timeout = TimeSpan.FromMinutes(2),
         };
 
-        GitBucketCodeHost CodeHostWith(RunnerCredentials credentials)
+        services.AddSingleton<ICodeHost>(serviceProvider =>
         {
+            var credentials = serviceProvider.GetRequiredService<RunnerCredentials>();
             var web = GitBucketWeb.Create(baseUrl, credentials);
 
             return new GitBucketCodeHost(apiClient, downloadClient, web, credentials, baseUrl);
-        }
-
-        services.AddSingleton<ICodeHost>(serviceProvider =>
-            CodeHostWith(serviceProvider.GetRequiredService<RunnerCredentials>()));
+        });
         services.AddSingleton<IGitRemote, GitBucketGitRemote>();
+
+        // A token check only asks GET /user, so its code hosts share one web side that never signs in.
+        var checkWeb = GitBucketWeb.Create(baseUrl, RunnerCredentials.Of());
         services.AddSingleton<ICredentialCheck>(_ => new GitBucketCredentialCheck(
-            token => CodeHostWith(RunnerCredentials.Of(token: token)),
+            token =>
+            {
+                var checkCredentials = RunnerCredentials.Of(token: token);
+
+                return new GitBucketCodeHost(apiClient, downloadClient, checkWeb, checkCredentials, baseUrl);
+            },
             password => GitBucketWeb.Create(baseUrl, RunnerCredentials.Of(webPassword: password))));
     }
 }
