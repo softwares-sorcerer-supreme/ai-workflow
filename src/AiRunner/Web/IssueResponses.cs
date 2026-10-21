@@ -50,7 +50,7 @@ public sealed record ProjectOptionResponse(string Name, IReadOnlyList<string> Co
 /// <c>GET /api/issues</c>: the issue rows and the options of the filters. The counts take every issue (sub-issues
 /// too) that matches the project, component, state and search filters, so the summary shows what each choice would
 /// give: <c>Total</c> and <c>Focuses</c> whatever lane, stage or focus is chosen, <c>Lanes</c> under the chosen focus
-/// (a board column then says how many cards it shows).
+/// (a lane on the board then says how many cards it shows).
 /// </summary>
 public sealed record IssueListResponse(
     IReadOnlyList<IssueRowResponse> Items,
@@ -61,19 +61,20 @@ public sealed record IssueListResponse(
     IReadOnlyList<CountResponse> Focuses);
 
 /// <summary>
-/// The filters of <c>GET /api/issues</c>, already checked. Null = no filter. <c>Search</c> matches the title (any
-/// case) or the number ("12" or "#12"). <c>IsByUpdate</c> sorts by last update instead of by number.
+/// The filters of <c>GET /api/issues</c>, already checked. Null = no filter. <c>Search</c> (trimmed, never blank)
+/// matches the title (any case) or the number ("12" or "#12"). <c>IsByUpdate</c> sorts by last update instead of by
+/// number.
 /// </summary>
-public sealed record IssueQuery(string? Project, string? Component, string? Stage, string? State, bool IsFlat)
-{
-    public string? Lane { get; init; }
-
-    public string? Focus { get; init; }
-
-    public string? Search { get; init; }
-
-    public bool IsByUpdate { get; init; }
-}
+public sealed record IssueQuery(
+    string? Project,
+    string? Component,
+    string? Stage,
+    string? State,
+    string? Lane,
+    string? Focus,
+    string? Search,
+    bool IsFlat,
+    bool IsByUpdate);
 
 /// <summary>
 /// Builds the issue list from the snapshot, the job table and the running job. The stage, lane, flags, badge and
@@ -104,9 +105,17 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             .Where(entry => IsChosen(entry, query))
             .Select(entry => entry.Issue.Key)
             .ToHashSet(comparer);
-        var items = query.IsFlat
-            ? Sorted(matching.Select(key => rows[key]), query)
-            : Sorted(Nest(rows, matching, subIssuesOf), query);
+        IEnumerable<IssueRowResponse> shown;
+        if (query.IsFlat)
+        {
+            shown = matching.Select(key => rows[key]);
+        }
+        else
+        {
+            shown = Nest(rows, matching, subIssuesOf);
+        }
+
+        var items = Sorted(shown, query);
 
         var projectOptions = config.Projects
             .Select(project => new ProjectOptionResponse(project.Name, project.CodeComponentNames))
@@ -118,7 +127,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             .Where(entry => query.Focus is null || IsInFocus(entry, query.Focus))
             .ToList();
         var laneCounts = IssueLane.Lanes
-            .Select(lane => CountOf(lane, inFocus.Count(entry => IssueLane.Of(entry.Stage.Stage.Code) == lane)))
+            .Select(lane => CountOf(lane, inFocus.Count(entry => LaneOf(entry) == lane)))
             .ToList();
         var focusCounts = IssueFocus.Focuses
             .Select(focus => CountOf(focus, inScope.Count(entry => IsInFocus(entry, focus.Code))))
@@ -133,7 +142,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
         var issue = entry.Issue;
         var stage = entry.Stage;
         var component = SnapshotRules.ComponentOf(issue, entry.Project);
-        var lane = IssueLane.Of(stage.Stage.Code);
+        var lane = LaneOf(entry);
         var flags = stage.Flags
             .Select(CodeLabelResponse.From)
             .ToList();
@@ -182,6 +191,8 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
 
     private static CountResponse CountOf(CodeLabel value, int count) => new(value.Code, value.Label, count);
 
+    private static CodeLabel LaneOf(IssueEntry entry) => IssueLane.Of(entry.Stage.Stage.Code);
+
     /// <summary>The filters the summary counts are taken under: project, component, state and search.</summary>
     private static bool IsInScope(IssueRowResponse row, IssueQuery query) =>
         (query.Project is null || row.Project == query.Project) &&
@@ -192,7 +203,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
     /// <summary>The choices the summary counts: stage, lane and focus.</summary>
     private static bool IsChosen(IssueEntry entry, IssueQuery query) =>
         (query.Stage is null || entry.Stage.Stage.Code == query.Stage) &&
-        (query.Lane is null || IssueLane.Of(entry.Stage.Stage.Code).Code == query.Lane) &&
+        (query.Lane is null || LaneOf(entry).Code == query.Lane) &&
         (query.Focus is null || IsInFocus(entry, query.Focus));
 
     /// <summary>A focus is about work still to do, so a closed issue is in none.</summary>
@@ -201,15 +212,14 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
 
     private static bool IsFound(IssueRowResponse row, string search)
     {
-        var text = search.Trim();
-        var number = text.TrimStart('#');
+        var number = search.TrimStart('#');
 
         if (int.TryParse(number, out var wanted) && wanted == row.Number)
         {
             return true;
         }
 
-        return row.Title.Contains(text, StringComparison.OrdinalIgnoreCase);
+        return row.Title.Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Newest number first, or most recently updated first; the repo breaks a tie.</summary>

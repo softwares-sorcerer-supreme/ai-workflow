@@ -100,31 +100,17 @@
   </div>
 
   <div class="focuses" role="group" aria-label="Focus">
-    <button
-      type="button"
-      class="focus tone-neutral"
-      [class.selected]="!current.focus"
-      [attr.aria-pressed]="!current.focus"
-      (click)="setFocus('')"
-    >
-      <span>All</span>
-      @if (total() !== undefined) {
-        &ngsp;<span class="count">{{ total() | number }}</span>
-      }
-    </button>
+    <button appCountToggle label="All" [count]="total()" [pressed]="!current.focus" (click)="setFocus('')"></button>
     @for (focus of focuses(); track focus.code) {
       <button
-        type="button"
-        class="focus"
-        [class]="'tone-' + focusTone(focus.code)"
-        [class.selected]="current.focus === focus.code"
-        [attr.aria-pressed]="current.focus === focus.code"
+        appCountToggle
+        [label]="focus.label"
+        [count]="focus.count"
+        [tone]="focusTone(focus.code)"
+        [pressed]="current.focus === focus.code"
         [attr.data-focus]="focus.code"
         (click)="setFocus(focus.code)"
-      >
-        <span class="dot" aria-hidden="true"></span>
-        <span>{{ focus.label }}</span>&ngsp;<span class="count">{{ focus.count | number }}</span>
-      </button>
+      ></button>
     }
   </div>
 
@@ -132,18 +118,15 @@
     <div class="pipeline" role="group" aria-label="Pipeline: filter by lane">
       @for (lane of lanes(); track lane.code) {
         <button
-          type="button"
-          class="segment"
-          [class]="'tone-' + laneTone(lane.code)"
-          [class.selected]="current.lane === lane.code"
-          [attr.aria-pressed]="current.lane === lane.code"
+          appCountToggle
+          look="segment"
+          [label]="lane.label"
+          [count]="lane.count"
+          [tone]="laneTone(lane.code)"
+          [pressed]="current.lane === lane.code"
           [attr.data-lane]="lane.code"
           (click)="toggleLane(lane.code)"
-        >
-          <span class="segment-label"><span class="dot" aria-hidden="true"></span>{{ lane.label }}</span>&ngsp;<span
-            class="segment-count"
-          >{{ lane.count | number }}</span>
-        </button>
+        ></button>
       }
     </div>
   }
@@ -163,7 +146,7 @@
             message="Issues appear here after the runner's next poll. With a filter set, try Clear filters."
           />
         } @else {
-          <app-issue-board class="board" [columns]="boardColumns()" />
+          <app-issue-board class="board" [lanes]="boardLanes()" />
         }
       } @else if (issues.isLoading()) {
         <app-view-state kind="loading" />

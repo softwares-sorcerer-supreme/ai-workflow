@@ -1,5 +1,3 @@
-@use '../../shared/tones';
-
 // ----- Header and filter bar -----
 
 .search {
@@ -17,9 +15,7 @@
   width: 170px;
 }
 
-// ----- Focus chips and pipeline: toned toggle buttons -----
-
-@include tones.class-variants(toggle);
+// ----- Focus chips and pipeline (the buttons are app-count-toggle) -----
 
 .focuses {
   display: flex;
@@ -27,92 +23,10 @@
   gap: var(--app-space-2);
 }
 
-.focus {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--app-space-2);
-  padding: var(--app-space-1) var(--app-space-3);
-  border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--mat-sys-on-surface);
-  font: var(--mat-sys-label-large);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--mat-sys-surface-container-high);
-  }
-
-  &.selected {
-    border-color: var(--toggle-dot);
-    background: var(--toggle-bg);
-    color: var(--toggle-fg);
-  }
-
-  .count {
-    padding: 0 var(--app-space-2);
-    border-radius: 999px;
-    background: var(--mat-sys-surface-container-highest);
-    font: var(--mat-sys-label-medium);
-  }
-}
-
-.dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--toggle-dot);
-}
-
 .pipeline {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--app-space-2);
-}
-
-.segment {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--app-space-1);
-  padding: var(--app-space-2) var(--app-space-3);
-  border: 1px solid var(--mat-sys-outline-variant);
-  border-top: 4px solid var(--toggle-dot);
-  border-radius: var(--app-radius-small);
-  background: var(--mat-sys-surface-container-low);
-  color: var(--mat-sys-on-surface);
-  text-align: start;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--mat-sys-surface-container-high);
-  }
-
-  &.selected {
-    border-color: var(--toggle-dot);
-    background: var(--toggle-bg);
-    color: var(--toggle-fg);
-  }
-}
-
-.segment-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--app-space-2);
-  font: var(--mat-sys-label-large);
-}
-
-.segment-count {
-  font: var(--mat-sys-title-large);
-}
-
-.focus,
-.segment {
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 2px;
-  }
 }
 
 // ----- List view -----
@@ -141,12 +55,13 @@
   padding-left: var(--app-space-6);
 }
 
+// A 24 px icon with a 4 px pad, a little taller than the text line: it overlaps the row's own padding.
 .chevron {
   flex: none;
-  margin: -4px 0;
-  width: 36px;
-  height: 36px;
-  padding: 6px;
+  margin: calc(-1 * var(--app-space-1)) 0;
+  width: 32px;
+  height: 32px;
+  padding: var(--app-space-1);
 
   mat-icon {
     width: 24px;
@@ -158,7 +73,7 @@
 // With parents in the list, a top-level row without sub-issues keeps the chevron's room, so numbers line up.
 .chevron-space {
   flex: none;
-  width: 36px;
+  width: 32px;
 }
 
 .nest {

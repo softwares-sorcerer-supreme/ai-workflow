@@ -2,7 +2,7 @@ import { Component, computed, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
-import { issueLink } from '../issue-link';
+import { issueKey, issueLink } from '../issue-link';
 import { PullLink } from '../pull-link/pull-link';
 import { StageChip } from '../stage-chip/stage-chip';
 import { StatusChip } from '../status-chip/status-chip';
@@ -11,7 +11,7 @@ import { AppTime } from '../time/time';
 import { issueMarkIcon, issueMarkTone } from '../tone';
 
 /**
- * One issue as a compact card (a board column, a short list): number, where it lives, title, its parent, stage,
+ * One issue as a compact card (a lane of the board, a short list): number, where it lives, title, its parent, stage,
  * badge and flags, what a person must do, its PRs, sub-issue progress and when it last changed. Everything shown
  * comes ready from the API's issue row.
  */
@@ -35,4 +35,5 @@ export class IssueCard {
 
   protected readonly markTone = issueMarkTone;
   protected readonly markIcon = issueMarkIcon;
+  protected readonly issueKey = issueKey;
 }

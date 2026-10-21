@@ -1,0 +1,80 @@
+@use '../tones';
+
+@include tones.host-variants(toggle);
+
+:host {
+  border: 1px solid var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+:host(.selected) {
+  border-color: var(--toggle-dot);
+  background: var(--toggle-bg);
+  color: var(--toggle-fg);
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  font: var(--mat-sys-label-large);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--toggle-dot);
+}
+
+// ----- chip: a pill with the count in a small badge -----
+
+:host(.chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-1) var(--app-space-3);
+  border-radius: 999px;
+  background: transparent;
+
+  .count {
+    padding: 0 var(--app-space-2);
+    border-radius: 999px;
+    background: var(--mat-sys-surface-container-highest);
+    font: var(--mat-sys-label-medium);
+  }
+}
+
+// ----- segment: a tile with a colored top edge and a large count -----
+
+:host(.segment) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-top: 4px solid var(--toggle-dot);
+  border-radius: var(--app-radius-small);
+  background: var(--mat-sys-surface-container-low);
+  text-align: start;
+
+  .count {
+    font: var(--mat-sys-title-large);
+  }
+}
+
+// A later rule for a selected segment, so its background wins over the segment's own.
+:host(.segment.selected) {
+  background: var(--toggle-bg);
+}

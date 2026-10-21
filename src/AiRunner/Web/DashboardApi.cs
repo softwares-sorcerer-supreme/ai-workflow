@@ -176,13 +176,16 @@ public static class DashboardApi
 
         var search = string.IsNullOrWhiteSpace(filter.Search) ? null : filter.Search.Trim();
         var state = filter.State == AnyState ? null : filter.State;
-        var query = new IssueQuery(filter.Project, filter.Component, filter.Stage, state, filter.Flat ?? false)
-        {
-            Lane = filter.Lane,
-            Focus = filter.Focus,
-            Search = search,
-            IsByUpdate = filter.Sort == IssueReader.SortByUpdate,
-        };
+        var query = new IssueQuery(
+            Project: filter.Project,
+            Component: filter.Component,
+            Stage: filter.Stage,
+            State: state,
+            Lane: filter.Lane,
+            Focus: filter.Focus,
+            Search: search,
+            IsFlat: filter.Flat ?? false,
+            IsByUpdate: filter.Sort == IssueReader.SortByUpdate);
         var list = issues.Read(query);
 
         return TypedResults.Ok(list);
@@ -191,10 +194,8 @@ public static class DashboardApi
     /// <summary>Why the issue filters cannot be used (a value no option has), or null when they can.</summary>
     private static string? WhyBadIssuesFilter(IssuesFilter filter, RunnerConfig config)
     {
-        var (project, component, stage, state, _, _, _, _, _) = filter;
-
         ProjectConfig? found = null;
-        if (project is not null)
+        if (filter.Project is { } project)
         {
             found = config.ProjectNamed(project);
             if (found is null)
@@ -204,17 +205,19 @@ public static class DashboardApi
         }
 
         var projects = found is null ? config.Projects : [found];
-        if (component is not null && !projects.Any(candidate => candidate.CodeComponentNames.Contains(component)))
+        if (filter.Component is { } component &&
+            !projects.Any(candidate => candidate.CodeComponentNames.Contains(component)))
         {
             return $"Unknown component '{component}'.";
         }
 
-        if (stage is not null && !IssueStage.Stages.Any(known => known.Code == stage))
+        if (filter.Stage is { } stage && !IssueStage.Stages.Any(known => known.Code == stage))
         {
             return $"Unknown stage '{stage}'.";
         }
 
-        if (state is not null && state != SnapshotRules.Open && state != SnapshotRules.Closed && state != AnyState)
+        if (filter.State is { } state &&
+            state != SnapshotRules.Open && state != SnapshotRules.Closed && state != AnyState)
         {
             return $"Unknown state '{state}'. Use open, closed or all.";
         }

@@ -182,6 +182,8 @@ All rules stay in C# `Core`; Angular only shows what the API returns and sends w
 - `POST /api/agents/sync`: asks `JobWorker` to run `AgentInstaller.Install` between jobs (at once when idle, else
   right after the running job, so one Copilot run never mixes old and new agents). A save on the dashboard asks for
   a sync by itself. The installer also writes the subagent models (section 8).
+- `AgentInstaller` and `AgentDrift` take the Copilot home folder as a parameter (today the installer builds
+  `<user profile>/.copilot` itself); the runner passes the real one, tests a temp folder.
 - `templates/` are shown read-only, with a note: a template change needs its parser, its agent file and
   `Samples.cs` changed together (`CLAUDE.md`), which is a code change, not a dashboard edit.
 - Screen **Agents**: file list with git and sync state, an editor (monospace textarea with the validation messages
@@ -190,7 +192,8 @@ All rules stay in C# `Core`; Angular only shows what the API returns and sends w
 ### 7. Live settings (ADR 0004)
 
 - `Configuration/RunnerConfigSource` holds the current `RunnerConfig` and a version. Every consumer gets the config
-  from it instead of a `RunnerConfig` captured at startup (32 classes take one in their constructor today). A poll
+  from it instead of a `RunnerConfig` captured at startup (27 classes take one in their constructor today, in 32
+  files that use the type). A poll
   reads `Current` once at its start; a job reads it once in `JobWorker` and uses that snapshot to its end (a DI
   scope per job with `RunnerConfig` registered as scoped is the suggested way; jobs are singletons today and become
   scoped). The dashboard reads `Current` per request.

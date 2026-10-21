@@ -69,7 +69,8 @@ Where an issue is in the workflow, from new to done, worked out from its labels,
 _Avoid_: status, state, phase
 
 **Lane**:
-One of five groups of stages (to do, ready, in progress, in review, done), the columns of the dashboard's issue board.
+One of five groups of stages (to do, ready, in progress, in review, done), shown side by side on the dashboard's
+issue board. The "to do" lane holds new issues and issues with open questions; it is not what an issue waits on.
 _Avoid_: column, bucket, phase
 
 **Waiting on**:

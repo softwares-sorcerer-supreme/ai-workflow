@@ -691,10 +691,8 @@
       "IssueDetailResponse": {
         "required": [
           "issue",
-          "waiting",
           "analysis",
           "subIssues",
-          "pulls",
           "timeline"
         ],
         "type": "object",
@@ -702,29 +700,13 @@
           "issue": {
             "$ref": "#/components/schemas/IssueRowResponse"
           },
-          "waiting": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CodeLabelResponse"
-              }
-            ]
-          },
           "analysis": {
             "$ref": "#/components/schemas/AnalysisSummaryResponse"
           },
           "subIssues": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SubIssueDetailResponse"
-            }
-          },
-          "pulls": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PullResponse"
+              "$ref": "#/components/schemas/IssueRowResponse"
             }
           },
           "timeline": {
@@ -1334,24 +1316,6 @@
           "total": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "SubIssueDetailResponse": {
-        "required": [
-          "issue",
-          "pulls"
-        ],
-        "type": "object",
-        "properties": {
-          "issue": {
-            "$ref": "#/components/schemas/IssueRowResponse"
-          },
-          "pulls": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PullResponse"
-            }
           }
         }
       },

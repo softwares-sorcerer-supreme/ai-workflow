@@ -51,6 +51,7 @@ public static class IssueFocus
     public const string Working = "working";
     public const string Failed = "failed";
 
+    /// <summary>Every focus in the order of the quick filters, with its label.</summary>
     public static IReadOnlyList<CodeLabel> Focuses { get; } =
     [
         new(NeedsYou, "Needs you"),

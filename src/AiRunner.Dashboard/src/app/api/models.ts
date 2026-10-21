@@ -22,6 +22,5 @@ export type { ProjectOptionResponse } from './models/project-option-response';
 export type { PullResponse } from './models/pull-response';
 export type { RunningJobResponse } from './models/running-job-response';
 export type { SubIssueCountResponse } from './models/sub-issue-count-response';
-export type { SubIssueDetailResponse } from './models/sub-issue-detail-response';
 export type { WaitingItemResponse } from './models/waiting-item-response';
 export type { WorkerHealth } from './models/worker-health';

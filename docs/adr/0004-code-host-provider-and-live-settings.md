@@ -7,9 +7,10 @@ supersedes: 0003
 
 GitBucket may be replaced (GitHub, Gitea, GitLab...), so the runner talks to the code host through one provider
 interface, and GitBucket becomes its first implementation. The provider covers what the jobs use today: issues,
-comments, labels, pull requests, branches, closing an issue, attachments, and the git auth headers. Each provider
-also states what its host can and cannot do (for example GitBucket: ASCII text only, no `/pulls/{n}/files`, an issue
-is closed through the web form), so a host quirk stays in one class, as it does now in `GitBucketClient`.
+comments, labels, pull requests, closing an issue, attachments, and the git auth headers (branches are pushed and
+fetched with git itself, so they need no provider call). Each provider also states what its host can and cannot do
+(for example GitBucket: ASCII text only, no `/pulls/{n}/files`, an issue is closed through the web form), so a host
+quirk stays in one class, as it does now in `GitBucketClient`.
 
 The workflow state stays on the code host, whichever host it is: labels plus bot comments with markers. So
 `JobPlanner` stays the only authority on what runs, and deleting `ai-runner.db` stays safe. A dashboard action that
@@ -23,8 +24,10 @@ settings live (reviewable, and the database stays a cache): the runner writes it
 resolver accepts the new content, and keeps the previous file as a backup. The comments in `repos.yml` are not
 kept; their text becomes field help on the settings screen. A new config is swapped in between jobs: the poller
 reads it on its next poll and a running job finishes with the config it started with. A setting that cannot change
-in a running process (the dashboard port, `paths.state`) is saved and marked "restart needed". Secrets (the token,
-`git_bucket.web_password`) can be set but are never sent to the browser.
+in a running process (the dashboard port, `paths.state`) is saved and marked "restart needed". Secrets that live
+in `repos.yml` (`git_bucket.web_password`) can be set but are never sent to the browser. The token stays in user
+secrets or an environment variable and never goes through the dashboard; the settings screen only says whether it
+is set.
 
 Consequences:
 

@@ -230,6 +230,43 @@ describe('Issues', () => {
       expect(lastCall(api)).toMatchObject({ q: '#12' });
     });
 
+    it('keeps what is typed when its own search comes back through the URL', async () => {
+      const { api, fixture, element } = await render();
+      const input = element.querySelector('.search input') as HTMLInputElement;
+
+      input.value = 'login ';
+      input.dispatchEvent(new Event('input'));
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50));
+      await settle(fixture);
+
+      expect(lastCall(api)).toMatchObject({ q: 'login' });
+      expect(input.value).toBe('login ');
+    });
+
+    it('clears at once and drops a search still waiting for its debounce', async () => {
+      const { fixture, element, router } = await render('/issues?q=old');
+      const input = element.querySelector('.search input') as HTMLInputElement;
+
+      input.value = 'new';
+      input.dispatchEvent(new Event('input'));
+      click(element.querySelector('button[aria-label="Clear search"]'));
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50));
+      await settle(fixture);
+
+      expect(router.url).toBe('/issues');
+      expect(input.value).toBe('');
+    });
+
+    it('follows the URL when the search changes from outside, like back and forward', async () => {
+      const { fixture, element, router } = await render('/issues?q=one');
+      const input = element.querySelector('.search input') as HTMLInputElement;
+
+      await router.navigateByUrl('/issues?q=two');
+      await settle(fixture);
+
+      expect(input.value).toBe('two');
+    });
+
     it('offers Clear filters only when a filter differs from the defaults, and clearing keeps the view', async () => {
       const plain = await render();
       expect(plain.element.querySelector('button.clear')).toBeNull();
@@ -269,14 +306,14 @@ describe('Issues', () => {
       const { api, element, fixture, router } = await render();
 
       const segments = Array.from(element.querySelectorAll<HTMLButtonElement>('.pipeline button'));
-      expect(segments.map((segment) => segment.querySelector('.segment-count')?.textContent)).toEqual([
+      expect(segments.map((segment) => segment.querySelector('.count')?.textContent)).toEqual([
         '4',
         '1',
         '2',
         '0',
         '9',
       ]);
-      expect(segments.map((segment) => segment.querySelector('.segment-label')?.textContent?.trim())).toEqual([
+      expect(segments.map((segment) => segment.querySelector('.label')?.textContent?.trim())).toEqual([
         'To do',
         'Ready',
         'In progress',

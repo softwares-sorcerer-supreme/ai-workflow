@@ -22,19 +22,15 @@ public sealed record AnalysisSummaryResponse(
     CodeLabelResponse Complexity,
     string? Component);
 
-/// <summary>A sub-issue on the page of its parent: its row (stage, flags, badge) and its PRs.</summary>
-public sealed record SubIssueDetailResponse(IssueRowResponse Issue, IReadOnlyList<PullResponse> Pulls);
-
 /// <summary>
-/// <c>GET /api/issues/{owner}/{repo}/{number}</c>. <c>Timeline</c> holds the jobs on the issue and on its PRs, newest
-/// first; each job's log is read through <c>/api/jobs/{id}/files</c>. <c>Waiting</c> is null when nobody must act.
+/// <c>GET /api/issues/{owner}/{repo}/{number}</c>. The issue's row already holds what it waits on and its PRs; each
+/// sub-issue is its own row (stage, flags, badge, PRs). <c>Timeline</c> holds the jobs on the issue and on its PRs,
+/// newest first; each job's log is read through <c>/api/jobs/{id}/files</c>.
 /// </summary>
 public sealed record IssueDetailResponse(
     IssueRowResponse Issue,
-    CodeLabelResponse? Waiting,
     AnalysisSummaryResponse Analysis,
-    IReadOnlyList<SubIssueDetailResponse> SubIssues,
-    IReadOnlyList<PullResponse> Pulls,
+    IReadOnlyList<IssueRowResponse> SubIssues,
     IReadOnlyList<JobResponse> Timeline);
 
 /// <summary>Builds the detail page of one issue from the issue board, the snapshot's PRs and the job table.</summary>
@@ -52,24 +48,15 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
         }
 
         var row = IssueReader.RowOf(entry, board);
-        var waiting = entry.Waiting is { } action ? CodeLabelResponse.From(action) : null;
-        var pulls = board.PullsOf(entry);
         var subIssues = entry.SubIssues
             .Select(subIssue => board.Entries.GetValueOrDefault(subIssue.Key))
             .OfType<IssueEntry>()
-            .Select(subEntry => SubIssueOf(subEntry, board))
+            .Select(subEntry => IssueReader.RowOf(subEntry, board))
             .ToList();
-        var timeline = TimelineOf(entry, pulls);
+        var timeline = TimelineOf(entry, row.Pulls);
+        var analysis = AnalysisOf(entry);
 
-        return new IssueDetailResponse(row, waiting, AnalysisOf(entry), subIssues, pulls, timeline);
-    }
-
-    private static SubIssueDetailResponse SubIssueOf(IssueEntry subEntry, IssueBoard board)
-    {
-        var row = IssueReader.RowOf(subEntry, board);
-        var pulls = board.PullsOf(subEntry);
-
-        return new SubIssueDetailResponse(row, pulls);
+        return new IssueDetailResponse(row, analysis, subIssues, timeline);
     }
 
     private static AnalysisSummaryResponse AnalysisOf(IssueEntry entry)

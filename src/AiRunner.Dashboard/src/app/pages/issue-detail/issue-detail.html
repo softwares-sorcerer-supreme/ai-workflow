@@ -30,7 +30,7 @@
         <dt>State</dt>
         <dd>{{ current.issue.stateLabel }}</dd>
 
-        @if (current.waiting; as waiting) {
+        @if (current.issue.waiting; as waiting) {
           <dt>Waiting on you</dt>
           <dd class="waiting">{{ waiting.label }}</dd>
         }
@@ -58,25 +58,20 @@
 
         <app-data-table [rows]="current.subIssues" [columns]="subIssueColumns" [trackBy]="trackBySubIssue">
           <ng-template appCell="issue" let-row>
-            <span class="app-mono app-muted">#{{ row.issue.number }} </span>
-            <a class="row-link" [routerLink]="link(row.issue.repo, row.issue.number)">{{ row.issue.title }}</a>
+            <span class="app-mono app-muted">#{{ row.number }} </span>
+            <a class="row-link" [routerLink]="link(row.repo, row.number)">{{ row.title }}</a>
           </ng-template>
           <ng-template appCell="stage" let-row>
-            <app-stage-chip [code]="row.issue.stage" [label]="row.issue.stageLabel" />
+            <app-stage-chip [code]="row.stage" [label]="row.stageLabel" />
           </ng-template>
           <ng-template appCell="pulls" let-row>
-            @for (pull of row.pulls; track pull.number) {
-              <div>
-                @if (pull.htmlUrl; as url) {
-                  <a class="row-link" [href]="url" target="_blank" rel="noopener noreferrer">#{{ pull.number }}</a>
-                } @else {
-                  #{{ pull.number }}
-                }
-                <span class="app-muted">{{ pull.stateLabel }}</span>
-              </div>
-            } @empty {
-              <span class="app-muted">-</span>
-            }
+            <div class="pulls">
+              @for (pull of row.pulls; track issueKey(pull)) {
+                <app-pull-link [pull]="pull" />
+              } @empty {
+                <span class="app-muted">-</span>
+              }
+            </div>
           </ng-template>
         </app-data-table>
       </section>
@@ -86,7 +81,7 @@
       <h2 id="pulls-title" class="app-card-title">Pull requests</h2>
 
       <app-data-table
-        [rows]="current.pulls"
+        [rows]="current.issue.pulls"
         [columns]="pullColumns"
         [trackBy]="trackByPull"
         emptyTitle="No pull requests"

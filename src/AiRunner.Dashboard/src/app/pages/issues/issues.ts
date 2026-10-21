@@ -1,5 +1,4 @@
-import { DecimalPipe } from '@angular/common';
-import { Component, computed, effect, inject, linkedSignal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -16,7 +15,8 @@ import { getIssues } from '../../api/fn/issues/get-issues';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
-import { issueLink } from '../../shared/issue-link';
+import { CountToggle } from '../../shared/count-toggle/count-toggle';
+import { issueKey, issueLink } from '../../shared/issue-link';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
 import { PullLink } from '../../shared/pull-link/pull-link';
@@ -38,7 +38,7 @@ import {
   issueRequest,
   readIssueFilters,
 } from './issue-filters';
-import { IssueBoard, IssueBoardColumn } from './issue-board';
+import { BoardLane, IssueBoard } from './issue-board';
 
 /** How long the search waits after the last key before it asks the API. */
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -51,9 +51,6 @@ export interface IssueTableRow extends IssueRowResponse {
   isExpanded: boolean;
 }
 
-/** "owner/repo#n": the identity of an issue across projects. */
-const keyOf = (issue: IssueRowResponse) => `${issue.repo}#${issue.number}`;
-
 /**
  * Where every issue the runner polls stands and which ones need a person. The filters live in the URL (so a reload
  * or a shared link shows the same screen) and are sent to the API, which matches, sorts, counts and decides lanes,
@@ -63,9 +60,9 @@ const keyOf = (issue: IssueRowResponse) => `${issue.repo}#${issue.number}`;
   selector: 'app-issues',
   imports: [
     AppTime,
+    CountToggle,
     DataCell,
     DataTable,
-    DecimalPipe,
     InlineNote,
     IssueBoard,
     MatButtonModule,
@@ -123,8 +120,13 @@ export class Issues {
     return [...new Set(names)];
   });
 
-  /** What the search box shows: the URL's `q`, or what the user is typing before the debounce sends it. */
-  protected readonly searchText = linkedSignal(() => this.filters().q);
+  /**
+   * What the search box shows. It follows the URL only when `q` changes from outside (back/forward, Clear filters),
+   * never on the echo of what the box sent itself, so a trailing space or keys typed meanwhile are never overwritten.
+   */
+  protected readonly searchText = signal(this.filters().q);
+  /** The last `q` the search box wrote into the URL. */
+  private sentSearch = this.filters().q;
   private readonly searchInput = new Subject<string>();
 
   /**
@@ -142,7 +144,7 @@ export class Issues {
   private readonly isExpandedByDefault = computed(() => isIssueListNarrowed(this.filters()));
 
   private readonly parentKeys = computed(() =>
-    (this.issues.value()?.items ?? []).filter((item) => item.subIssues.length > 0).map(keyOf),
+    (this.issues.value()?.items ?? []).filter((item) => item.subIssues.length > 0).map(issueKey),
   );
   protected readonly hasParents = computed(() => this.parentKeys().length > 0);
   protected readonly isAllExpanded = computed(() => this.parentKeys().every((key) => this.isExpanded(key)));
@@ -150,7 +152,7 @@ export class Issues {
   /** The nested answer as table lines: each parent, followed by its sub-issues when it is expanded. */
   protected readonly rows = computed<IssueTableRow[] | undefined>(() =>
     this.issues.value()?.items.flatMap((item) => {
-      const key = keyOf(item);
+      const key = issueKey(item);
       const hasSubIssues = item.subIssues.length > 0;
       const isExpanded = hasSubIssues && this.isExpanded(key);
       const parent: IssueTableRow = { ...item, key, isSubIssue: false, hasSubIssues, isExpanded };
@@ -161,7 +163,7 @@ export class Issues {
 
       const subIssues = item.subIssues.map((subIssue) => ({
         ...subIssue,
-        key: keyOf(subIssue),
+        key: issueKey(subIssue),
         isSubIssue: true,
         hasSubIssues: false,
         isExpanded: false,
@@ -172,7 +174,7 @@ export class Issues {
   );
 
   /** The lanes in the API's order, each with its issues; grouping by the lane code the API sent is layout only. */
-  protected readonly boardColumns = computed<IssueBoardColumn[]>(() => {
+  protected readonly boardLanes = computed<BoardLane[]>(() => {
     const answer = this.issues.value();
 
     if (!answer) {
@@ -217,9 +219,20 @@ export class Issues {
       untracked(() => this.issues.reload());
     });
 
+    effect(() => {
+      const query = this.filters().q;
+
+      untracked(() => {
+        if (query !== this.sentSearch) {
+          this.sentSearch = query;
+          this.searchText.set(query);
+        }
+      });
+    });
+
     this.searchInput
       .pipe(debounceTime(SEARCH_DEBOUNCE_MS), takeUntilDestroyed())
-      .subscribe((text) => this.update({ q: text.trim() }, true));
+      .subscribe((text) => this.sendSearch(text));
   }
 
   protected setProject(name: string): void {
@@ -265,15 +278,26 @@ export class Issues {
     this.searchInput.next(text);
   }
 
+  /** Clears at once; the empty text also replaces a search still waiting for its debounce. */
   protected clearSearch(): void {
     this.searchText.set('');
-    this.update({ q: '' }, true);
+    this.searchInput.next('');
+    this.sendSearch('');
   }
 
   /** Back to the default filters; the chosen view stays. */
   protected clearFilters(): void {
     this.searchText.set('');
+    this.searchInput.next('');
+    this.sentSearch = DEFAULT_ISSUE_FILTERS.q;
     this.update({ ...DEFAULT_ISSUE_FILTERS, view: this.filters().view });
+  }
+
+  private sendSearch(text: string): void {
+    const query = text.trim();
+
+    this.sentSearch = query;
+    this.update({ q: query }, true);
   }
 
   protected toggle(row: IssueTableRow): void {

@@ -1,14 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { fixedClock, sampleIssue } from '../../shared/testing';
-import { IssueBoard, IssueBoardColumn } from './issue-board';
+import { IssueBoard, BoardLane } from './issue-board';
 
 describe('IssueBoard', () => {
-  async function render(columns: IssueBoardColumn[]) {
+  async function render(lanes: BoardLane[]) {
     TestBed.configureTestingModule({ providers: [provideRouter([]), fixedClock] });
 
     const fixture = TestBed.createComponent(IssueBoard);
-    fixture.componentRef.setInput('columns', columns);
+    fixture.componentRef.setInput('lanes', lanes);
     await fixture.whenStable();
 
     return fixture.nativeElement as HTMLElement;

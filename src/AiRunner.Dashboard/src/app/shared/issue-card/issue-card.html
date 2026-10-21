@@ -35,17 +35,17 @@
   <p class="waiting"><mat-icon aria-hidden="true">front_hand</mat-icon><span>{{ waiting.label }}</span></p>
 }
 
-@if (row.progress; as progress) {
-  <app-sub-issue-progress [progress]="progress" />
-}
-
 @if (row.pulls.length > 0) {
   <div class="pulls">
     <span class="app-muted">PR</span>
-    @for (pull of row.pulls; track pull.repo + '#' + pull.number) {
+    @for (pull of row.pulls; track issueKey(pull)) {
       <app-pull-link [pull]="pull" />
     }
   </div>
+}
+
+@if (row.progress; as progress) {
+  <app-sub-issue-progress [progress]="progress" />
 }
 
 <span class="updated app-muted">Updated <app-time [value]="row.updatedAt" mode="relative" /></span>

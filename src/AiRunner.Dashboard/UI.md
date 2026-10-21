@@ -63,8 +63,11 @@ Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.
 `pullStateTone(code)`), which falls back to `neutral` (or no icon) for an unknown code. Lanes: `todo` neutral, `ready`
 info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
 `failed` danger. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
-a code (`state === 'busy'`) and never builds label text (plurals, counts). If text is missing, the API should send it
-ready (like `errorsLabel` on `/api/health`).
+a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
+is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
+comparing the chosen filter value with an option's code to mark the selected option
+(`current.lane === lane.code`), and joining fields the API sent, unchanged, into hover or accessible text
+(`app-pull-link`: repo, number, title and `stateLabel`).
 
 In a component's SCSS, give the host the tone variables with the shared mixin and style from your own variables:
 ```scss
@@ -144,7 +147,8 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-data-table` + `appCell` | every list of rows from the API | a list of 2-3 facts (use `.app-facts`) |
 | `app-status-chip` | a state from the API: flags, badges, outcomes | buttons or links |
 | `app-stage-chip` | the workflow stage of an issue | anything else |
-| `app-issue-card` | one issue as a card (board columns, short lists) | a table row (use `app-data-table`) |
+| `app-issue-card` | one issue as a card (the lanes of the board, short lists) | a table row (use `app-data-table`) |
+| `app-count-toggle` | a toned toggle button with a label and an API count (focus chips, pipeline segments) | a plain action button (use `mat-button`) |
 | `app-pull-link` | one PR as a toned "#50" link | PR details (use a table) |
 | `app-sub-issue-progress` | a parent's `progress` as a thin bar + "closed/total" | any other ratio |
 | `app-view-state` | loading / empty / error of a panel that is not a table | inline hints |
@@ -242,9 +246,22 @@ The label is shown as sent ("Broken down (2/5)").
 <app-pull-link [pull]="pull" />                           <!-- a PullResponse; tone from pullStateTone -->
 <app-sub-issue-progress [progress]="row.progress" />      <!-- only when progress is not null -->
 ```
-The card shows, from the row only: `#number` + muted "project · component" + GitBucket icon, the title (link to the
+The card shows, from the row only: `#number` + muted "project Â· component" + GitBucket icon, the title (link to the
 detail page, at most 2 lines), "Part of #parent" for a sub-issue, the stage chip, badge and flag chips, the `waiting`
 action as a warning line, PR links, the sub-issue progress and the relative update time. It needs `provideRouter`.
+`issueKey(item)` (`shared/issue-link.ts`) gives the "owner/repo#n" key of an issue or a PR for every `track` and
+keyed state; do not build it inline.
+
+### `app-count-toggle`
+
+```html
+<button appCountToggle label="All" [count]="total()" [pressed]="!current.focus" (click)="setFocus('')"></button>
+<button appCountToggle look="segment" [label]="lane.label" [count]="lane.count" [tone]="laneTone(lane.code)"
+        [pressed]="current.lane === lane.code" (click)="toggleLane(lane.code)"></button>
+```
+The component is the button itself, so `(click)`, `data-*` attributes and the focus ring stay on it. `look` is
+`chip` (a pill with a small count badge, default) or `segment` (a tile with a colored top edge and a large count).
+No `tone` = no dot (an "All" option); no `count` = no number. It sets `aria-pressed` and the selected colors.
 
 ### `app-view-state`
 
@@ -327,9 +344,9 @@ the focus chips (All + the API's `focuses` with counts), then:
   clears `lane`) and the table: Issue (chevron for parents, `aria-expanded`; collapsed unless lane, focus, stage or
   search is set; "Expand all / Collapse all" above), Stage (+ progress), Next (badge, else `waiting` as a warning
   chip, else "-"), Flags, PR, Updated.
-- **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one column per entry of
+- **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one lane per entry of
   `lanes` with `app-issue-card`s grouped by the row's `lane` code, in the API's order; it scrolls sideways in its own
-  box (columns at least 260 px, all five fit from 1280 px).
+  box (lanes at least 260 px wide below a 1280 px window, at least 180 px from 1280 px up).
 
 ### Health
 
@@ -349,7 +366,8 @@ alternative. Follow the same rules for a new chart and move it to `shared/` once
 ### Global CSS classes (`src/styles.scss`)
 
 - `.app-card` + `.app-card-title`: a panel with a title.
-- `.app-stack`: vertical list of cards with the standard gap.
+- `.app-stack`: vertical list of cards with the standard gap. Its children get `min-width: 0`, so a wide child (a
+  board, a table) scrolls in its own box instead of widening the page.
 - `.app-facts` on a `<dl>`: label/value pairs in two columns (one on phones).
 - `.app-muted`: secondary text. `.app-mono`: code-like text that wraps.
 - `matTooltipClass="app-pre-line"`: a tooltip that keeps line breaks.

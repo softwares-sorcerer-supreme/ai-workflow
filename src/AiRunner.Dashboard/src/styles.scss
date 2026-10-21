@@ -137,4 +137,10 @@ body {
 .app-stack {
   display: grid;
   gap: var(--app-space-4);
+
+  // A grid item is as wide as its content by default; without this a wide child (the issue board) would widen the
+  // card and scroll the whole page instead of its own box.
+  > * {
+    min-width: 0;
+  }
 }
