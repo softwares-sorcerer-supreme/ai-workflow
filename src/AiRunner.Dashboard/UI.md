@@ -5,8 +5,8 @@ what is here before you create anything new. If you add a shared piece, add it t
 
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
 The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
-(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, and the actions on issues and PRs:
-Implement, Retry, Answer, Full review...) follow section 8.
+(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, the Workspaces screen's Fetch / Re-clone /
+Delete, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
 
 ## 1. Ground rules
 
@@ -62,11 +62,12 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
 `JOB_STATUS_TONES`, `STEP_STATE_TONES`, `STEP_STATE_ICONS`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
-`PULL_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
+`PULL_STATE_TONES`, `WORKSPACE_WARNING_ICONS`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
 `issueMarkTone(code)`, `issueMarkIcon(code)`, `workerIcon(code)`, `laneTone(code)`, `focusTone(code)`,
-`pullStateTone(code)`), which falls back to `neutral` (or no icon) for an unknown code. Lanes: `todo` neutral, `ready`
+`pullStateTone(code)`, `workspaceWarningIcon(code)`), which falls back to `neutral` (or no icon, or the plain `warning` icon) for an unknown code. Lanes: `todo` neutral, `ready`
 info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
-`failed` danger. Job step states: `running` progress, `ok` success, `failed` danger, `interrupted` warning. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
+`failed` danger. Job step states: `running` progress, `ok` success, `failed` danger, `interrupted` warning. PR states: `open` info, `merged` success, `closed` neutral. Workspace warnings (`agent-override`, `instructions-missing`, `has-changes`) all use the
+`warning` tone; `WORKSPACE_WARNING_ICONS` only gives each its icon. Those maps are the only place a code is interpreted: a template never compares
 a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
 is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
 comparing the chosen filter value with an option's code to mark the selected option
@@ -128,6 +129,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | Issues    |   <div class="app-stack">                        |
 | Jobs      |     <section class="app-card"> ... </section>    |
 | Cost      |     <section class="app-card"> ... </section>    |
+| Workspaces|                                                  |
 | Setup     |                                                  |
 +-----------+--------------------------------------------------+
 ```
@@ -167,6 +169,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-markdown` | Markdown text from the API (log files), rendered safely | text that is not Markdown (use `<pre class="app-mono">`) |
 | `app-time` | every point in time | durations |
 | `duration` pipe | every duration in seconds | points in time |
+| `bytes` pipe (`formatBytes`) | every size in bytes from the API: "512 B", "12.4 KB", "2.1 MB" (`shared/bytes.pipe.ts`) | counts (use `\| number`) |
 | `pollResource` | every API read | one-off actions |
 | `writeAction` | every button that writes: busy state, the runner's message in a snack bar (section 8) | reads |
 | `app-action-buttons` | the actions the API offers for one issue or PR (`actions` of a row or a PR), one button each, with the text box for actions that need text (section 8) | buttons of the runner itself (Poll now, Pause) |
@@ -351,6 +354,7 @@ logs go in `<pre class="app-mono">` with `white-space: pre-wrap`, so they wrap i
 <app-time [value]="row.startedAt" />                 <!-- 14:03:12 today, "19 Oct 2026, 14:03:12" otherwise -->
 <app-time [value]="health.lastPollEndedAt" mode="relative" />   <!-- "30 s ago" -->
 {{ row.durationSeconds | duration }}                  <!-- "3 min 05 s"; "-" for null (old rows) -->
+{{ clone.sizeBytes | bytes }}                         <!-- "2.1 MB"; "-" for null -->
 ```
 `app-time` has a tooltip with the full local date and time, shows `-` for null, and updates relative text every
 second from the shared `Clock`. Use `relative` where recency matters (health, "last seen"), `absolute` in tables and
@@ -399,6 +403,18 @@ the focus chips (All + the API's `focuses` with counts), then:
 - **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one lane per entry of
   `lanes` with `app-issue-card`s grouped by the row's `lane` code, in the API's order; it scrolls sideways in its own
   box (lanes at least 260 px wide below a 1280 px window, at least 180 px from 1280 px up).
+
+### Workspaces screen
+
+`GET /api/workspaces`: one card per project (name, a `Busy` chip with the hover text "A job is using this project"
+while `isBusy`), each with a table of its clones: Repository (+ components), Checked out (branch, "detached at
+<detachedAt>", or "Not cloned yet" while `exists` is false), Last commit (short sha, subject, `app-time`), Last fetch
+("never" when null), Changed files (the count of `changedPaths`, the paths in a tooltip), Size (`| bytes`,
+"calculating..." while `sizeBytes` is null), and the buttons Fetch and Re-clone (re-clone asks first). Both buttons go
+to the runner with the project name and the clone's `folder` (never `repo`), are one `writeAction` group, and are
+disabled while the project `isBusy` (the runner also refuses with a 409 and its message). The clone's `warnings` follow
+the table as `app-inline-note`s ("<repo>: <message>", icon from `workspaceWarningIcon`). Last card: Orphan folders
+(folder, size, Delete with a confirmation naming the folder), or "No orphan folders." when there are none.
 
 ### Health
 
@@ -451,8 +467,9 @@ keep data on screen while reloading, never show the loading state again after th
 
 Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
 the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
-Check and save / Remove for the token and the web password on the Setup screen, and the actions on issues and PRs
-(`app-action-buttons`) on the Issues list, the board cards and Issue detail.
+Check and save / Remove for the token and the web password on the Setup screen, Fetch / Re-clone per clone and Delete
+per orphan folder on the Workspaces screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
+list, the board cards and Issue detail.
 
 1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The
    `writeGuardInterceptor` (`shared/write-guard.interceptor.ts`) gives every request that is not a GET the header
@@ -522,7 +539,7 @@ tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePo
 fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
 its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
 `callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`,
-`sampleIssue(overrides)`, `samplePull(overrides)` or `sampleStep(overrides)`, and wait for the
+`sampleIssue(overrides)`, `samplePull(overrides)`, `sampleStep(overrides)` or `sampleClone(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
 `MatPaginatorHarness`, `MatButtonHarness`). A write test answers the write in `FakeApi` (throw an
 `HttpErrorResponse` for a 409 or 403), provides `{ provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } }`

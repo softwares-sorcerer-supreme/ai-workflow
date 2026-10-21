@@ -20,6 +20,7 @@ import { getJob } from '../../api/fn/jobs/get-job';
 import { getJobFile } from '../../api/fn/jobs/get-job-file';
 import { getJobFiles } from '../../api/fn/jobs/get-job-files';
 import { LogFileTextResponse } from '../../api/models/log-file-text-response';
+import { BytesPipe } from '../../shared/bytes.pipe';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { JobSteps } from '../../shared/job-steps/job-steps';
 import { Markdown } from '../../shared/markdown/markdown';
@@ -53,6 +54,7 @@ const FOLLOW_SLACK_PX = 24;
   selector: 'app-job-log',
   imports: [
     AppTime,
+    BytesPipe,
     DurationPipe,
     InlineNote,
     JobSteps,
@@ -217,19 +219,5 @@ export class JobLog {
     };
 
     return file;
-  }
-
-  /** File size for the list: "512 B", "12.4 KB", "2.1 MB". */
-  protected sizeOf(bytes: number): string {
-    if (bytes < 1024) {
-      return `${bytes} B`;
-    }
-
-    const kilobytes = bytes / 1024;
-    if (kilobytes < 1024) {
-      return `${kilobytes.toFixed(1)} KB`;
-    }
-
-    return `${(kilobytes / 1024).toFixed(1)} MB`;
   }
 }

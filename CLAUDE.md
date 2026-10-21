@@ -238,6 +238,16 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   comment without the bot marker, so the planner takes it as a person's `@ai`; it ends with `_(sent from the ai-runner dashboard on <runner_name>)_`),
   then wakes the poller. It never inserts into the queue. Unknown project/action 404, missing text 400, code host failure 502.
 
+- **Workspaces** (`Infrastructure/WorkspaceInspector`, `Hosting/RunnerWorkspaces`, `Web/WorkspacesApi`): `GET /api/workspaces` lists every
+  clone of every project (`work/<project>/<repo-name>/`) from local git only (`IGitClient.HeadAsync`, `ChangedPathsAsync`, `.git/FETCH_HEAD`,
+  never the network, never the lock) plus the orphan folders of `work/`; size comes from `DirectorySizes` (background walk, `null` until
+  done). Warnings are `Core/WorkspaceChecks` (`agent-override`, `instructions-missing`, `has-changes`; changes are not read while a job holds
+  the project). Actions: `POST /api/workspaces/{project}/{folder}/fetch|reclone` (`{folder}` = the clone folder name, `ProjectConfig.FolderOf`)
+  and `DELETE /api/workspaces/orphans/{folder}`. `Infrastructure/WorkspaceLocks`: `Workspace.PrepareAsync` takes the project for the job (waits
+  only for a running action), `JobWorker` releases it in its `finally`; an action only `TryHoldForAction`s and answers 409 when held. Orphan
+  delete is a security boundary: `Core/OrphanRules` (plain name only, no dot names, never a project, any case), then the resolved path must be a
+  direct child of `work/` and not a link. `IRunnerWorkspaces` is what the web app gets (no git client there).
+
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
   is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on

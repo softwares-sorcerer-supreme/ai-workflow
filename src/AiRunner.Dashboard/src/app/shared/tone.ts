@@ -166,3 +166,19 @@ export function stepStateTone(code: string): Tone {
 export function stepStateIcon(code: string): string | undefined {
   return STEP_STATE_ICONS[code];
 }
+
+/**
+ * Icon per workspace warning code (C# `Core/WorkspaceChecks`): `agent-override` a repo's own copy of an agent the
+ * runner installs, `instructions-missing` a file named in `instructions` is not there, `has-changes` changes left in
+ * a clone between jobs. Every warning uses the `warning` tone; the icon only tells them apart.
+ */
+export const WORKSPACE_WARNING_ICONS: Readonly<Record<string, string>> = {
+  'agent-override': 'smart_toy',
+  'instructions-missing': 'description',
+  'has-changes': 'edit_document',
+};
+
+/** The icon of a workspace warning code, the plain warning icon for an unknown one. */
+export function workspaceWarningIcon(code: string): string {
+  return WORKSPACE_WARNING_ICONS[code] ?? 'warning';
+}

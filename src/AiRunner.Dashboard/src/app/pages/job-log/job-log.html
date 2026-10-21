@@ -99,7 +99,7 @@
                 (click)="select(entry.name)"
               >
                 <span matListItemTitle class="app-mono">{{ entry.name }}</span>
-                <span matListItemLine class="app-muted">{{ sizeOf(entry.sizeBytes) }}</span>
+                <span matListItemLine class="app-muted">{{ entry.sizeBytes | bytes }}</span>
               </button>
             }
           </mat-action-list>

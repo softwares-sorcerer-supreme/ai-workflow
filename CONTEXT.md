@@ -89,6 +89,14 @@ _Avoid_: blocked, pending, todo
 Something a person asks the runner to do from the dashboard (implement, break down, retry, answer, ask, start the next sub-issue, full review, fix). It is only a write on the code host, a label or a person's `@ai` comment, that the planner then picks up like the same change made by hand; it never puts a job in the queue. The runner offers an action only while the item still allows it, and checks again on fresh data right before it writes.
 _Avoid_: command, button, trigger
 
+**Workspace lock**:
+The one lock per project folder under `work/`. A job takes it when it prepares the project and the worker releases it when the job ends; a workspace action from the dashboard (fetch, re-clone) tries it without waiting and is refused with a 409 while a job holds it. Deleting an orphan needs no lock because no project owns that folder.
+_Avoid_: mutex, semaphore
+
+**Orphan**:
+A folder under `work/` that is no project of `repos.yml` (a project that was removed or renamed). The dashboard may delete it, and only it: a plain folder name that resolves directly inside `work/`, never a project folder.
+_Avoid_: stale folder, leftover
+
 **Snapshot**:
 The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.
 _Avoid_: cache, mirror, sync

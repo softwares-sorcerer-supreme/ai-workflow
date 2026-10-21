@@ -5,6 +5,7 @@ import {
   LANE_TONES,
   PULL_STATE_TONES,
   STEP_STATE_TONES,
+  WORKSPACE_WARNING_ICONS,
   focusTone,
   healthTone,
   issueMarkIcon,
@@ -14,6 +15,7 @@ import {
   pullStateTone,
   stepStateIcon,
   stepStateTone,
+  workspaceWarningIcon,
 } from './tone';
 
 describe('issueMarkTone and issueMarkIcon', () => {
@@ -149,5 +151,27 @@ describe('stepStateTone and stepStateIcon', () => {
 
   it('has a color for every step state the API sends', () => {
     expect(Object.keys(STEP_STATE_TONES).sort()).toEqual(['failed', 'interrupted', 'ok', 'running']);
+  });
+});
+
+describe('workspaceWarningIcon', () => {
+  it.each([
+    ['agent-override', 'smart_toy'],
+    ['instructions-missing', 'description'],
+    ['has-changes', 'edit_document'],
+  ])('shows warning %s with icon %s', (code, icon) => {
+    expect(workspaceWarningIcon(code)).toBe(icon);
+  });
+
+  it('shows an unknown warning with the plain warning icon', () => {
+    expect(workspaceWarningIcon('something-new')).toBe('warning');
+  });
+
+  it('has an icon for every warning the API sends', () => {
+    expect(Object.keys(WORKSPACE_WARNING_ICONS).sort()).toEqual([
+      'agent-override',
+      'has-changes',
+      'instructions-missing',
+    ]);
   });
 });

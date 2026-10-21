@@ -24,6 +24,13 @@ describe('App shell', () => {
     const entries = [...element.querySelectorAll('mat-nav-list a')].map((link) => link.textContent?.trim());
 
     expect(element.querySelector('app-health-strip')).not.toBeNull();
-    expect(entries).toEqual(['dashboardOverview', 'assignmentIssues', 'terminalJobs', 'paymentsCost', 'keySetup']);
+    expect(entries).toEqual([
+      'dashboardOverview',
+      'assignmentIssues',
+      'terminalJobs',
+      'paymentsCost',
+      'folder_copyWorkspaces',
+      'keySetup',
+    ]);
   });
 });

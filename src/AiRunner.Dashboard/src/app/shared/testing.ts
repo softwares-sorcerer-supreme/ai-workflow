@@ -1,4 +1,5 @@
 import { WritableSignal, signal } from '@angular/core';
+import { CloneResponse } from '../api/models/clone-response';
 import { HealthResponse } from '../api/models/health-response';
 import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
@@ -212,6 +213,26 @@ export function sampleStep(overrides: Partial<JobStepResponse> = {}): JobStepRes
     state: 'ok',
     stateLabel: 'Done',
     detail: null,
+    ...overrides,
+  };
+}
+
+/** A clone on branch main, fetched, without changes or warnings, size known; override fields per test. */
+export function sampleClone(overrides: Partial<CloneResponse> = {}): CloneResponse {
+  return {
+    repo: 'team/shop',
+    folder: 'shop',
+    exists: true,
+    components: ['api', 'web'],
+    headSha: '0123456789abcdef0123456789abcdef01234567',
+    headSubject: 'Export orders as CSV',
+    headAt: '2026-01-01T10:00:00Z',
+    branch: 'main',
+    detachedAt: null,
+    lastFetchAt: '2026-01-01T11:50:00Z',
+    changedPaths: [],
+    sizeBytes: 2 * 1024 * 1024,
+    warnings: [],
     ...overrides,
   };
 }

@@ -39,6 +39,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/cost/cost').then((page) => page.Cost),
   },
   {
+    path: 'workspaces',
+    title: titled('Workspaces'),
+    loadComponent: () => import('./pages/workspaces/workspaces').then((page) => page.Workspaces),
+  },
+  {
     path: 'setup',
     title: titled('Setup'),
     loadComponent: () => import('./pages/setup/setup').then((page) => page.Setup),
