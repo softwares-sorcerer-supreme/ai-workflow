@@ -13,3 +13,28 @@
     }
   }
 }
+
+// A solid 8 px dot in the tone's dot color, for an item styled with `--<prefix>-dot`.
+//
+//   .dot { @include tones.dot(lane); }
+@mixin dot($prefix) {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--#{$prefix}-dot);
+}
+
+// The same variables on plain elements, for a component that repeats toned items in one template (pipeline
+// segments, focus chips): `.tone-<tone>` on the element sets `--<prefix>-bg`, `--<prefix>-fg` and `--<prefix>-dot`.
+//
+//   @include tones.class-variants(segment);   // .tone-info { --segment-bg: ...; }
+@mixin class-variants($prefix) {
+  @each $tone in neutral, info, progress, success, warning, danger {
+    .tone-#{$tone} {
+      --#{$prefix}-bg: var(--app-tone-#{$tone}-bg);
+      --#{$prefix}-fg: var(--app-tone-#{$tone}-fg);
+      --#{$prefix}-dot: var(--app-tone-#{$tone}-dot);
+    }
+  }
+}

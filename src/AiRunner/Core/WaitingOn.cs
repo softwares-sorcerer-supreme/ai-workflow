@@ -36,7 +36,7 @@ public static class WaitingOn
             return null;
         }
 
-        if (stage.Flags.Any(flag => flag.Code == IssueMarks.Failed))
+        if (stage.IsFailed)
         {
             return new CodeLabel(ReadFailure, "Read the failure, then remove ai:failed");
         }

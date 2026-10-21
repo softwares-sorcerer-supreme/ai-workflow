@@ -1,0 +1,29 @@
+@use '../tones';
+
+:host {
+  display: inline-flex;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--app-space-2);
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+  font-family: var(--app-font-mono);
+  white-space: nowrap;
+  background: var(--pull-bg);
+  color: var(--pull-fg);
+  text-decoration: none;
+}
+
+a.pill:hover {
+  text-decoration: underline;
+}
+
+a.pill:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 1px;
+}
+
+@include tones.host-variants(pull);

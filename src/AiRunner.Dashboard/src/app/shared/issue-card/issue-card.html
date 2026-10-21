@@ -1,0 +1,51 @@
+@let row = issue();
+
+<div class="top">
+  <span class="number app-mono">#{{ row.number }}</span>
+  <span class="where app-muted"
+    >{{ row.project }}
+    @if (row.component) {
+      &middot; {{ row.component }}
+    }
+  </span>
+  @if (row.htmlUrl; as url) {
+    <a class="external" [href]="url" target="_blank" rel="noopener noreferrer" aria-label="Open in GitBucket"
+      ><mat-icon aria-hidden="true">open_in_new</mat-icon></a
+    >
+  }
+</div>
+
+<a class="title" [routerLink]="link()" [attr.title]="row.title">{{ row.title }}</a>
+
+@if (parentLink(); as parent) {
+  <span class="parent app-muted">Part of <a [routerLink]="parent">#{{ row.parent }}</a></span>
+}
+
+<div class="chips">
+  <app-stage-chip [code]="row.stage" [label]="row.stageLabel" />
+  @if (row.badge; as badge) {
+    <app-status-chip [label]="badge.label" [tone]="markTone(badge.code)" [icon]="markIcon(badge.code)" />
+  }
+  @for (flag of row.flags; track flag.code) {
+    <app-status-chip [label]="flag.label" [tone]="markTone(flag.code)" [icon]="markIcon(flag.code)" />
+  }
+</div>
+
+@if (row.waiting; as waiting) {
+  <p class="waiting"><mat-icon aria-hidden="true">front_hand</mat-icon><span>{{ waiting.label }}</span></p>
+}
+
+@if (row.pulls.length > 0) {
+  <div class="pulls">
+    <span class="app-muted">PR</span>
+    @for (pull of row.pulls; track issueKey(pull)) {
+      <app-pull-link [pull]="pull" />
+    }
+  </div>
+}
+
+@if (row.progress; as progress) {
+  <app-sub-issue-progress [progress]="progress" />
+}
+
+<span class="updated app-muted">Updated <app-time [value]="row.updatedAt" mode="relative" /></span>

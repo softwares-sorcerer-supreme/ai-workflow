@@ -24,7 +24,57 @@ public sealed record IssueBoard(
     /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
     public static StringComparer KeyComparer { get; } = StringComparer.OrdinalIgnoreCase;
 
+    /// <summary>Built once per board, so finding the PRs of every row is not one scan of all PRs per issue.</summary>
+    private readonly ILookup<string, PullSnapshot> _pullsByLinkedIssue = Pulls
+        .Where(pull => pull.LinkedIssue is not null)
+        .ToLookup(pull => pull.LinkedIssue!, KeyComparer);
+
+    private readonly ILookup<string, PullSnapshot> _pullsByHead = Pulls.ToLookup(
+        pull => pull.HeadRef,
+        StringComparer.Ordinal);
+
     public static string KeyOf(string repo, int number) => new IssueRef(repo, number).ToString();
+
+    /// <summary>
+    /// The PRs of an issue, newest first: the ones the stage counts as "its PR" (found by branch) and any PR whose
+    /// body links the issue. A PR of another project's repo never matches.
+    /// </summary>
+    public IReadOnlyList<PullResponse> PullsOf(IssueEntry entry)
+    {
+        var repos = entry.Project.CodeRepos.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var linking = _pullsByLinkedIssue[entry.Issue.Key];
+        var itsPulls = entry.Stage.Pulls.SelectMany(itsPull =>
+            _pullsByHead[itsPull.Head.Ref].Where(pull => pull.Number == itsPull.Number));
+
+        return linking
+            .Concat(itsPulls)
+            .Where(pull => repos.Contains(pull.Repo))
+            .Distinct()
+            .OrderByDescending(pull => pull.UpdatedAt)
+            .Select(PullOf)
+            .ToList();
+    }
+
+    private static PullResponse PullOf(PullSnapshot pull)
+    {
+        var (state, label) = pull switch
+        {
+            { IsMerged: true } => ("merged", "Merged"),
+            { State: SnapshotRules.Open } => ("open", "Open"),
+            _ => ("closed", "Closed"),
+        };
+
+        return new PullResponse(
+            pull.Repo,
+            pull.Number,
+            pull.Title,
+            state,
+            label,
+            pull.HeadRef,
+            pull.BaseRef,
+            pull.HtmlUrl,
+            pull.UpdatedAt);
+    }
 }
 
 /// <summary>Reads the snapshot, the job table and the running job, and asks Core for every issue's stage and action.</summary>

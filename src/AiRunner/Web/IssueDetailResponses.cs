@@ -22,19 +22,15 @@ public sealed record AnalysisSummaryResponse(
     CodeLabelResponse Complexity,
     string? Component);
 
-/// <summary>A sub-issue on the page of its parent: its row (stage, flags, badge) and its PRs.</summary>
-public sealed record SubIssueDetailResponse(IssueRowResponse Issue, IReadOnlyList<PullResponse> Pulls);
-
 /// <summary>
-/// <c>GET /api/issues/{owner}/{repo}/{number}</c>. <c>Timeline</c> holds the jobs on the issue and on its PRs, newest
-/// first; each job's log is read through <c>/api/jobs/{id}/files</c>. <c>Waiting</c> is null when nobody must act.
+/// <c>GET /api/issues/{owner}/{repo}/{number}</c>. The issue's row already holds what it waits on and its PRs; each
+/// sub-issue is its own row (stage, flags, badge, PRs). <c>Timeline</c> holds the jobs on the issue and on its PRs,
+/// newest first; each job's log is read through <c>/api/jobs/{id}/files</c>.
 /// </summary>
 public sealed record IssueDetailResponse(
     IssueRowResponse Issue,
-    CodeLabelResponse? Waiting,
     AnalysisSummaryResponse Analysis,
-    IReadOnlyList<SubIssueDetailResponse> SubIssues,
-    IReadOnlyList<PullResponse> Pulls,
+    IReadOnlyList<IssueRowResponse> SubIssues,
     IReadOnlyList<JobResponse> Timeline);
 
 /// <summary>Builds the detail page of one issue from the issue board, the snapshot's PRs and the job table.</summary>
@@ -51,17 +47,16 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
             return null;
         }
 
-        var row = IssueReader.RowOf(entry);
-        var waiting = entry.Waiting is { } action ? CodeLabelResponse.From(action) : null;
-        var pulls = PullsOf(entry, board);
+        var row = IssueReader.RowOf(entry, board);
         var subIssues = entry.SubIssues
             .Select(subIssue => board.Entries.GetValueOrDefault(subIssue.Key))
             .OfType<IssueEntry>()
-            .Select(subEntry => new SubIssueDetailResponse(IssueReader.RowOf(subEntry), PullsOf(subEntry, board)))
+            .Select(subEntry => IssueReader.RowOf(subEntry, board))
             .ToList();
-        var timeline = TimelineOf(entry, pulls);
+        var timeline = TimelineOf(entry, row.Pulls);
+        var analysis = AnalysisOf(entry);
 
-        return new IssueDetailResponse(row, waiting, AnalysisOf(entry), subIssues, pulls, timeline);
+        return new IssueDetailResponse(row, analysis, subIssues, timeline);
     }
 
     private static AnalysisSummaryResponse AnalysisOf(IssueEntry entry)
@@ -73,52 +68,6 @@ public sealed class IssueDetailReader(RunnerConfig config, IssueBoardReader boar
             CodeLabelResponse.From(summary.Status),
             CodeLabelResponse.From(summary.Complexity),
             component);
-    }
-
-    /// <summary>
-    /// The PRs of the issue: the ones the stage counts as "its PR" (found by branch) and any PR whose body links the
-    /// issue. A PR of another project's repo never matches.
-    /// </summary>
-    private static List<PullResponse> PullsOf(IssueEntry entry, IssueBoard board)
-    {
-        var repos = entry.Project.CodeRepos.ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        return board.Pulls
-            .Where(pull => repos.Contains(pull.Repo) && IsOfIssue(pull, entry))
-            .OrderByDescending(pull => pull.UpdatedAt)
-            .Select(PullOf)
-            .ToList();
-    }
-
-    private static bool IsOfIssue(PullSnapshot pull, IssueEntry entry)
-    {
-        if (IssueBoard.KeyComparer.Equals(pull.LinkedIssue, entry.Issue.Key))
-        {
-            return true;
-        }
-
-        return entry.Stage.Pulls.Any(itsPull => itsPull.Number == pull.Number && itsPull.Head.Ref == pull.HeadRef);
-    }
-
-    private static PullResponse PullOf(PullSnapshot pull)
-    {
-        var (state, label) = pull switch
-        {
-            { IsMerged: true } => ("merged", "Merged"),
-            { State: SnapshotRules.Open } => ("open", "Open"),
-            _ => ("closed", "Closed"),
-        };
-
-        return new PullResponse(
-            pull.Repo,
-            pull.Number,
-            pull.Title,
-            state,
-            label,
-            pull.HeadRef,
-            pull.BaseRef,
-            pull.HtmlUrl,
-            pull.UpdatedAt);
     }
 
     /// <summary>The jobs on the issue and on its PRs (reviews and fixes), newest first.</summary>

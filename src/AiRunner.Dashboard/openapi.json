@@ -274,6 +274,34 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "lane",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "focus",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -568,6 +596,26 @@
           }
         }
       },
+      "CountResponse": {
+        "required": [
+          "code",
+          "label",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "HealthResponse": {
         "required": [
           "state",
@@ -643,10 +691,8 @@
       "IssueDetailResponse": {
         "required": [
           "issue",
-          "waiting",
           "analysis",
           "subIssues",
-          "pulls",
           "timeline"
         ],
         "type": "object",
@@ -654,29 +700,13 @@
           "issue": {
             "$ref": "#/components/schemas/IssueRowResponse"
           },
-          "waiting": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CodeLabelResponse"
-              }
-            ]
-          },
           "analysis": {
             "$ref": "#/components/schemas/AnalysisSummaryResponse"
           },
           "subIssues": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SubIssueDetailResponse"
-            }
-          },
-          "pulls": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PullResponse"
+              "$ref": "#/components/schemas/IssueRowResponse"
             }
           },
           "timeline": {
@@ -691,7 +721,12 @@
         "required": [
           "items",
           "projects",
-          "stages"
+          "stages",
+          "states",
+          "sorts",
+          "total",
+          "lanes",
+          "focuses"
         ],
         "type": "object",
         "properties": {
@@ -712,6 +747,34 @@
             "items": {
               "$ref": "#/components/schemas/CodeLabelResponse"
             }
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "sorts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            }
+          },
+          "focuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            }
           }
         }
       },
@@ -725,8 +788,12 @@
           "stateLabel",
           "stage",
           "stageLabel",
+          "lane",
           "flags",
           "badge",
+          "waiting",
+          "progress",
+          "pulls",
           "component",
           "htmlUrl",
           "updatedAt",
@@ -761,6 +828,9 @@
           "stageLabel": {
             "type": "string"
           },
+          "lane": {
+            "type": "string"
+          },
           "flags": {
             "type": "array",
             "items": {
@@ -776,6 +846,32 @@
                 "$ref": "#/components/schemas/CodeLabelResponse"
               }
             ]
+          },
+          "waiting": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubIssueCountResponse"
+              }
+            ]
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PullResponse"
+            }
           },
           "component": {
             "type": [
@@ -1216,21 +1312,20 @@
           }
         }
       },
-      "SubIssueDetailResponse": {
+      "SubIssueCountResponse": {
         "required": [
-          "issue",
-          "pulls"
+          "closed",
+          "total"
         ],
         "type": "object",
         "properties": {
-          "issue": {
-            "$ref": "#/components/schemas/IssueRowResponse"
+          "closed": {
+            "type": "integer",
+            "format": "int32"
           },
-          "pulls": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PullResponse"
-            }
+          "total": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

@@ -1,25 +1,98 @@
+// ----- Header and filter bar -----
+
+.search {
+  width: 260px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2) var(--app-space-3);
+}
+
 .filter {
   width: 170px;
 }
 
-.issue {
+// ----- Focus chips and pipeline (the buttons are app-count-toggle) -----
+
+.focuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--app-space-2);
+}
+
+// ----- List view -----
+
+.card-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--app-space-2);
+
+  .app-card-title {
+    margin-bottom: var(--app-space-2);
+  }
+}
+
+.issue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-1);
   min-width: 0;
+  padding: var(--app-space-1) 0;
 }
 
 // A sub-issue sits one step in, under its parent.
 .issue.sub-issue {
-  padding-left: var(--app-space-4);
+  padding-left: var(--app-space-6);
+}
+
+// A 24 px icon with a 4 px pad, a little taller than the text line: it overlaps the row's own padding.
+.chevron {
+  flex: none;
+  margin: calc(-1 * var(--app-space-1)) 0;
+  width: 32px;
+  height: 32px;
+  padding: var(--app-space-1);
+
+  mat-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+  }
+}
+
+// With parents in the list, a top-level row without sub-issues keeps the chevron's room, so numbers line up.
+.chevron-space {
+  flex: none;
+  width: 32px;
 }
 
 .nest {
+  flex: none;
   width: 18px;
   height: 18px;
   font-size: 18px;
-  align-self: center;
   color: var(--mat-sys-on-surface-variant);
+}
+
+.issue-text {
+  min-width: 0;
+}
+
+.issue-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  min-width: 0;
 }
 
 .number {
@@ -47,14 +120,42 @@ a.external {
   }
 }
 
-.marks {
+.where {
+  font: var(--mat-sys-body-small);
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+}
+
+.next {
+  min-width: 0;
+  max-width: 220px;
+}
+
+.marks,
+.pulls {
   display: flex;
   flex-wrap: wrap;
   gap: var(--app-space-1);
 }
 
+// ----- Board view -----
+
+.stale {
+  margin-bottom: var(--app-space-3);
+}
+
 @media (max-width: 599.98px) {
+  .search,
   .filter {
     width: 100%;
+  }
+
+  .issue.sub-issue {
+    padding-left: var(--app-space-4);
   }
 }

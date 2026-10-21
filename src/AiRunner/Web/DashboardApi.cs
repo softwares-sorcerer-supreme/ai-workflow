@@ -144,51 +144,97 @@ public static class DashboardApi
         return TypedResults.Ok(found);
     }
 
-    /// <summary>The query string of <c>GET /api/issues</c>.</summary>
+    /// <summary>
+    /// The query string of <c>GET /api/issues</c>. <c>Search</c> (<c>q</c>) is part of the title or the issue number
+    /// ("12" or "#12"); <c>State</c> is <c>open</c>, <c>closed</c> or <c>all</c> (the same as none); <c>Sort</c> is
+    /// <c>number</c> (default, newest first) or <c>updated</c> (last updated first).
+    /// </summary>
     public sealed record IssuesFilter(
         [FromQuery(Name = "project")] string? Project,
         [FromQuery(Name = "component")] string? Component,
         [FromQuery(Name = "stage")] string? Stage,
         [FromQuery(Name = "state")] string? State,
-        [FromQuery(Name = "flat")] bool? Flat);
+        [FromQuery(Name = "flat")] bool? Flat,
+        [FromQuery(Name = "lane")] string? Lane,
+        [FromQuery(Name = "focus")] string? Focus,
+        [FromQuery(Name = "q")] string? Search,
+        [FromQuery(Name = "sort")] string? Sort);
 
     private static Results<Ok<IssueListResponse>, BadRequest<ApiError>> GetIssues(
         [AsParameters] IssuesFilter filter,
         RunnerConfig config,
         IssueReader issues)
     {
-        var (project, component, stage, state, flat) = filter;
+        var problem = WhyBadIssuesFilter(filter, config);
 
+        if (problem is not null)
+        {
+            return TypedResults.BadRequest(new ApiError(problem));
+        }
+
+        var search = string.IsNullOrWhiteSpace(filter.Search) ? null : filter.Search.Trim();
+        var state = filter.State == IssueReader.AllStates ? null : filter.State;
+        var query = new IssueQuery(
+            Project: filter.Project,
+            Component: filter.Component,
+            Stage: filter.Stage,
+            State: state,
+            Lane: filter.Lane,
+            Focus: filter.Focus,
+            Search: search,
+            IsFlat: filter.Flat ?? false,
+            IsByUpdate: filter.Sort == IssueReader.SortByUpdate);
+        var list = issues.Read(query);
+
+        return TypedResults.Ok(list);
+    }
+
+    /// <summary>Why the issue filters cannot be used (a value no option has), or null when they can.</summary>
+    private static string? WhyBadIssuesFilter(IssuesFilter filter, RunnerConfig config)
+    {
         ProjectConfig? found = null;
-        if (project is not null)
+        if (filter.Project is { } project)
         {
             found = config.ProjectNamed(project);
             if (found is null)
             {
-                return TypedResults.BadRequest(UnknownProject(project));
+                return UnknownProject(project).Message;
             }
         }
 
         var projects = found is null ? config.Projects : [found];
-        if (component is not null && !projects.Any(candidate => candidate.CodeComponentNames.Contains(component)))
+        if (filter.Component is { } component &&
+            !projects.Any(candidate => candidate.CodeComponentNames.Contains(component)))
         {
-            return TypedResults.BadRequest(new ApiError($"Unknown component '{component}'."));
+            return $"Unknown component '{component}'.";
         }
 
-        if (stage is not null && !IssueStage.Stages.Any(known => known.Code == stage))
+        if (filter.Stage is { } stage && !IssueStage.Stages.Any(known => known.Code == stage))
         {
-            return TypedResults.BadRequest(new ApiError($"Unknown stage '{stage}'."));
+            return $"Unknown stage '{stage}'.";
         }
 
-        if (state is not null && state != SnapshotRules.Open && state != SnapshotRules.Closed)
+        if (filter.State is { } state && !IssueReader.States.Any(known => known.Code == state))
         {
-            return TypedResults.BadRequest(new ApiError($"Unknown state '{state}'. Use open or closed."));
+            return $"Unknown state '{state}'. Use open, closed or all.";
         }
 
-        var query = new IssueQuery(project, component, stage, state, flat ?? false);
-        var list = issues.Read(query);
+        if (filter.Lane is { } lane && !IssueLane.Lanes.Any(known => known.Code == lane))
+        {
+            return $"Unknown lane '{lane}'.";
+        }
 
-        return TypedResults.Ok(list);
+        if (filter.Focus is { } focus && !IssueFocus.Focuses.Any(known => known.Code == focus))
+        {
+            return $"Unknown focus '{focus}'.";
+        }
+
+        if (filter.Sort is { } sort && !IssueReader.Sorts.Any(known => known.Code == sort))
+        {
+            return $"Unknown sort '{sort}'. Use number or updated.";
+        }
+
+        return null;
     }
 
     private const int PageSize = 25;

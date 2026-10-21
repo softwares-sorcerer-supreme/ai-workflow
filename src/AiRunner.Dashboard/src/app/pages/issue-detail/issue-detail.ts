@@ -7,11 +7,12 @@ import { Api } from '../../api/api';
 import { getIssue } from '../../api/fn/issues/get-issue';
 import { JobResponse } from '../../api/models/job-response';
 import { PullResponse } from '../../api/models/pull-response';
-import { SubIssueDetailResponse } from '../../api/models/sub-issue-detail-response';
+import { IssueRowResponse } from '../../api/models/issue-row-response';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
-import { issueLink } from '../../shared/issue-link';
+import { issueKey, issueLink } from '../../shared/issue-link';
 import { PageHeader } from '../../shared/page-header/page-header';
+import { PullLink } from '../../shared/pull-link/pull-link';
 import { pollResource } from '../../shared/poll-resource';
 import { StageChip } from '../../shared/stage-chip/stage-chip';
 import { StatusChip } from '../../shared/status-chip/status-chip';
@@ -35,6 +36,7 @@ import { ViewState } from '../../shared/view-state/view-state';
     MatButtonModule,
     MatIconModule,
     PageHeader,
+    PullLink,
     RouterLink,
     StageChip,
     StatusChip,
@@ -88,7 +90,8 @@ export class IssueDetail {
   protected readonly statusTone = jobStatusTone;
   protected readonly link = issueLink;
 
-  protected readonly trackBySubIssue = (_index: number, row: SubIssueDetailResponse) => row.issue.number;
-  protected readonly trackByPull = (_index: number, row: PullResponse) => `${row.repo}#${row.number}`;
+  protected readonly trackBySubIssue = (_index: number, row: IssueRowResponse) => issueKey(row);
+  protected readonly trackByPull = (_index: number, row: PullResponse) => issueKey(row);
+  protected readonly issueKey = issueKey;
   protected readonly trackByJob = (_index: number, row: JobResponse) => row.id;
 }

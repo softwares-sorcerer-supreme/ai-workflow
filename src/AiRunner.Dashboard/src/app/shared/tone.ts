@@ -92,3 +92,44 @@ export function issueMarkIcon(code: string): string | undefined {
 export function jobStatusTone(code: string): Tone {
   return JOB_STATUS_TONES[code] ?? 'neutral';
 }
+
+/**
+ * Color per lane code (C# `Core/IssueLane`): the five columns of the board and segments of the pipeline summary. The
+ * API decides the lane of every issue and sends the lanes in board order; this map only picks a color.
+ */
+export const LANE_TONES: Readonly<Record<string, Tone>> = {
+  todo: 'neutral',
+  ready: 'info',
+  'in-progress': 'progress',
+  'in-review': 'info',
+  finished: 'success',
+};
+
+/** Color per focus code (C# `Core/IssueFocus`): the quick filters "Needs you", "Runner working" and "Failed". */
+export const FOCUS_TONES: Readonly<Record<string, Tone>> = {
+  'needs-you': 'warning',
+  working: 'progress',
+  failed: 'danger',
+};
+
+/** Color per pull request state code the API sends (`open`, `merged`, `closed` without a merge). */
+export const PULL_STATE_TONES: Readonly<Record<string, Tone>> = {
+  open: 'info',
+  merged: 'success',
+  closed: 'neutral',
+};
+
+/** The color of a lane code, neutral for an unknown one. */
+export function laneTone(code: string): Tone {
+  return LANE_TONES[code] ?? 'neutral';
+}
+
+/** The color of a focus code, neutral for an unknown one. */
+export function focusTone(code: string): Tone {
+  return FOCUS_TONES[code] ?? 'neutral';
+}
+
+/** The color of a pull request state code, neutral for an unknown one. */
+export function pullStateTone(code: string): Tone {
+  return PULL_STATE_TONES[code] ?? 'neutral';
+}

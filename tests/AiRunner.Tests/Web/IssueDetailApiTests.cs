@@ -165,10 +165,10 @@ public sealed class IssueDetailApiTests : IAsyncDisposable
         var detail = await GetAsync<IssueDetailResponse>(client, "api/issues/o/shop/7");
 
         Assert.Equal(("pr-open", "PR open"), (detail.Issue.Stage, detail.Issue.StageLabel));
-        Assert.Equal("Review and merge PR #50", detail.Waiting?.Label);
+        Assert.Equal("Review and merge PR #50", detail.Issue.Waiting?.Label);
         Assert.Equal(("ready", "simple"), (detail.Analysis.Status.Code, detail.Analysis.Complexity.Code));
-        Assert.Equal([50], detail.Pulls.Select(pull => pull.Number));
-        Assert.Equal("Open", detail.Pulls[0].StateLabel);
+        Assert.Equal([50], detail.Issue.Pulls.Select(pull => pull.Number));
+        Assert.Equal("Open", detail.Issue.Pulls[0].StateLabel);
         Assert.Equal([review, implement], detail.Timeline.Select(job => job.Id));
         Assert.Empty(detail.SubIssues);
     }
@@ -195,9 +195,9 @@ public sealed class IssueDetailApiTests : IAsyncDisposable
         var detail = await GetAsync<IssueDetailResponse>(client, "api/issues/o/shop/12");
 
         Assert.Equal("Broken down (1/2)", detail.Issue.StageLabel);
-        Assert.Equal("Start the next sub-issue", detail.Waiting?.Label);
-        Assert.Equal([20, 21], detail.SubIssues.Select(sub => sub.Issue.Number));
-        Assert.Equal(["done", "new"], detail.SubIssues.Select(sub => sub.Issue.Stage));
+        Assert.Equal("Start the next sub-issue", detail.Issue.Waiting?.Label);
+        Assert.Equal([20, 21], detail.SubIssues.Select(sub => sub.Number));
+        Assert.Equal(["done", "new"], detail.SubIssues.Select(sub => sub.Stage));
         Assert.Equal([60], detail.SubIssues[0].Pulls.Select(pull => pull.Number));
         Assert.Equal("Merged", detail.SubIssues[0].Pulls[0].StateLabel);
         Assert.Empty(detail.SubIssues[1].Pulls);
@@ -212,7 +212,7 @@ public sealed class IssueDetailApiTests : IAsyncDisposable
 
         var detail = await GetAsync<IssueDetailResponse>(client, "api/issues/o/shop/12");
 
-        Assert.Null(detail.Waiting);
+        Assert.Null(detail.Issue.Waiting);
     }
 
     [Fact]

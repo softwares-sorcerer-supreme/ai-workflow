@@ -1,0 +1,100 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  min-width: 0;
+  padding: var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+  font: var(--mat-sys-body-small);
+}
+
+.number {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.where {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.external {
+  flex: none;
+  display: inline-flex;
+  color: var(--mat-sys-primary);
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+  }
+}
+
+// At most two lines; the full title is in the hover text and on the detail page.
+.title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-title-small);
+  color: var(--mat-sys-primary);
+}
+
+.parent {
+  font: var(--mat-sys-body-small);
+
+  a {
+    color: var(--mat-sys-primary);
+  }
+}
+
+.chips,
+.pulls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-1);
+}
+
+.pulls {
+  font: var(--mat-sys-body-small);
+}
+
+.waiting {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  margin: 0;
+  padding: var(--app-space-1) var(--app-space-2);
+  border-radius: var(--app-radius-small);
+  font: var(--mat-sys-body-small);
+  background: var(--app-tone-warning-bg);
+  color: var(--app-tone-warning-fg);
+  overflow-wrap: anywhere;
+
+  mat-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    color: var(--app-tone-warning-dot);
+  }
+}
+
+.updated {
+  font: var(--mat-sys-body-small);
+}

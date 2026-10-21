@@ -1,9 +1,15 @@
 import {
+  FOCUS_TONES,
   ISSUE_MARK_TONES,
   JOB_STATUS_TONES,
+  LANE_TONES,
+  PULL_STATE_TONES,
+  focusTone,
   issueMarkIcon,
   issueMarkTone,
   jobStatusTone,
+  laneTone,
+  pullStateTone,
 } from './tone';
 
 describe('issueMarkTone and issueMarkIcon', () => {
@@ -44,5 +50,61 @@ describe('jobStatusTone', () => {
 
   it('has a color for every job status the API sends', () => {
     expect(Object.keys(JOB_STATUS_TONES).sort()).toEqual(['done', 'failed', 'pending', 'running']);
+  });
+});
+
+describe('laneTone', () => {
+  it.each([
+    ['todo', 'neutral'],
+    ['ready', 'info'],
+    ['in-progress', 'progress'],
+    ['in-review', 'info'],
+    ['finished', 'success'],
+  ])('colors lane %s with %s', (code, tone) => {
+    expect(laneTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown lane as neutral', () => {
+    expect(laneTone('parked')).toBe('neutral');
+  });
+
+  it('has a color for every lane the API sends', () => {
+    expect(Object.keys(LANE_TONES).sort()).toEqual(['finished', 'in-progress', 'in-review', 'ready', 'todo']);
+  });
+});
+
+describe('focusTone', () => {
+  it.each([
+    ['needs-you', 'warning'],
+    ['working', 'progress'],
+    ['failed', 'danger'],
+  ])('colors focus %s with %s', (code, tone) => {
+    expect(focusTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown focus as neutral', () => {
+    expect(focusTone('stale')).toBe('neutral');
+  });
+
+  it('has a color for every focus the API sends', () => {
+    expect(Object.keys(FOCUS_TONES).sort()).toEqual(['failed', 'needs-you', 'working']);
+  });
+});
+
+describe('pullStateTone', () => {
+  it.each([
+    ['open', 'info'],
+    ['merged', 'success'],
+    ['closed', 'neutral'],
+  ])('colors pull state %s with %s', (code, tone) => {
+    expect(pullStateTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown pull state as neutral', () => {
+    expect(pullStateTone('draft')).toBe('neutral');
+  });
+
+  it('has a color for every pull state the API sends', () => {
+    expect(Object.keys(PULL_STATE_TONES).sort()).toEqual(['closed', 'merged', 'open']);
   });
 });

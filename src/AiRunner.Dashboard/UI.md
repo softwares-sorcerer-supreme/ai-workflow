@@ -50,18 +50,24 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | Tone | Means | Examples |
 |---|---|---|
 | `neutral` | nothing to say, or not started | stage New, Closed (no merge), unknown codes |
-| `info` | ready, waiting for a go-ahead or a review | Ready - simple/complex, PR open, starting |
-| `progress` | the runner is working on it | Implementing, Broken down, Running, Queued |
-| `success` | finished well | Done, Merged, healthy runner, job ok |
-| `warning` | a person must act, or data is late | Questions open, stale health, stale data banner |
+| `info` | ready, waiting for a go-ahead or a review | Ready - simple/complex, PR open, lanes Ready and In review |
+| `progress` | the runner is working on it | Implementing, Broken down, Running, Queued, focus Runner working |
+| `success` | finished well | Done, Merged (stage or PR), lane Done, healthy runner, job ok |
+| `warning` | a person must act, or data is late | Questions open, a waiting action, focus Needs you, stale data |
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
-`JOB_STATUS_TONES`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`) and read it through its helper
-(`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `issueMarkTone(code)`, `issueMarkIcon(code)`,
-`workerIcon(code)`), which falls back to `neutral` (or no icon) for an unknown code. Those maps are the only place a code is interpreted: a template never compares
-a code (`state === 'busy'`) and never builds label text (plurals, counts). If text is missing, the API should send it
-ready (like `errorsLabel` on `/api/health`).
+`JOB_STATUS_TONES`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
+`PULL_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`,
+`issueMarkTone(code)`, `issueMarkIcon(code)`, `workerIcon(code)`, `laneTone(code)`, `focusTone(code)`,
+`pullStateTone(code)`), which falls back to `neutral` (or no icon) for an unknown code. Lanes: `todo` neutral, `ready`
+info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
+`failed` danger. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
+a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
+is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
+comparing the chosen filter value with an option's code to mark the selected option
+(`current.lane === lane.code`), and joining fields the API sent, unchanged, into hover or accessible text
+(`app-pull-link`: repo, number, title and `stateLabel`).
 
 In a component's SCSS, give the host the tone variables with the shared mixin and style from your own variables:
 ```scss
@@ -69,6 +75,9 @@ In a component's SCSS, give the host the tone variables with the shared mixin an
 :host { background: var(--chip-bg); color: var(--chip-fg); }
 @include tones.host-variants(chip);   // sets --chip-bg / --chip-fg / --chip-dot from the class tone-<tone> on the host
 ```
+A template that repeats toned items itself (pipeline segments, focus chips, board lane heads) puts `tone-<tone>` on
+each element and uses `@include tones.class-variants(segment);` instead (sets `--segment-bg/fg/dot` on `.tone-<tone>`).
+A solid tone dot is `.dot { @include tones.dot(segment); }`, never its own width/height/radius block.
 
 ### Spacing, shape, type
 
@@ -139,6 +148,10 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-data-table` + `appCell` | every list of rows from the API | a list of 2-3 facts (use `.app-facts`) |
 | `app-status-chip` | a state from the API: flags, badges, outcomes | buttons or links |
 | `app-stage-chip` | the workflow stage of an issue | anything else |
+| `app-issue-card` | one issue as a card (the lanes of the board, short lists) | a table row (use `app-data-table`) |
+| `app-count-toggle` | a toned toggle button with a label and an API count (focus chips, pipeline segments) | a plain action button (use `mat-button`) |
+| `app-pull-link` | one PR as a toned "#50" link | PR details (use a table) |
+| `app-sub-issue-progress` | a parent's `progress` as a thin bar + "closed/total" | any other ratio |
 | `app-view-state` | loading / empty / error of a panel that is not a table | inline hints |
 | `app-inline-note` | one tone colored line inside a panel: stale data, a cut file | a whole-panel state |
 | `app-markdown` | Markdown text from the API (log files), rendered safely | text that is not Markdown (use `<pre class="app-mono">`) |
@@ -199,8 +212,8 @@ protected readonly trackById = (_index: number, row: JobRow) => row.id;
 - Paging (when an endpoint pages): put a `mat-paginator` under the table and pass the page to the endpoint; the table
   itself does not page or sort on the client.
 - Nested rows (sub-issues under a parent): the table is flat. Turn the API's nested answer into lines (each parent
-  followed by its children, with a flag such as `isSubIssue`) in a `computed`, and indent the first cell's template
-  with padding (`pages/issues`). That is layout only: the API decides what is nested and what matches a filter.
+  followed by its children when expanded, with flags such as `isSubIssue` / `isExpanded`) in a `computed`, and indent
+  the first cell's template with padding (`pages/issues`). That is layout only: the API decides what is nested and what matches a filter.
 
 ### `app-status-chip`
 
@@ -226,6 +239,30 @@ Colors come from `STAGE_TONES` in `shared/tone.ts`, keyed by the stage codes of 
 `new`, `questions-open`, `ready-simple`, `ready-complex`, `implementing`, `broken-down`, `pr-open`, `merged`,
 `done`, `closed-no-merge`. If the API uses a different code, change the map and its test together with the API.
 The label is shown as sent ("Broken down (2/5)").
+
+### `app-issue-card`, `app-pull-link`, `app-sub-issue-progress`
+
+```html
+<app-issue-card [issue]="row" />                          <!-- an IssueRowResponse from /api/issues -->
+<app-pull-link [pull]="pull" />                           <!-- a PullResponse; tone from pullStateTone -->
+<app-sub-issue-progress [progress]="row.progress" />      <!-- only when progress is not null -->
+```
+The card shows, from the row only: `#number` + muted "project · component" + GitBucket icon, the title (link to the
+detail page, at most 2 lines), "Part of #parent" for a sub-issue, the stage chip, badge and flag chips, the `waiting`
+action as a warning line, PR links, the sub-issue progress and the relative update time. It needs `provideRouter`.
+`issueKey(item)` (`shared/issue-link.ts`) gives the "owner/repo#n" key of an issue or a PR for every `track` and
+keyed state; do not build it inline.
+
+### `app-count-toggle`
+
+```html
+<button appCountToggle label="All" [count]="total()" [pressed]="!current.focus" (click)="setFocus('')"></button>
+<button appCountToggle look="segment" [label]="lane.label" [count]="lane.count" [tone]="laneTone(lane.code)"
+        [pressed]="current.lane === lane.code" (click)="toggleLane(lane.code)"></button>
+```
+The component is the button itself, so `(click)`, `data-*` attributes and the focus ring stay on it. `look` is
+`chip` (a pill with a small count badge, default) or `segment` (a tile with a colored top edge and a large count).
+No `tone` = no dot (an "All" option); no `count` = no number. It sets `aria-pressed` and the selected colors.
 
 ### `app-view-state`
 
@@ -285,8 +322,32 @@ protected readonly issues = pollResource(() => this.api.invoke(getIssues, { proj
 `reload()` during a running call loads once more right after it, so a changed filter is never left with the old
 answer. `value` keeps the last good answer when a call fails; `error` holds the failure text until the next success
 (for a 400 the API's own `ApiError.message`). Prefer filter options the API sends (`/api/issues` sends its projects,
-components and stages). Options the API cannot list live in one constant per filter next to the screen
-(`pages/jobs/job-filters.ts`, `pages/issues/issue-filters.ts`), typed with `FilterOption` from `shared/filter-option.ts`.
+components, stages, states, sorts, and lanes and focuses with their counts: show the counts as sent, never count
+rows). Options the API cannot list live in one constant per filter next to the screen (`pages/jobs/job-filters.ts`),
+typed with `FilterOption` from `shared/filter-option.ts`.
+
+### Filters in the URL
+
+A screen whose filters are worth sharing keeps them in its route's query parameters (`pages/issues`): read them with
+`toSignal(route.queryParamMap, { requireSync: true })` into a `computed` filter object, write a change with
+`router.navigate([], { relativeTo, queryParams, queryParamsHandling: 'merge' })` (a value equal to its default becomes
+`null`, so `/issues` alone is the default screen; typing uses `replaceUrl`), and build the request in a `computed` with
+a JSON `equal`. One `effect` calls `reload()` when that request changes (skipping its first run), so a back/forward
+navigation reloads too. Keep the parse/write/request helpers pure in the screen's `*-filters.ts` and test them. In
+tests, open the screen with `RouterTestingHarness.navigateByUrl('/issues?state=all', Issues)`.
+
+### Issues screen
+
+Header: search (debounced 300 ms, `q`) and a List / Board toggle (`view`). Under it: the filter bar (Project,
+Component, State with Open default / Closed / All, Stage, Sort, Flat; "Clear filters" only when something differs),
+the focus chips (All + the API's `focuses` with counts), then:
+- **List**: the pipeline summary (one toggle button per entry of `lanes`, `aria-pressed`, a click on the selected one
+  clears `lane`) and the table: Issue (chevron for parents, `aria-expanded`; collapsed unless lane, focus, stage or
+  search is set; "Expand all / Collapse all" above), Stage (+ progress), Next (badge, else `waiting` as a warning
+  chip, else "-"), Flags, PR, Updated.
+- **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one lane per entry of
+  `lanes` with `app-issue-card`s grouped by the row's `lane` code, in the API's order; it scrolls sideways in its own
+  box (lanes at least 260 px wide below a 1280 px window, at least 180 px from 1280 px up).
 
 ### Health
 
@@ -306,7 +367,8 @@ alternative. Follow the same rules for a new chart and move it to `shared/` once
 ### Global CSS classes (`src/styles.scss`)
 
 - `.app-card` + `.app-card-title`: a panel with a title.
-- `.app-stack`: vertical list of cards with the standard gap.
+- `.app-stack`: vertical list of cards with the standard gap. Its children get `min-width: 0`, so a wide child (a
+  board, a table) scrolls in its own box instead of widening the page.
 - `.app-facts` on a `<dl>`: label/value pairs in two columns (one on phones).
 - `.app-muted`: secondary text. `.app-mono`: code-like text that wraps.
 - `matTooltipClass="app-pre-line"`: a tooltip that keeps line breaks.
@@ -343,8 +405,8 @@ tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePo
 `error`, `isLoading` by hand), `fixedClock` (now = 2026-01-01 12:00 UTC), `sampleHealth(overrides)`. Provide a
 fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
 its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
-`callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)` or
-`sampleIssue(overrides)`, and wait for the
+`callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`,
+`sampleIssue(overrides)` or `samplePull(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
 `MatPaginatorHarness`). For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
 and `HttpTestingController`.

@@ -5,57 +5,37 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { Api } from '../../api/api';
 import { getIssue } from '../../api/fn/issues/get-issue';
 import { IssueDetailResponse } from '../../api/models/issue-detail-response';
-import { FakeApi, fixedClock, sampleIssue, sampleJob, settle } from '../../shared/testing';
+import { FakeApi, fixedClock, sampleIssue, sampleJob, samplePull, settle } from '../../shared/testing';
 import { IssueDetail } from './issue-detail';
 
 const SIMPLE: IssueDetailResponse = {
-  issue: sampleIssue({ flags: [{ code: 'failed', label: 'Failed' }] }),
-  waiting: { code: 'add-ai-implement', label: 'Add the ai-implement label' },
+  issue: sampleIssue({
+    flags: [{ code: 'failed', label: 'Failed' }],
+    waiting: { code: 'add-ai-implement', label: 'Add the ai-implement label' },
+    pulls: [samplePull({ title: 'Export orders' })],
+  }),
   analysis: {
     status: { code: 'ready', label: 'Ready' },
     complexity: { code: 'simple', label: 'Simple' },
     component: 'api',
   },
   subIssues: [],
-  pulls: [
-    {
-      repo: 'team/shop',
-      number: 50,
-      title: 'Export orders',
-      state: 'open',
-      stateLabel: 'Open',
-      headRef: 'ai/issue-42',
-      baseRef: 'main',
-      htmlUrl: 'http://gitbucket.local/team/shop/pull/50',
-      updatedAt: '2026-01-01T11:00:00Z',
-    },
-  ],
   timeline: [sampleJob({ id: 7 }), sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null })],
 };
 
 const PARENT: IssueDetailResponse = {
   ...SIMPLE,
-  waiting: null,
   issue: sampleIssue({ number: 12, title: 'Checkout redesign', stage: 'broken-down', stageLabel: 'Broken down (1/2)' }),
   subIssues: [
-    {
-      issue: sampleIssue({ number: 20, title: 'Cart API', stage: 'done', stageLabel: 'Done', parent: 12 }),
-      pulls: [
-        {
-          repo: 'team/shop',
-          number: 51,
-          title: 'Cart API',
-          state: 'merged',
-          stateLabel: 'Merged',
-          headRef: 'ai/issue-12-20',
-          baseRef: 'feat/issue-12',
-          htmlUrl: 'http://gitbucket.local/team/shop/pull/51',
-          updatedAt: '2026-01-01T11:00:00Z',
-        },
-      ],
-    },
+    sampleIssue({
+      number: 20,
+      title: 'Cart API',
+      stage: 'done',
+      stageLabel: 'Done',
+      parent: 12,
+      pulls: [samplePull({ number: 51, title: 'Cart API', state: 'merged', stateLabel: 'Merged' })],
+    }),
   ],
-  pulls: [],
   timeline: [],
 };
 
@@ -127,8 +107,9 @@ describe('IssueDetail', () => {
     const row = element.querySelector('[aria-labelledby="sub-issues-title"] tr.mat-mdc-row') as HTMLElement;
     expect(row.querySelector('a')?.getAttribute('href')).toBe('/issues/team/shop/20');
     expect(row.querySelector('app-stage-chip app-status-chip')?.classList).toContain('tone-success');
-    expect(row.textContent).toContain('#51');
-    expect(row.textContent).toContain('Merged');
+    const pull = row.querySelector('app-pull-link') as HTMLElement;
+    expect(pull.textContent?.trim()).toBe('#51');
+    expect(pull.getAttribute('data-state')).toBe('merged');
   });
 
   it('shows the not-found state when the API answers 404', async () => {
