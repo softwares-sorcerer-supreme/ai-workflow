@@ -356,7 +356,7 @@
         "tags": [
           "Cost"
         ],
-        "summary": "Copilot calls, jobs and job time per day, project or issue (with its sub-issues).",
+        "summary": "Copilot calls, billed credits, tokens, jobs and job time per day, project, issue or model.",
         "operationId": "getCost",
         "parameters": [
           {
@@ -510,7 +510,13 @@
           "calls",
           "jobs",
           "jobsWithoutCount",
-          "durationSeconds"
+          "durationSeconds",
+          "nanoAiu",
+          "inputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens",
+          "outputTokens",
+          "jobsWithoutUsage"
         ],
         "type": "object",
         "properties": {
@@ -535,6 +541,30 @@
           "durationSeconds": {
             "type": "number",
             "format": "double"
+          },
+          "nanoAiu": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cacheReadTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "jobsWithoutUsage": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

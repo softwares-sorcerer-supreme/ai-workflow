@@ -86,13 +86,20 @@ public sealed class CostStorageTests : IDisposable
 
     private static readonly CopilotUsage Usage = new(677165000, 4, 0, 53842, 82);
 
+    private static readonly JobUsage JobUsage = new(
+        Usage,
+        [
+            new UsagePart("round-1-copilot", "main", "sonnet", new CopilotUsage(600000000, 4, 0, 50000, 70)),
+            new UsagePart("round-1-copilot", "code-reviewer", "haiku", new CopilotUsage(77165000, 0, 0, 3842, 12)),
+        ]);
+
     [Fact]
     public void A_new_cost_csv_has_copilot_calls_then_the_usage_as_its_last_columns()
     {
         var store = new SqliteStateStore(StateFile, pooling: false);
         var costLog = OpenCostLog(store);
 
-        costLog.Record(Entry(copilotCalls: 3) with { Usage = Usage });
+        costLog.Record(Entry(copilotCalls: 3) with { Usage = JobUsage });
         costLog.Record(Entry(copilotCalls: null));
 
         var lines = File.ReadAllLines(CostCsv);
@@ -118,13 +125,16 @@ public sealed class CostStorageTests : IDisposable
     }
 
     [Fact]
-    public void The_usage_of_a_cost_row_is_read_back_and_a_row_without_it_stays_null()
+    public void The_usage_and_its_parts_are_read_back_and_a_row_without_them_stays_empty()
     {
         var store = new SqliteStateStore(StateFile, pooling: false);
 
-        store.AddCost(Entry(copilotCalls: 1) with { Usage = Usage });
+        store.AddCost(Entry(copilotCalls: 1) with { Usage = JobUsage });
         store.AddCost(Entry(copilotCalls: 1));
 
-        Assert.Equal([Usage, null], store.ListCost().Select(cost => cost.Usage));
+        var costs = store.ListCost(withParts: true);
+        Assert.Equal([Usage, null], costs.Select(cost => cost.Usage));
+        Assert.Equal(JobUsage.Parts, costs[0].Parts);
+        Assert.Empty(costs[1].Parts);
     }
 }

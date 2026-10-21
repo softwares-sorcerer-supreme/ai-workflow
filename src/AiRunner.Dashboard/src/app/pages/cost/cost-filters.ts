@@ -8,6 +8,7 @@ export const COST_GROUPINGS: readonly FilterOption[] = [
   { code: 'day', label: 'Day' },
   { code: 'project', label: 'Project' },
   { code: 'issue', label: 'Issue' },
+  { code: 'model', label: 'Model' },
 ];
 
 /** The grouping the screen opens with. */

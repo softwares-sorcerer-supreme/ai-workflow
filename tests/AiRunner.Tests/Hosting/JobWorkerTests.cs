@@ -146,8 +146,13 @@ public sealed class JobWorkerTests : IDisposable
         }
     }
 
-    private static string UsageJson(long nanoAiu, long output) =>
-        $$"""{ "totalNanoAiu": {{nanoAiu}}, "tokenDetails": { "output": { "tokenCount": {{output}} } } }""";
+    /// <summary>A usage file whose one model (sonnet, agent main) spent all of it.</summary>
+    private static string UsageJson(long nanoAiu, long output)
+    {
+        var usage = $$""" "totalNanoAiu": {{nanoAiu}}, "tokenDetails": { "output": { "tokenCount": {{output}} } } """;
+
+        return $$"""{ {{usage}}, "modelMetrics": { "sonnet": { {{usage}} } } }""";
+    }
 
     [Theory]
     [InlineData("ok")]
@@ -166,8 +171,9 @@ public sealed class JobWorkerTests : IDisposable
         queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
         await worker.DrainAsync(default);
 
-        var cost = Assert.Single(_kit.State.ListCost());
+        var cost = Assert.Single(_kit.State.ListCost(withParts: true));
         Assert.Equal(new CopilotUsage(150, 0, 0, 0, 15), cost.Usage);
+        Assert.Equal(["round-1-copilot", "round-2-copilot"], cost.Parts.Select(part => part.Run));
     }
 
     [Fact]

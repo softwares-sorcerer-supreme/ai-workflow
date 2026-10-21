@@ -58,7 +58,7 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
                 var csvResult = Csv(entry.Result);
                 var csvDetail = Csv(entry.Detail);
                 var calls = entry.CopilotCalls?.ToString(CultureInfo.InvariantCulture) ?? "";
-                var usage = UsageFields(entry.Usage);
+                var usage = UsageFields(entry.Usage?.Total);
                 var row = string.Join(
                     ",",
                     timestamp,

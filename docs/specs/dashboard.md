@@ -155,7 +155,7 @@ dashboard:
 | `GET /api/jobs/{id}/files`, `GET /api/jobs/{id}/files/{name}` | log viewer |
 | `GET /api/issues?project=&component=&stage=&state=&flat=` | issue rows with stage, flags, badge, sub-issues nested unless `flat` |
 | `GET /api/issues/{owner}/{repo}/{number}` | issue detail: stage, waiting-on, analysis summary from labels, sub-issues, PRs, job timeline |
-| `GET /api/cost?by=day\|project\|issue&from=&to=` | Copilot calls, job count, total duration per group; an issue's total includes its sub-issues |
+| `GET /api/cost?by=day\|project\|issue\|model&from=&to=` | Copilot calls, billed (`nanoAiu`) and tokens, job count, total duration per group; an issue's total includes its sub-issues; `model` is one row per model and agent |
 
 Only `GET`. Any other method returns 405.
 

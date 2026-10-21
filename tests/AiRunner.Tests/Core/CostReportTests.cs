@@ -167,4 +167,52 @@ public sealed class CostReportTests
 
         Assert.Equal((1, 2, 1), (row.Calls, row.Jobs, row.JobsWithoutCount));
     }
+
+    private static UsagePart Part(string run, string agent, string model, long nanoAiu) =>
+        new(run, agent, model, new CopilotUsage(nanoAiu, 0, 0, 0, 1));
+
+    [Fact]
+    public void Usage_adds_up_per_group_and_jobs_that_ran_copilot_without_usage_are_counted_apart()
+    {
+        var withUsage = Cost("2026-03-05T09:00:00Z", "o/shop", 1, "analyze", 60, 1) with
+        {
+            Usage = new CopilotUsage(100, 1, 2, 3, 4),
+        };
+        var olderRun = Cost("2026-03-05T10:00:00Z", "o/shop", 2, "analyze", 60, 1);
+        var breakdown = Cost("2026-03-05T11:00:00Z", "o/shop", 3, "breakdown", 1, 0);
+
+        var row = Assert.Single(Build(CostGrouping.Project, [withUsage, olderRun, breakdown]).Rows);
+
+        Assert.Equal(new CopilotUsage(100, 1, 2, 3, 4), row.Usage);
+        Assert.Equal(1, row.JobsWithoutUsage);   // the breakdown ran no Copilot, so it misses nothing
+    }
+
+    [Fact]
+    public void By_model_gives_one_row_per_model_and_agent_most_billed_first()
+    {
+        var implement = Cost("2026-03-05T09:00:00Z", "o/shop", 1, "implement", 600, 2) with
+        {
+            Parts =
+            [
+                Part("round-1-copilot", "main", "sonnet", 50),
+                Part("round-1-copilot", "code-reviewer", "haiku", 5),
+                Part("round-2-copilot", "main", "sonnet", 30),
+            ],
+        };
+        var analyze = Cost("2026-03-05T10:00:00Z", "o/shop", 2, "analyze", 60, 1) with
+        {
+            Parts = [Part("copilot", "main", "opus", 200)],
+        };
+
+        var olderRun = Cost("2026-03-05T11:00:00Z", "o/shop", 3, "analyze", 60, 1);
+
+        var result = Build(CostGrouping.Model, [implement, analyze, olderRun]);
+        var rows = result.Rows;
+
+        Assert.Equal(["opus - main", "sonnet - main", "haiku - code-reviewer"], rows.Select(row => row.Key));
+        var sonnet = rows[1];
+        Assert.Equal((80L, 2, 1, 600.0), (sonnet.Usage.NanoAiu, sonnet.Calls, sonnet.Jobs, sonnet.DurationSeconds));
+        Assert.Equal(1, result.JobsOutsideRows);   // the older run has no numbers per model
+        Assert.True(result.RowsShareJobs);        // the implement job is in the sonnet and the haiku row
+    }
 }

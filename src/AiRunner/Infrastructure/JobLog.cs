@@ -58,7 +58,7 @@ public sealed class JobRun(string directory, ILogger logger)
         }
     }
 
-    /// <summary>The full path of a file in the folder, for a tool that writes it itself; the folder is created first.</summary>
+    /// <summary>The full path of a file in the folder, for a tool that writes it itself (the folder is made).</summary>
     public string PathFor(string fileName)
     {
         var directoryPath = EnsureDir();
@@ -70,21 +70,27 @@ public sealed class JobRun(string directory, ILogger logger)
     /// The sum of every Copilot usage file of the run, or null when there is none (no Copilot call, or a CLI without
     /// --usage-output-file). A file that cannot be read is skipped: cost is best effort, it never fails a job.
     /// </summary>
-    public CopilotUsage? ReadUsage()
+    public JobUsage? ReadUsage()
     {
         if (!Directory.Exists(Dir))
         {
             return null;
         }
 
-        CopilotUsage? total = null;
-        foreach (var usageFile in Directory.EnumerateFiles(Dir, "*" + UsageFileSuffix))
+        var usages = new List<JobUsage>();
+        var usageFiles = Directory
+            .EnumerateFiles(Dir, "*" + UsageFileSuffix)
+            .Order(StringComparer.Ordinal);
+        foreach (var usageFile in usageFiles)
         {
-            CopilotUsage? usage;
+            // The run is the file name without the suffix: "copilot", "round-2-copilot".
+            var fileName = Path.GetFileName(usageFile);
+            var runName = fileName[..^UsageFileSuffix.Length];
+            JobUsage? usage;
             try
             {
                 var json = File.ReadAllText(usageFile);
-                usage = CopilotUsage.Parse(json);
+                usage = CopilotUsage.Parse(json, runName);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -94,11 +100,11 @@ public sealed class JobRun(string directory, ILogger logger)
 
             if (usage is not null)
             {
-                total = (total ?? CopilotUsage.Zero).Add(usage);
+                usages.Add(usage);
             }
         }
 
-        return total;
+        return usages.Count == 0 ? null : JobUsage.Combine(usages);
     }
 
     /// <summary>A line in job.log and in the console.</summary>

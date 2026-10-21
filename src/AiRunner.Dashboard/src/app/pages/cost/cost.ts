@@ -1,3 +1,4 @@
+import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -20,8 +21,9 @@ interface CostLine extends CostRowResponse {
 }
 
 /**
- * Copilot calls, jobs and job time per day, project or issue, for an optional range of local days. The API groups,
- * orders and totals; this screen only shows the rows, the total line and one bar chart of the calls.
+ * What Copilot billed, its tokens, calls, jobs and job time per day, project, issue or model, for an optional range of
+ * local days. The API groups, orders and totals; this screen only shows the rows, the total line and one bar chart of
+ * the billed value.
  */
 @Component({
   selector: 'app-cost',
@@ -29,6 +31,7 @@ interface CostLine extends CostRowResponse {
     CostChart,
     DataCell,
     DataTable,
+    DecimalPipe,
     DurationPipe,
     InlineNote,
     MatButtonToggleModule,
@@ -59,7 +62,7 @@ export class Cost {
     }),
   );
 
-  /** Days run left to right over time; projects and issues are easier to read as labelled horizontal bars. */
+  /** Days run left to right over time; projects, issues and models are easier to read as labelled horizontal bars. */
   protected readonly layout = computed<CostChartLayout>(() =>
     this.cost.value()?.by === 'day' ? 'columns' : 'bars',
   );
@@ -87,6 +90,11 @@ export class Cost {
     { key: 'calls', header: 'Copilot calls', align: 'end', width: '120px' },
     { key: 'jobs', header: 'Jobs', align: 'end', width: '90px' },
     { key: 'duration', header: 'Job time', align: 'end', width: '130px', hideBelow: 'sm' },
+    { key: 'nanoAiu', header: 'Billed (nano AIU)', align: 'end', width: '160px' },
+    { key: 'inputTokens', header: 'Input', align: 'end', width: '120px', hideBelow: 'md' },
+    { key: 'cacheReadTokens', header: 'Cache read', align: 'end', width: '120px', hideBelow: 'md' },
+    { key: 'cacheWriteTokens', header: 'Cache write', align: 'end', width: '120px', hideBelow: 'md' },
+    { key: 'outputTokens', header: 'Output', align: 'end', width: '120px', hideBelow: 'md' },
   ];
 
   protected readonly trackByKey = (_index: number, row: CostLine) => row.key;
