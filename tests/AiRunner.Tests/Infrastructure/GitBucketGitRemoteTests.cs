@@ -14,7 +14,7 @@ public sealed class GitBucketGitRemoteTests
         var identity = new RunnerIdentity { Login = "bot" };
         var credentials = RunnerCredentials.Of(token: "s3cret");
 
-        return new GitBucketGitRemote(config, identity, credentials);
+        return new GitBucketGitRemote(RunnerConfigSource.Fixed(config), identity, credentials);
     }
 
     [Fact]

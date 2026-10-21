@@ -45,7 +45,7 @@ public sealed class ProjectLayoutTests
     {
         var project = Layout(layout);
         using var kit = new JobTestKit(project: project);
-        var setup = new LabelSetup(kit.Config, kit.CodeHost, NullLogger<LabelSetup>.Instance);
+        var setup = new LabelSetup(RunnerConfigSource.Fixed(kit.Config), kit.CodeHost, NullLogger<LabelSetup>.Instance);
 
         await setup.RunAsync(default);
 

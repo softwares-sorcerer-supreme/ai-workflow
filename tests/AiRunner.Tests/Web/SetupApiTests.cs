@@ -53,7 +53,7 @@ public sealed class SetupApiTests : IAsyncDisposable
 
         var status = new RunnerStatus("laptop-1", "repos.yml", _time);
         var config = new RunnerConfig { CodeHost = _setup.Config.CodeHost };
-        var options = new DashboardAppOptions(config, status, _time, _webRoot)
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(config), status, _time, _webRoot)
         {
             Commands = _commands,
             Setup = _setup.CreateSetup(_identity, _commands),

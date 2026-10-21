@@ -65,7 +65,7 @@ public sealed class JobsApiTests : IAsyncDisposable
 
     private async Task<HttpClient> StartAsync()
     {
-        var options = new DashboardAppOptions(_config, _status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
         };

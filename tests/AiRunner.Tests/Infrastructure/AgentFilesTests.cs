@@ -38,8 +38,8 @@ public sealed class AgentFilesTests : IDisposable
         Git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "seed");
 
         var copilotHome = new CopilotHome(_home);
-        _files = new AgentFiles(_config, copilotHome, _processRunner);
-        var installer = new AgentInstaller(_config, NullLogger<AgentInstaller>.Instance);
+        _files = new AgentFiles(RunnerConfigSource.Fixed(_config), copilotHome, _processRunner);
+        var installer = new AgentInstaller(RunnerConfigSource.Fixed(_config), NullLogger<AgentInstaller>.Instance);
         _sync = new AgentSync(installer, copilotHome, _commands, NullLogger<AgentSync>.Instance);
         _agents = new RunnerAgents(_files, _sync, NullLogger<RunnerAgents>.Instance);
     }
@@ -128,7 +128,7 @@ public sealed class AgentFilesTests : IDisposable
         {
             Directory.CreateDirectory(Path.Combine(plainRoot, "agents"));
             File.WriteAllText(Path.Combine(plainRoot, "agents", "scout.agent.md"), Agent);
-            var files = new AgentFiles(new RunnerConfig { RootDir = plainRoot }, new CopilotHome(_home), _processRunner);
+            var files = new AgentFiles(RunnerConfigSource.Fixed(new RunnerConfig { RootDir = plainRoot }), new CopilotHome(_home), _processRunner);
 
             var states = await files.GitStatesAsync(["agents/scout.agent.md"], default);
 

@@ -12,13 +12,19 @@ public sealed class HealthReader(
     RunnerStatus status,
     RunnerCommands commands,
     IRunnerSetup setup,
+    RunnerConfigSource configSource,
     RunnerConfig config,
     TimeProvider time)
 {
     public HealthResponse Read()
     {
         var isSetupNeeded = setup.IsSetupNeeded;
-        var snapshot = status.Snapshot() with { IsPaused = commands.IsPaused, IsSetupNeeded = isSetupNeeded };
+        var snapshot = status.Snapshot() with
+        {
+            IsPaused = commands.IsPaused,
+            IsSetupNeeded = isSetupNeeded,
+            ConfigError = configSource.Error,
+        };
         var now = time.GetUtcNow();
 
         return HealthResponse.From(snapshot, config, now);
@@ -35,7 +41,9 @@ public sealed record PollErrorResponse(string Project, string Message, DateTimeO
 /// <c>GET /api/health</c>: is the runner working? Every state comes as a stable code (for styling) plus the text to
 /// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button;
 /// <c>IsSetupNeeded</c> shows the setup banner on every screen; <c>HasAgentDrift</c> says ~/.copilot/ differs from
-/// agents/ and skills/ (the label is for the health strip, a flag and not a state: the runner still works). Times are UTC.
+/// agents/ and skills/ (the label is for the health strip, a flag and not a state: the runner still works).
+/// <c>ConfigError</c> says why repos.yml on disk is not applied (the runner keeps the config it has), with
+/// <c>ConfigErrorLabel</c> for the strip. Times are UTC.
 /// </summary>
 public sealed record HealthResponse(
     string State,
@@ -52,11 +60,14 @@ public sealed record HealthResponse(
     bool IsSetupNeeded,
     bool HasAgentDrift,
     string? AgentDriftLabel,
+    string? ConfigError,
+    string? ConfigErrorLabel,
     WorkerHealth Worker,
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
 {
     private const string AgentDriftText = "Agents out of sync";
+    private const string ConfigErrorText = "repos.yml has errors";
     private const string WorkerIdle = "idle";
     private const string WorkerBusy = "busy";
 
@@ -97,6 +108,8 @@ public sealed record HealthResponse(
             status.IsSetupNeeded,
             status.HasAgentDrift,
             status.HasAgentDrift ? AgentDriftText : null,
+            status.ConfigError,
+            status.ConfigError is null ? null : ConfigErrorText,
             worker,
             ErrorsLabelOf(errors.Count),
             errors);

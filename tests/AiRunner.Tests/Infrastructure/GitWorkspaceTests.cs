@@ -38,9 +38,9 @@ public sealed class GitWorkspaceTests : IDisposable
         File.WriteAllText(templateFile, "template");
 
         var identity = new RunnerIdentity { Login = "bot" };
-        var remote = new GitBucketGitRemote(_config, identity, RunnerCredentials.Of(token: "x"));
-        _gitClient = new GitClient(_config, remote, _processRunner);
-        _workspace = new Workspace(_config, _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
+        var remote = new GitBucketGitRemote(RunnerConfigSource.Fixed(_config), identity, RunnerCredentials.Of(token: "x"));
+        _gitClient = new GitClient(RunnerConfigSource.Fixed(_config), remote, _processRunner);
+        _workspace = new Workspace(RunnerConfigSource.Fixed(_config), _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main
         var bare = Path.Combine(_root, "git", "o", "r.git");
@@ -117,7 +117,7 @@ public sealed class GitWorkspaceTests : IDisposable
         Assert.Equal(["app.txt", "new.txt"], stats.Select(stat => stat.Path).Order());
         Assert.Equal(4, stats.Sum(stat => stat.Lines));
 
-        await _gitClient.CommitAsync(directory, "#1: test (Copilot)", default);
+        await _gitClient.CommitAsync(directory, "#1: test (Copilot)", new GitConfig(), default);
         await _gitClient.PushAsync(directory, "HEAD", "ai/issue-1", default);
         var head = await _gitClient.ResolveAsync(directory, "HEAD", default);
         Assert.Matches("^[0-9a-f]{40}$", head);
@@ -181,7 +181,7 @@ public sealed class GitWorkspaceTests : IDisposable
 
         await _gitClient.StageAllAsync(directory, default);
         var before = _gitClient.ConfigFingerprint(directory);
-        await _gitClient.CommitAsync(directory, "test", default);
+        await _gitClient.CommitAsync(directory, "test", new GitConfig(), default);
 
         Assert.False(File.Exists(marker));
         Assert.Equal(before, _gitClient.ConfigFingerprint(directory));

@@ -12,8 +12,13 @@ using Microsoft.Extensions.FileProviders;
 namespace AiRunner.Web;
 
 /// <summary>What the dashboard web app is built from: the runner's own instances, never copies.</summary>
+/// <param name="ConfigSource">The runner's live config; each request reads one snapshot of it.</param>
 /// <param name="WebRoot">Folder of the built UI; it may be missing (then the "not built" page is served).</param>
-public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Status, TimeProvider Time, string WebRoot)
+public sealed record DashboardAppOptions(
+    RunnerConfigSource ConfigSource,
+    RunnerStatus Status,
+    TimeProvider Time,
+    string WebRoot)
 {
     /// <summary>Read access to the job table; the default holds no jobs (the OpenAPI export needs none).</summary>
     public IJobReader Jobs { get; init; } = NoJobs.Instance;
@@ -53,6 +58,12 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
     /// OpenAPI export runs no runner).
     /// </summary>
     public IRunnerAgents Agents { get; init; } = NoAgents.Instance;
+
+    /// <summary>
+    /// repos.yml for the Settings screen, shared with the runner; the default has no file (the OpenAPI export runs no
+    /// runner).
+    /// </summary>
+    public IRunnerSettings Settings { get; init; } = NoSettings.Instance;
 
     /// <summary>The runner's login on the code host, for the scope of the PR actions; a login, never a secret.</summary>
     public RunnerIdentity Identity { get; init; } = new();
@@ -110,7 +121,16 @@ public static class DashboardApp
         });
 
         builder.WebHost.UseKestrelCore();
-        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, options.Config.Dashboard.Port));
+        // The port needs a restart, so the live config always holds the startup one.
+        var port = options.ConfigSource.Current.Dashboard.Port;
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, port));
+
+        // A reader that captured the scoped config would show the startup config forever: refuse to build instead.
+        builder.Host.UseDefaultServiceProvider(provider =>
+        {
+            provider.ValidateScopes = true;
+            provider.ValidateOnBuild = true;
+        });
 
         // Its own console log: the 3 s polls of the UI must not flood the runner's log.
         builder.Logging.AddSimpleConsole(console =>
@@ -133,7 +153,9 @@ public static class DashboardApp
         builder.Services.ConfigureHttpJsonOptions(json =>
             json.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 
-        builder.Services.AddSingleton(options.Config);
+        // One config per request: the readers that take it are scoped.
+        builder.Services.AddSingleton(options.ConfigSource);
+        builder.Services.AddScoped(serviceProvider => serviceProvider.GetRequiredService<RunnerConfigSource>().Current);
         builder.Services.AddSingleton(options.Status);
         builder.Services.AddSingleton(options.Time);
         builder.Services.AddSingleton(options.Jobs);
@@ -144,14 +166,15 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Actions);
         builder.Services.AddSingleton(options.Workspaces);
         builder.Services.AddSingleton(options.Agents);
+        builder.Services.AddSingleton(options.Settings);
         builder.Services.AddSingleton(options.Identity);
-        builder.Services.AddSingleton<CostReader>();
-        builder.Services.AddSingleton<LogViewer>();
-        builder.Services.AddSingleton<HealthReader>();
-        builder.Services.AddSingleton<OverviewReader>();
-        builder.Services.AddSingleton<IssueBoardReader>();
-        builder.Services.AddSingleton<IssueReader>();
-        builder.Services.AddSingleton<IssueDetailReader>();
+        builder.Services.AddScoped<CostReader>();
+        builder.Services.AddScoped<LogViewer>();
+        builder.Services.AddScoped<HealthReader>();
+        builder.Services.AddScoped<OverviewReader>();
+        builder.Services.AddScoped<IssueBoardReader>();
+        builder.Services.AddScoped<IssueReader>();
+        builder.Services.AddScoped<IssueDetailReader>();
 
         return builder;
     }
@@ -177,7 +200,7 @@ public static class DashboardApp
         app.UseRouting();
 
         // After routing (the endpoint is known), before the endpoint binds its parameters.
-        var guard = new WriteGuard(options.Config.Dashboard.Port);
+        var guard = new WriteGuard(options.ConfigSource.Current.Dashboard.Port);
         app.Use((context, next) => GuardWritesAsync(context, next, guard));
 
         app.MapOpenApi();

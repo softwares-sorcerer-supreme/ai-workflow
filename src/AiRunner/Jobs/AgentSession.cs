@@ -395,7 +395,7 @@ public sealed class AgentSession(
             return null;
         }
 
-        await git.CommitAsync(directory, message, cancellationToken);
+        await git.CommitAsync(directory, message, config.Git, cancellationToken);
         run.Step(JobSteps.Push, "Push");
         await git.PushAsync(directory, "HEAD", branch, cancellationToken);
         run.Info($"pushed {branch}: {stats.Count} files, {stats.Sum(stat => stat.Lines)} lines");

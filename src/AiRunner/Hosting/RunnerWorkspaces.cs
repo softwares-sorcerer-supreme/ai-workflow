@@ -49,13 +49,16 @@ public interface IRunnerWorkspaces
 /// <see cref="WorkspaceOutcome.Busy"/> when a job holds it, so it can never delay or disturb a job.
 /// </summary>
 public sealed class RunnerWorkspaces(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     WorkspaceInspector inspector,
     IGitClient gitClient,
     IWorkspace workspace,
     WorkspaceLocks locks,
     ILogger<RunnerWorkspaces> logger) : IRunnerWorkspaces
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     private const string BusyMessage = "A job is using this project; try again when it has ended.";
 
     private readonly object _listingGate = new();
@@ -92,7 +95,7 @@ public sealed class RunnerWorkspaces(
             return new WorkspaceReply(WorkspaceOutcome.Busy, BusyMessage);
         }
 
-        var directory = WorkspacePaths.CloneOf(config, target.Project, target.Repo);
+        var directory = WorkspacePaths.CloneOf(Config, target.Project, target.Repo);
         if (!Directory.Exists(Path.Combine(directory, ".git")))
         {
             return new WorkspaceReply(WorkspaceOutcome.Refused, "This clone does not exist yet; the next job makes it.");
@@ -147,7 +150,7 @@ public sealed class RunnerWorkspaces(
 
     public Task<WorkspaceReply> DeleteOrphanAsync(string folder, CancellationToken cancellationToken)
     {
-        var projectNames = config.Projects.Select(project => project.Name).ToList();
+        var projectNames = Config.Projects.Select(project => project.Name).ToList();
         var reason = OrphanRules.WhyRefused(folder, projectNames);
         if (reason is not null)
         {
@@ -155,7 +158,7 @@ public sealed class RunnerWorkspaces(
         }
 
         // The name is plain, but the resolved path is the last word: it must stay inside work/.
-        var workFolder = Path.GetFullPath(WorkspacePaths.WorkFolder(config));
+        var workFolder = Path.GetFullPath(WorkspacePaths.WorkFolder(Config));
         var directory = Path.GetFullPath(Path.Combine(workFolder, folder));
         if (!GitClient.IsInside(workFolder, directory))
         {
@@ -194,7 +197,7 @@ public sealed class RunnerWorkspaces(
 
     private CloneTarget? Find(string projectName, string folder)
     {
-        var project = config.Projects.FirstOrDefault(candidate =>
+        var project = Config.Projects.FirstOrDefault(candidate =>
             string.Equals(candidate.Name, projectName, StringComparison.OrdinalIgnoreCase));
         var repo = project?.Repos.FirstOrDefault(candidate =>
             string.Equals(ProjectConfig.FolderOf(candidate), folder, StringComparison.OrdinalIgnoreCase));

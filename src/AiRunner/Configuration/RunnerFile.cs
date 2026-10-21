@@ -3,6 +3,7 @@ namespace AiRunner.Configuration;
 // The shape of repos.yml as it is written (snake_case). Every setting is nullable: "not written" must stay
 // different from "written as the default", so a project can override only what it names. ConfigResolver
 // merges these into the resolved classes (RunnerConfig, ProjectConfig). Nothing outside Configuration/ sees them.
+// The property order is the key order RunnerFileWriter writes: keep it the order of today's repos.yml.
 
 internal sealed class RunnerFile
 {
@@ -17,11 +18,13 @@ internal sealed class RunnerFile
     public PathsConfig Paths { get; set; } = new();
     public int LogRetentionDays { get; set; } = 30;
     public AttachmentsConfig Attachments { get; set; } = new();
-    public GitConfig Git { get; set; } = new();
     public DashboardConfig Dashboard { get; set; } = new();
+    public GitConfig Git { get; set; } = new();
     public SettingsFile Defaults { get; set; } = new();
     public Dictionary<string, ProjectFile> Projects { get; set; } = [];
-    public List<LegacyRepoFile> Repos { get; set; } = [];
+
+    /// <summary>The old flat list; null when the file has none, so a save does not add an empty one.</summary>
+    public List<LegacyRepoFile>? Repos { get; set; }
 }
 
 /// <summary>
@@ -92,8 +95,8 @@ internal sealed class ComponentFile
     public string? Repo { get; set; }
     public string? Path { get; set; }
     public bool? Code { get; set; }
-    public CommandsFile? Commands { get; set; }
     public List<string>? Instructions { get; set; }
+    public CommandsFile? Commands { get; set; }
 }
 
 internal sealed class ProjectFile : SettingsFile

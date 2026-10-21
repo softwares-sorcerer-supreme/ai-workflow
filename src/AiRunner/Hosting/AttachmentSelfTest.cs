@@ -11,18 +11,21 @@ namespace AiRunner.Hosting;
 /// for attachments on your server.
 /// </summary>
 public sealed class AttachmentSelfTest(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     ICodeHost codeHost,
     ILogger<AttachmentSelfTest> logger)
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     public async Task RunAsync(string url, CancellationToken cancellationToken)
     {
-        var baseUrl = config.CodeHost.BaseUrl.TrimEnd('/');
+        var baseUrl = Config.CodeHost.BaseUrl.TrimEnd('/');
         var absoluteUrl = url.StartsWith('/') ? baseUrl + url : url;
         var directory = Directory.CreateTempSubdirectory("ai-runner-attachment-").FullName;
         logger.LogInformation("Downloading {Url} into {Directory}", absoluteUrl, directory);
 
-        var download = new AttachmentDownload(absoluteUrl, directory, "test", config.Attachments.MaxFileBytes);
+        var download = new AttachmentDownload(absoluteUrl, directory, "test", Config.Attachments.MaxFileBytes);
         try
         {
             var downloaded = await codeHost.DownloadAttachmentAsync(download, cancellationToken);

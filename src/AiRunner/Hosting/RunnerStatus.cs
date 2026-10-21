@@ -1,3 +1,4 @@
+using AiRunner.Configuration;
 namespace AiRunner.Hosting;
 
 /// <summary>The latest poll error of one project.</summary>
@@ -41,6 +42,9 @@ public sealed record RunnerStatusSnapshot(
 
     /// <summary>~/.copilot/ differs from agents/ and skills/ (a file differs or is not installed); see <c>AgentDrift</c>.</summary>
     public bool HasAgentDrift { get; init; }
+
+    /// <summary>Why repos.yml on disk is not applied (the runner keeps its config); set from <see cref="RunnerConfigSource"/>.</summary>
+    public string? ConfigError { get; init; }
 
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);

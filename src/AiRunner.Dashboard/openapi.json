@@ -614,6 +614,97 @@
         }
       }
     },
+    "/api/settings/schema": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Every key of repos.yml: path, scope, type, allowed values, help, default, restart, secret.",
+        "operationId": "getSettingsSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSchemaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "repos.yml as JSON (no secret), its hash, and the merged settings of each project.",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Check, back up, write and apply repos.yml; 409 when it changed since it was read.",
+        "operationId": "saveSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runner/poll": {
       "post": {
         "tags": [
@@ -1842,6 +1933,32 @@
           }
         }
       },
+      "EffectiveValue": {
+        "required": [
+          "key",
+          "value",
+          "source"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
       "HealthResponse": {
         "required": [
           "state",
@@ -1858,6 +1975,8 @@
           "isSetupNeeded",
           "hasAgentDrift",
           "agentDriftLabel",
+          "configError",
+          "configErrorLabel",
           "worker",
           "errorsLabel",
           "errors"
@@ -1914,6 +2033,18 @@
             "type": "boolean"
           },
           "agentDriftLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "configError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "configErrorLabel": {
             "type": [
               "null",
               "string"
@@ -2372,6 +2503,10 @@
           }
         }
       },
+      "JsonNode": { },
+      "JsonObject": {
+        "type": "object"
+      },
       "LogFileResponse": {
         "required": [
           "name",
@@ -2536,6 +2671,24 @@
           "at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ProjectEffective": {
+        "required": [
+          "project",
+          "values"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveValue"
+            }
           }
         }
       },
@@ -2725,6 +2878,155 @@
           },
           "baseHash": {
             "type": "string"
+          }
+        }
+      },
+      "SettingDefinition": {
+        "required": [
+          "path",
+          "key",
+          "scope",
+          "type",
+          "help"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "allowedValues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "isRestartNeeded": {
+            "type": "boolean"
+          },
+          "isSecret": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SettingsChangeResponse": {
+        "required": [
+          "message",
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsResponse"
+          }
+        }
+      },
+      "SettingsRequest": {
+        "required": [
+          "file",
+          "baseHash"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "baseHash": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingsResponse": {
+        "required": [
+          "file",
+          "hash",
+          "version",
+          "path",
+          "error",
+          "hasComments",
+          "restartNeeded",
+          "effective"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "hash": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasComments": {
+            "type": "boolean"
+          },
+          "restartNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "effective": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectEffective"
+            }
+          }
+        }
+      },
+      "SettingsSchemaResponse": {
+        "required": [
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingDefinition"
+            }
           }
         }
       },
@@ -2983,6 +3285,9 @@
     },
     {
       "name": "Agents"
+    },
+    {
+      "name": "Settings"
     },
     {
       "name": "Runner"

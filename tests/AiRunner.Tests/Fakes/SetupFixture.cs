@@ -76,7 +76,7 @@ public sealed class SetupFixture : IDisposable
         var loggerFactory = new LoggerFactory([Logs]);
 
         return new RunnerSetup(
-            Config,
+            RunnerConfigSource.Fixed(Config),
             Credentials,
             Sources,
             Check,

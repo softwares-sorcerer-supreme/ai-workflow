@@ -68,7 +68,7 @@ internal static partial class ConfigResolver
             config.Projects.Add(project);
         }
 
-        foreach (var legacy in file.Repos)
+        foreach (var legacy in file.Repos ?? [])
         {
             var project = BuildLegacyProject(legacy, file);
             config.Projects.Add(project);

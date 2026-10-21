@@ -64,7 +64,7 @@ public interface IRunnerSetup
 /// <see cref="RunnerCommands"/>. Secrets are never logged and never part of a message.
 /// </summary>
 public sealed class RunnerSetup(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     RunnerCredentials credentials,
     CredentialSources sources,
     ICredentialCheck check,
@@ -72,10 +72,13 @@ public sealed class RunnerSetup(
     RunnerCommands commands,
     ILogger<RunnerSetup> logger) : IRunnerSetup
 {
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     /// <summary>One change at a time: two pages saving at once must not interleave check, save and swap.</summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private string BaseUrl => config.CodeHost.BaseUrl;
+    private string BaseUrl => Config.CodeHost.BaseUrl;
 
     public bool IsSetupNeeded => !credentials.IsTokenSet;
 

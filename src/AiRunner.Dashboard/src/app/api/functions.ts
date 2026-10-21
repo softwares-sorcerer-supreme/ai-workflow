@@ -51,6 +51,12 @@ export type { RevertAgentFile$Params as RevertAgentFile$Params } from './fn/agen
 export { revertAgentFile as revertAgentFile } from './fn/agents/revert-agent-file';
 export type { SyncAgents$Params as SyncAgents$Params } from './fn/agents/sync-agents';
 export { syncAgents as syncAgents } from './fn/agents/sync-agents';
+export type { GetSettingsSchema$Params as GetSettingsSchema$Params } from './fn/settings/get-settings-schema';
+export { getSettingsSchema as getSettingsSchema } from './fn/settings/get-settings-schema';
+export type { GetSettings$Params as GetSettings$Params } from './fn/settings/get-settings';
+export { getSettings as getSettings } from './fn/settings/get-settings';
+export type { SaveSettings$Params as SaveSettings$Params } from './fn/settings/save-settings';
+export { saveSettings as saveSettings } from './fn/settings/save-settings';
 export type { PollNow$Params as PollNow$Params } from './fn/runner/poll-now';
 export { pollNow as pollNow } from './fn/runner/poll-now';
 export type { PauseRunner$Params as PauseRunner$Params } from './fn/runner/pause-runner';

@@ -44,7 +44,8 @@ public interface IGitClient
     /// <summary>git add -A, then the staged changes per file.</summary>
     Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken);
 
-    Task CommitAsync(string directory, string message, CancellationToken cancellationToken);
+    /// <summary>Commits the staged changes as <paramref name="author"/>: the job's config, never changed mid-job.</summary>
+    Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken);
 
     /// <summary>Push source (a ref or sha) to the branch on origin. Never forced.</summary>
     Task PushAsync(string directory, string source, string branch, CancellationToken cancellationToken);
@@ -96,8 +97,14 @@ public sealed record CloneHead(
 /// (.git/hooks, a config entry) runs when the runner calls git. The clone URL and the auth header
 /// come from the code host's <see cref="IGitRemote"/>.
 /// </summary>
-public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRunner processRunner) : IGitClient
+public sealed class GitClient(
+    RunnerConfigSource configSource,
+    IGitRemote remote,
+    IProcessRunner processRunner) : IGitClient
 {
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
 
     public async Task CloneOrFetchAsync(string repo, string directory, CancellationToken cancellationToken)
@@ -253,14 +260,14 @@ public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRu
         return ParseNumstat(text);
     }
 
-    public Task CommitAsync(string directory, string message, CancellationToken cancellationToken) =>
+    public Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken) =>
         GitAsync(
             directory,
             cancellationToken,
             "-c",
-            $"user.name={config.Git.UserName}",
+            $"user.name={author.UserName}",
             "-c",
-            $"user.email={config.Git.UserEmail}",
+            $"user.email={author.UserEmail}",
             "commit",
             "--no-verify",
             "-m",
@@ -449,7 +456,7 @@ public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRu
     private Task<ProcessResult> RunAsync(string directory, CancellationToken cancellationToken, params string[] args)
     {
         var authorizationHeader = remote.AuthorizationHeader();
-        var workFolder = config.ResolvePath(config.Paths.Work);
+        var workFolder = Config.ResolvePath(Config.Paths.Work);
         (string Key, string Value)[] settings =
         [
             ("http.extraHeader", authorizationHeader),

@@ -32,19 +32,22 @@ public sealed record WorkspaceListing(IReadOnlyList<ProjectWorkspace> Projects, 
 /// commands) and never takes the project lock, so a screen refresh cannot disturb a job.
 /// </summary>
 public sealed class WorkspaceInspector(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     IGitClient gitClient,
     WorkspaceLocks locks,
     DirectorySizes sizes)
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     private const string AgentFileSuffix = ".agent.md";
 
     public async Task<WorkspaceListing> ListAsync(CancellationToken cancellationToken)
     {
-        var installedAgents = NamesOfAgentFiles(config.ResolvePath("agents"));
+        var installedAgents = NamesOfAgentFiles(Config.ResolvePath("agents"));
         var projects = new List<ProjectWorkspace>();
 
-        foreach (var project in config.Projects)
+        foreach (var project in Config.Projects)
         {
             var isBusy = locks.IsHeld(project.Name);
             var clones = new List<CloneInfo>();
@@ -67,7 +70,7 @@ public sealed class WorkspaceInspector(
         CancellationToken cancellationToken)
     {
         var isBusy = locks.IsHeld(project.Name);
-        var directory = WorkspacePaths.CloneOf(config, project, repo);
+        var directory = WorkspacePaths.CloneOf(Config, project, repo);
         var folder = ProjectConfig.FolderOf(repo);
         var components = project.Components
             .Where(component => string.Equals(component.Repo, repo, StringComparison.OrdinalIgnoreCase))
@@ -159,13 +162,13 @@ public sealed class WorkspaceInspector(
 
     private List<OrphanFolder> ListOrphans()
     {
-        var workFolder = WorkspacePaths.WorkFolder(config);
+        var workFolder = WorkspacePaths.WorkFolder(Config);
         if (!Directory.Exists(workFolder))
         {
             return [];
         }
 
-        var projectNames = config.Projects.Select(project => project.Name).ToList();
+        var projectNames = Config.Projects.Select(project => project.Name).ToList();
         var orphans = new List<OrphanFolder>();
 
         foreach (var directory in Directory.EnumerateDirectories(workFolder).Order(StringComparer.OrdinalIgnoreCase))

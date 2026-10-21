@@ -70,12 +70,15 @@ public interface IWorkspace
 /// but it is not excluded in the clones: a repo may have an AGENTS.md of its own that the agent may legitimately edit.
 /// </summary>
 public sealed class Workspace(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     IGitClient gitClient,
     IGitRemote remote,
     WorkspaceLocks locks,
     ILogger<Workspace> logger) : IWorkspace
 {
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     private const string RunnerFolder = ".ai-workflow";
     private const string TemplatesFolder = ".ai-workflow/templates";
 
@@ -88,9 +91,9 @@ public sealed class Workspace(
     /// <summary>Runner files in the project folder that must not go to the exclude list of a clone.</summary>
     private static readonly string[] RootOnlyFiles = [InstructionsDoc.FileName];
 
-    private string RootOf(ProjectConfig project) => WorkspacePaths.RootOf(config, project);
+    private string RootOf(ProjectConfig project) => WorkspacePaths.RootOf(Config, project);
 
-    private string CloneFolderOf(ProjectConfig project, string repo) => WorkspacePaths.CloneOf(config, project, repo);
+    private string CloneFolderOf(ProjectConfig project, string repo) => WorkspacePaths.CloneOf(Config, project, repo);
 
     public void Discard(ProjectConfig project, string repo)
     {
@@ -137,7 +140,7 @@ public sealed class Workspace(
             clones[repo] = directory;
         }
 
-        var sharedTemplates = config.ResolvePath("templates");
+        var sharedTemplates = Config.ResolvePath("templates");
         var templatesFolder = Path.Combine(root, TemplatesFolder);
         CopyDirectory(sharedTemplates, templatesFolder);
 

@@ -11,9 +11,9 @@ namespace AiRunner.Hosting;
 /// poller and worker keep running.
 /// </summary>
 public sealed class DashboardHost(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
+    IServiceScopeFactory scopes,
     RunnerStatus status,
-    ICopilotRunner copilot,
     TimeProvider time,
     IJobReader jobs,
     ISnapshotReader snapshot,
@@ -23,6 +23,7 @@ public sealed class DashboardHost(
     IRunnerActions actions,
     IRunnerWorkspaces workspaces,
     IRunnerAgents agents,
+    IRunnerSettings settings,
     RunnerIdentity identity,
     ILogger<DashboardHost> logger) : BackgroundService
 {
@@ -31,8 +32,9 @@ public sealed class DashboardHost(
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var port = config.Dashboard.Port;
-        var options = new DashboardAppOptions(config, status, time, WebRoot)
+        // The port needs a restart, so the live config always holds the startup one.
+        var port = configSource.Current.Dashboard.Port;
+        var options = new DashboardAppOptions(configSource, status, time, WebRoot)
         {
             Jobs = jobs,
             Snapshot = snapshot,
@@ -42,6 +44,7 @@ public sealed class DashboardHost(
             Actions = actions,
             Workspaces = workspaces,
             Agents = agents,
+            Settings = settings,
             Identity = identity,
         };
         var builder = DashboardApp.CreateBuilder(options);
@@ -82,6 +85,10 @@ public sealed class DashboardHost(
 
     private async Task ReadCopilotVersionAsync(CancellationToken cancellationToken)
     {
+        // The Copilot runner reads copilot.command from its scope's config.
+        using var scope = scopes.CreateScope();
+        var copilot = scope.ServiceProvider.GetRequiredService<ICopilotRunner>();
+
         try
         {
             var version = await copilot.GetVersionAsync(cancellationToken);

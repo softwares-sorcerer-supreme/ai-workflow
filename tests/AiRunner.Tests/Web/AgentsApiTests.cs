@@ -49,11 +49,11 @@ public sealed class AgentsApiTests : IAsyncDisposable
     private async Task<HttpClient> StartAsync()
     {
         var home = new CopilotHome(Path.Combine(_root, "copilot-home"));
-        var files = new AgentFiles(_config, home, new ProcessRunner());
+        var files = new AgentFiles(RunnerConfigSource.Fixed(_config), home, new ProcessRunner());
         var commands = new RunnerCommands();
-        var installer = new AgentInstaller(_config, NullLogger<AgentInstaller>.Instance);
+        var installer = new AgentInstaller(RunnerConfigSource.Fixed(_config), NullLogger<AgentInstaller>.Instance);
         var sync = new AgentSync(installer, home, commands, NullLogger<AgentSync>.Instance);
-        var options = new DashboardAppOptions(_config, _status, _time, Path.Combine(_root, "wwwroot"))
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, Path.Combine(_root, "wwwroot"))
         {
             Agents = new RunnerAgents(files, sync, NullLogger<RunnerAgents>.Instance),
             Commands = commands,

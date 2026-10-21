@@ -6,11 +6,14 @@ using AiRunner.Infrastructure.CodeHost;
 namespace AiRunner.Hosting;
 
 /// <summary>--setup-labels: creates the labels from design doc section 5 in every repo of every project, issues-only repos included.</summary>
-public sealed class LabelSetup(RunnerConfig config, ICodeHost codeHost, ILogger<LabelSetup> logger)
+public sealed class LabelSetup(RunnerConfigSource configSource, ICodeHost codeHost, ILogger<LabelSetup> logger)
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        foreach (var project in config.Projects)
+        foreach (var project in Config.Projects)
         {
             var settings = project.Settings;
             var labels = Labels.All(settings.TriggerLabel, settings.TriggerKeyword);

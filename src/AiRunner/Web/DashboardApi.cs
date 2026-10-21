@@ -96,6 +96,7 @@ public static class DashboardApi
         ActionsApi.MapActionsApi(writes);
         WorkspacesApi.MapWorkspacesApi(api, writes);
         AgentsApi.MapAgentsApi(api, writes);
+        SettingsApi.MapSettingsApi(api, writes);
 
         return endpoints;
     }

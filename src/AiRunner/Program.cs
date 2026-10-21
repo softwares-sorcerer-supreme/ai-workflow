@@ -24,9 +24,10 @@ if (mode.OpenApiPath is not null)
 }
 
 var configPath = mode.ConfigPath ?? FindConfig();
-var configFile = RunnerConfig.LoadFile(configPath);
-var config = configFile.Config;
-var fullConfigPath = Path.GetFullPath(configPath);
+
+// The live config (repos.yml is reloaded while the runner runs); here the startup one decides the mode.
+var configSource = RunnerConfigSource.Load(configPath);
+var config = configSource.Current;
 
 // No args passed to the host on purpose: flags like "--once" are not config keys. No AddUserSecrets either: the
 // secrets file is read (and written by the Setup page) through UserSecretsStore only.
@@ -47,7 +48,7 @@ var environmentToken = Environment.GetEnvironmentVariable("GitBucket__Token")
 var environmentGitPassword = Environment.GetEnvironmentVariable("GitBucket__GitPassword");
 var environment = new CredentialEnvironment(environmentToken, environmentGitPassword);
 var secretsStore = UserSecretsStore.ForAssembly(typeof(Program).Assembly);
-var credentialSources = new CredentialSources(secretsStore, environment, configFile.WebPassword);
+var credentialSources = new CredentialSources(secretsStore, environment, configSource.StartupWebPassword);
 var credentialValues = credentialSources.Load();
 var credentials = new RunnerCredentials(credentialValues);
 var isSetupMode = !credentials.IsTokenSet && mode.CanStartInSetupMode;
@@ -58,69 +59,15 @@ if (!credentials.IsTokenSet && !isSetupMode && mode.NeedsToken)
 
 var identity = new RunnerIdentity();
 
-// Configuration and Infrastructure: one instance each, every side effect behind an interface.
-builder.Services.AddSingleton(config);
-builder.Services.AddSingleton(identity);
-builder.Services.AddSingleton(credentials);
-builder.Services.AddSingleton(credentialSources);
-
-// The code host (code_host.kind): the API client, the git remote and the credential check of its provider.
-CodeHostRegistration.Add(builder.Services, configFile);
-
-builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
-builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
-builder.Services.AddSingleton<IGitClient, GitClient>();
-builder.Services.AddSingleton<IWorkspace, Workspace>();
-builder.Services.AddSingleton<SqliteStateStore>();
-builder.Services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<IJobStepLog>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ICostLog, CostLog>();
-builder.Services.AddSingleton<JobLog>();
-builder.Services.AddSingleton<AgentInstaller>();
-builder.Services.AddSingleton(CopilotHome.FromUserProfile());
-builder.Services.AddSingleton<AgentFiles>();
-builder.Services.AddSingleton<AgentSession>();
-builder.Services.AddSingleton<AttachmentFetcher>();
-
-// Jobs: stateless, one per workflow.
-builder.Services.AddSingleton<IJob, AnalyzeIssueJob>();
-builder.Services.AddSingleton<IJob, BreakdownIssueJob>();
-builder.Services.AddSingleton<IJob, ImplementIssueJob>();
-builder.Services.AddSingleton<IJob, ReviewPullRequestJob>();
-builder.Services.AddSingleton<IJob, SequenceSubIssuesJob>();
-builder.Services.AddSingleton<IJob, FixReviewJob>();
-builder.Services.AddSingleton<IJob, FinishIssueJob>();
-builder.Services.AddSingleton<JobFactory>();
-builder.Services.AddSingleton<JobLoader>();
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<ClaimService>();
-
-// Hosting.
-builder.Services.AddSingleton<JobQueue>();
-builder.Services.AddSingleton<SnapshotRecorder>();
-builder.Services.AddSingleton<Poller>();
-builder.Services.AddSingleton<JobWorker>();
-builder.Services.AddSingleton<LabelSetup>();
-builder.Services.AddSingleton<CopilotSelfTest>();
-builder.Services.AddSingleton<AttachmentSelfTest>();
-builder.Services.AddSingleton<CloseSelfTest>();
-builder.Services.AddSingleton<RunnerCommands>();
-builder.Services.AddSingleton<IRunnerSetup, RunnerSetup>();
-builder.Services.AddSingleton<IRunnerActions, RunnerActions>();
-builder.Services.AddSingleton<WorkspaceLocks>();
-builder.Services.AddSingleton<DirectorySizes>();
-builder.Services.AddSingleton<WorkspaceInspector>();
-builder.Services.AddSingleton<IRunnerWorkspaces, RunnerWorkspaces>();
-builder.Services.AddSingleton<AgentSync>();
-builder.Services.AddSingleton<IRunnerAgents, RunnerAgents>();
-builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
-    config.EffectiveRunnerName(),
-    fullConfigPath,
-    serviceProvider.GetRequiredService<TimeProvider>()));
+// Scope validation in every environment: a singleton holding the scoped config would never see a reload.
+builder.ConfigureContainer(new DefaultServiceProviderFactory(RunnerServices.ProviderOptions));
+var servicesInput = new RunnerServicesInput(
+    configSource,
+    credentials,
+    credentialSources,
+    identity,
+    CopilotHome.FromUserProfile());
+RunnerServices.Add(builder.Services, servicesInput);
 
 if (mode.IsPollingLoop)
 {
@@ -143,7 +90,8 @@ var cancellationToken = CancellationToken.None;
 
 if (mode.CopilotTest)
 {
-    await services.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
+    using var copilotScope = services.CreateScope();
+    await copilotScope.ServiceProvider.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
     return;
 }
 
@@ -180,7 +128,7 @@ logger.LogInformation(
     config.CodeHost.BaseUrl,
     config.Projects.Count,
     config.AllRepos().Count(),
-    fullConfigPath);
+    configSource.Path);
 
 if (mode.SetupLabels)
 {

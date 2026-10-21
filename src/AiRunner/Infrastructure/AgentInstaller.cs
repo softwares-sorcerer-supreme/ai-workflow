@@ -15,13 +15,16 @@ public sealed record CopilotHome(string Path)
 /// jobs (<c>AgentSync</c>). It only copies: a file in the target the repo does not have is never deleted, because
 /// the user may use Copilot for other work. A product repo's own .github/agents/ copy still wins over these.
 /// </summary>
-public sealed class AgentInstaller(RunnerConfig config, ILogger<AgentInstaller> logger)
+public sealed class AgentInstaller(RunnerConfigSource configSource, ILogger<AgentInstaller> logger)
 {
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     public void Install(string copilotHome)
     {
         foreach (var folder in AgentFiles.SharedFolders)
         {
-            var sourceFolder = config.ResolvePath(folder);
+            var sourceFolder = Config.ResolvePath(folder);
             if (!Directory.Exists(sourceFolder))
             {
                 continue;

@@ -17,17 +17,18 @@ namespace AiRunner.Hosting;
 /// to report it (e.g. VPN down), the next poll plans it again instead of losing the request.
 /// What it lists also goes to the dashboard's snapshot (<see cref="SnapshotRecorder"/>), which never
 /// changes a decision; open PRs are listed for it even when review and fix are off.
+/// Each poll first applies a changed repos.yml (<see cref="RunnerConfigSource.ReloadIfChanged"/>), then works in its own
+/// DI scope, so the whole poll sees one config.
 /// </summary>
 public sealed class Poller(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
+    IServiceScopeFactory scopes,
     ICodeHost codeHost,
-    JobLoader jobLoader,
     IStateStore stateStore,
     JobQueue queue,
     RunnerIdentity identity,
     RunnerCredentials credentials,
     RunnerStatus status,
-    SnapshotRecorder snapshot,
     RunnerCommands commands,
     AgentFiles agentFiles,
     ILogger<Poller> logger) : BackgroundService
@@ -42,7 +43,7 @@ public sealed class Poller(
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var pollInterval = TimeSpan.FromSeconds(config.PollIntervalSeconds);
+        var pollInterval = TimeSpan.FromSeconds(configSource.Current.PollIntervalSeconds);
         using var timer = new PeriodicTimer(pollInterval);
 
         // The wait that lost is kept for the next round: PeriodicTimer allows one wait in flight, and a second read
@@ -55,6 +56,13 @@ public sealed class Poller(
             // Setup mode: no code-host call until the Setup page saves a token (or after it removed the last one).
             await credentials.WaitForTokenAsync(cancellationToken);
             await PollOnceAsync(cancellationToken);
+
+            // poll_interval_seconds is live: the next wait already uses a changed value.
+            var currentInterval = TimeSpan.FromSeconds(configSource.Current.PollIntervalSeconds);
+            if (timer.Period != currentInterval)
+            {
+                timer.Period = currentInterval;
+            }
 
             tick ??= timer.WaitForNextTickAsync(cancellationToken).AsTask();
             wake ??= commands.WaitForWakeAsync(cancellationToken);
@@ -77,6 +85,16 @@ public sealed class Poller(
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
         status.PollStarted();
+        ApplyChangedConfig();
+
+        // The first resolution pins the scope's config: every project, list and plan of this poll uses it.
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var tools = new PollTools(
+            services.GetRequiredService<JobLoader>(),
+            services.GetRequiredService<SnapshotRecorder>());
+        var snapshot = tools.Snapshot;
 
         _pollCount++;
         if (SnapshotRecorder.IsRefreshDue(_pollCount))
@@ -93,7 +111,7 @@ public sealed class Poller(
 
             try
             {
-                openIssues = await PollIssuesAsync(project, cancellationToken);
+                openIssues = await PollIssuesAsync(project, snapshot, cancellationToken);
             }
             // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -106,7 +124,8 @@ public sealed class Poller(
             {
                 try
                 {
-                    openPulls[repo] = await PollPullsAsync(new PullLocation(project, repo), cancellationToken);
+                    var location = new PullLocation(project, repo);
+                    openPulls[repo] = await PollPullsAsync(location, tools, cancellationToken);
                 }
                 catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -149,6 +168,7 @@ public sealed class Poller(
     /// <summary>Plans every open issue in scope; returns them for the snapshot.</summary>
     private async Task<IReadOnlyList<HostIssue>> PollIssuesAsync(
         ProjectConfig project,
+        SnapshotRecorder snapshot,
         CancellationToken cancellationToken)
     {
         // All issues of a project live in its issues repo; issues anywhere else are ignored.
@@ -219,8 +239,10 @@ public sealed class Poller(
     /// <summary>Plans the open PRs of one repo when review or fix is on; returns them for the snapshot.</summary>
     private async Task<IReadOnlyList<HostPull>> PollPullsAsync(
         PullLocation location,
+        PollTools tools,
         CancellationToken cancellationToken)
     {
+        var (jobLoader, snapshot) = tools;
         var (project, repo) = location;
         var settings = project.Settings;
         var isPlanned = settings.IsEnabled(Workflows.Review) || settings.IsEnabled(Workflows.Fix);
@@ -254,6 +276,28 @@ public sealed class Poller(
         }
 
         return pulls;
+    }
+
+    /// <summary>
+    /// A hand edit of repos.yml is applied here, at the start of a poll; a broken one keeps the working config and is
+    /// shown on the dashboard (<see cref="RunnerConfigSource.Error"/>). Logged once per change of the file.
+    /// </summary>
+    private void ApplyChangedConfig()
+    {
+        var reload = configSource.ReloadIfChanged();
+        if (!reload.IsChanged)
+        {
+            return;
+        }
+
+        if (reload.Error is null)
+        {
+            logger.LogInformation("repos.yml changed: config version {Version} applied", configSource.Version);
+        }
+        else
+        {
+            logger.LogError("repos.yml has errors, the runner keeps its config: {Error}", reload.Error);
+        }
     }
 
     /// <summary>
@@ -292,4 +336,7 @@ public sealed class Poller(
 
         logger.Log(level, "  {What} -> {Decision}{Queued}", what, decision, added ? " queued" : " already queued");
     }
+
+    /// <summary>The scoped services of one poll (they read the poll's config).</summary>
+    private sealed record PollTools(JobLoader JobLoader, SnapshotRecorder Snapshot);
 }

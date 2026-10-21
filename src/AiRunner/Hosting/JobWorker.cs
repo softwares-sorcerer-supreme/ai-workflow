@@ -24,17 +24,17 @@ public sealed record JobFailure(IJob Job, JobRequest Request, string Message, st
 /// Runs one job at a time, so cost is predictable. Every job gets the same treatment, driven
 /// by its JobInfo: a log folder, a timeout, a cost row, and on failure a short comment (plus
 /// ai:failed on issues). A job that found nothing to do leaves no trace.
+/// Each job runs in its own DI scope: the config it resolves first is its snapshot to the end, whatever a save or a
+/// hand edit of repos.yml applies meanwhile (<see cref="RunnerServices"/>).
 /// </summary>
 public sealed class JobWorker(
-    RunnerConfig config,
+    IServiceScopeFactory scopes,
     JobQueue queue,
-    JobFactory factory,
     JobLog jobLog,
     ICostLog costLog,
     IStateStore stateStore,
     IJobStepLog stepLog,
     ICodeHost codeHost,
-    ClaimService claims,
     RunnerCredentials credentials,
     RunnerStatus status,
     RunnerCommands commands,
@@ -117,7 +117,15 @@ public sealed class JobWorker(
     private async Task RunOneAsync(StoredJob stored, CancellationToken cancellationToken)
     {
         var request = stored.Request;
-        var job = factory.Get(request.Type);
+
+        // First the config: it pins this job's snapshot for everything the scope resolves after it.
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var job = services
+            .GetRequiredService<JobFactory>()
+            .Get(request.Type);
+        var claims = services.GetRequiredService<ClaimService>();
 
         stateStore.SetJobStatus(stored.Id, JobStatus.Running);
         var run = jobLog.Begin(request);
@@ -263,14 +271,14 @@ public sealed class JobWorker(
             Record(failedJob);
 
             var failure = new JobFailure(job, request, message, logFolder);
-            await ReportFailureAsync(failure);
+            await ReportFailureAsync(failure, config);
         }
         finally
         {
             // On shutdown the claim stays: this runner takes it back at once on the next start (same name).
             if (isClaimHeld && !cancellationToken.IsCancellationRequested)
             {
-                await ReleaseClaimAsync(target);
+                await ReleaseClaimAsync(claims, target);
             }
 
             // The project lock of Workspace.PrepareAsync ends with the job, whatever the outcome.
@@ -279,7 +287,7 @@ public sealed class JobWorker(
         }
     }
 
-    private async Task ReleaseClaimAsync(ClaimTarget target)
+    private async Task ReleaseClaimAsync(ClaimService claims, ClaimTarget target)
     {
         try
         {
@@ -294,6 +302,10 @@ public sealed class JobWorker(
 
     private async Task RecoverAsync()
     {
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var factory = services.GetRequiredService<JobFactory>();
         var cutoff = DateTimeOffset.UtcNow.AddDays(-config.LogRetentionDays);
         stateStore.PruneJobs(cutoff);
 
@@ -305,12 +317,12 @@ public sealed class JobWorker(
                 stored.Request,
                 "The runner was stopped twice while this job was running.",
                 LogFolder: null);
-            await ReportFailureAsync(failure);
+            await ReportFailureAsync(failure, config);
         }
     }
 
     /// <summary>Short comment on the issue or PR. Issues also get ai:failed, so nothing retries until a human looks.</summary>
-    private async Task ReportFailureAsync(JobFailure failure)
+    private async Task ReportFailureAsync(JobFailure failure, RunnerConfig config)
     {
         var (job, request, message, logFolder) = failure;
         var where = logFolder is null ? "" : $" (`{Path.Combine(config.Paths.Logs, "jobs", logFolder)}`)";

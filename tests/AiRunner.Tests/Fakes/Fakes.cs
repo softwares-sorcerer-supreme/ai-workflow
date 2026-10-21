@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
@@ -117,7 +118,7 @@ public sealed class FakeGit : IGitClient
     public Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
 
-    public Task CommitAsync(string directory, string message, CancellationToken cancellationToken)
+    public Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken)
     {
         Commits.Add(message);
         return Task.CompletedTask;
@@ -414,50 +415,98 @@ public sealed class JobTestKit : IDisposable
             Paths = new PathsConfig { Logs = logs },
             RunnerName = Config.RunnerName,
         };
+        var configSource = RunnerConfigSource.Fixed(config);
+        var scopes = JobScopes(configSource, services =>
+        {
+            foreach (var job in jobs)
+            {
+                services.AddScoped(_ => job);
+            }
+        });
+        var (worker, queue) = NewWorker(configSource, scopes, workerState);
+
+        return (worker, queue, logs);
+    }
+
+    /// <summary>A worker over this kit whose jobs run in <paramref name="scopes"/> (see <see cref="JobScopes"/>).</summary>
+    public (JobWorker Worker, JobQueue Queue) NewWorker(
+        RunnerConfigSource configSource,
+        IServiceScopeFactory scopes,
+        IStateStore workerState)
+    {
         var queue = new JobQueue(State, NullLogger<JobQueue>.Instance);
         var worker = new JobWorker(
-            config,
+            scopes,
             queue,
-            new JobFactory(jobs),
-            new JobLog(config, NullLogger<JobLog>.Instance),
-            new CostLog(config, State, NullLogger<CostLog>.Instance),
+            new JobLog(configSource, NullLogger<JobLog>.Instance),
+            new CostLog(configSource, State, NullLogger<CostLog>.Instance),
             workerState,
             State,
             CodeHost,
-            new ClaimService(config, CodeHost, Time),
             Credentials,
             Status,
             Commands,
             Locks,
             NullLogger<JobWorker>.Instance);
 
-        return (worker, queue, logs);
+        return (worker, queue);
     }
 
-    /// <summary>A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given.</summary>
-    public Poller NewPoller(JobQueue queue, ISnapshotStore? snapshotStore = null)
+    /// <summary>
+    /// The scopes a worker runs its jobs in, like <see cref="RunnerServices"/>: each scope's config comes from
+    /// <paramref name="configSource"/>, and <paramref name="addJobs"/> registers the jobs (scoped).
+    /// </summary>
+    public IServiceScopeFactory JobScopes(RunnerConfigSource configSource, Action<IServiceCollection> addJobs)
     {
-        var recorder = new SnapshotRecorder(
+        var services = new ServiceCollection();
+        services.AddScoped(_ => configSource.Current);
+        addJobs(services);
+        services.AddScoped<JobFactory>();
+        services.AddScoped(serviceProvider =>
+            new ClaimService(serviceProvider.GetRequiredService<RunnerConfig>(), CodeHost, Time));
+
+        return services
+            .BuildServiceProvider(RunnerServices.ProviderOptions)
+            .GetRequiredService<IServiceScopeFactory>();
+    }
+
+    /// <summary>
+    /// A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given, the config
+    /// comes from the kit unless a live <paramref name="configSource"/> is given.
+    /// </summary>
+    public Poller NewPoller(
+        JobQueue queue,
+        ISnapshotStore? snapshotStore = null,
+        RunnerConfigSource? configSource = null)
+    {
+        var source = configSource ?? RunnerConfigSource.Fixed(Config);
+        var services = new ServiceCollection();
+        services.AddScoped(_ => source.Current);
+        services.AddScoped(serviceProvider =>
+            new JobLoader(serviceProvider.GetRequiredService<RunnerConfig>(), CodeHost, State, Identity));
+        services.AddScoped(serviceProvider => new SnapshotRecorder(
             CodeHost,
             snapshotStore ?? State,
-            Config,
+            serviceProvider.GetRequiredService<RunnerConfig>(),
             Time,
-            NullLogger<SnapshotRecorder>.Instance);
-
+            NullLogger<SnapshotRecorder>.Instance));
+        var scopes = services
+            .BuildServiceProvider(RunnerServices.ProviderOptions)
+            .GetRequiredService<IServiceScopeFactory>();
+        var copilotHome = new CopilotHome(Path.Combine(_tempFolder, "copilot-home"));
         var logger = NullLogger<Poller>.Instance;
 
         return new Poller(
-            Config,
+            source,
+            scopes,
             CodeHost,
-            Loader,
             State,
             queue,
             Identity,
             Credentials,
             Status,
-            recorder,
             Commands,
-            new AgentFiles(Config, new CopilotHome(Path.Combine(_tempFolder, "copilot-home")), Processes),
+            new AgentFiles(source, copilotHome, Processes),
             logger);
     }
 

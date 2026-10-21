@@ -46,7 +46,7 @@ public interface IRunnerActions
 /// never puts a job in the queue: the planner decides on the next poll, as it does for a change made on the code host.
 /// </summary>
 public sealed class RunnerActions(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
     ICodeHost codeHost,
     IJobReader jobs,
     RunnerIdentity identity,
@@ -54,12 +54,15 @@ public sealed class RunnerActions(
     TimeProvider time,
     ILogger<RunnerActions> logger) : IRunnerActions
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     /// <summary>One action at a time: a double click must not write twice.</summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public Task<ActionReply> RunIssueAsync(IssueRef issue, ActionCall call, CancellationToken cancellationToken)
     {
-        var project = config.FindProject(issue.Repo);
+        var project = Config.FindProject(issue.Repo);
         var isIssuesRepo = project?.IsIssuesRepo(issue.Repo) == true;
 
         return RunGuardedAsync(
@@ -70,7 +73,7 @@ public sealed class RunnerActions(
 
     public Task<ActionReply> RunPullAsync(IssueRef pull, ActionCall call, CancellationToken cancellationToken)
     {
-        var project = config.FindProject(pull.Repo);
+        var project = Config.FindProject(pull.Repo);
         var isCodeRepo = project?.HasCodeRepo(pull.Repo) == true;
 
         return RunGuardedAsync(
@@ -277,7 +280,7 @@ public sealed class RunnerActions(
         return new ActionReply(ActionOutcome.Done, DoneMessage(write));
     }
 
-    private string RunnerName => config.EffectiveRunnerName();
+    private string RunnerName => Config.EffectiveRunnerName();
 
     private static string DoneMessage(ActionWrite write)
     {

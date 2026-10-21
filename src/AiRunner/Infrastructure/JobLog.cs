@@ -132,9 +132,12 @@ public sealed class JobRun(string directory, ILogger logger)
     private string EnsureDir() => Directory.CreateDirectory(Dir).FullName;
 }
 
-public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
+public sealed class JobLog(RunnerConfigSource configSource, ILogger<JobLog> logger)
 {
-    private string Root => config.JobLogsFolder;
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
+    private string Root => Config.JobLogsFolder;
 
     public JobRun Begin(JobRequest request)
     {
@@ -154,7 +157,7 @@ public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
             return;
         }
 
-        var limit = DateTime.Now.AddDays(-config.LogRetentionDays);
+        var limit = DateTime.Now.AddDays(-Config.LogRetentionDays);
         var oldFolders = Directory.EnumerateDirectories(Root)
             .Where(folder => Directory.GetCreationTime(folder) < limit);
 

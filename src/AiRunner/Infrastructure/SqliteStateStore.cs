@@ -112,7 +112,10 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
 
     private readonly string _connectionString;
 
-    public SqliteStateStore(RunnerConfig config) : this(config.ResolvePath(config.Paths.State)) { }
+    public SqliteStateStore(RunnerConfigSource configSource)
+        : this(configSource.Current.ResolvePath(configSource.Current.Paths.State))
+    {
+    }
 
     /// <param name="pooling">False in tests: the file is released on close, without clearing every pool of the process.</param>
     public SqliteStateStore(string file, bool pooling = true)

@@ -50,6 +50,16 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
   `Configuration/` sees the raw types. `models:` takes only workflows that run Copilot (`Workflows.WithModel`; `models.breakdown`
   is an error: the breakdown table comes from the analysis). A job that needs "the" code component but is not told which uses
   `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
+- **Live config** (`Configuration/RunnerConfigSource`, ADR 0004): `Current` + `Version`; a new repos.yml goes through
+  `RunnerConfig.FromText` (the start's strict path) at the start of every poll (hash check) and after a dashboard save; a
+  file that fails never replaces the working config (`Error`, `/api/health` `configError`). Restart-needed keys
+  (`code_host`, `paths`, `dashboard`, `runner_name`) keep their startup values in every new config (`RestartNeeded`).
+  `RunnerConfig` is **scoped** (`Hosting/RunnerServices`, scope validation on): `JobWorker` runs each job in its own DI
+  scope and `Poller` each poll, resolving `RunnerConfig` first, so a running job keeps its snapshot to the end. Anything
+  that takes a `RunnerConfig` is scoped (jobs, `JobLoader`, `AgentSession`, `ClaimService`, `CopilotRunner`, ...);
+  singletons take `RunnerConfigSource` and read `Current` when they act (only restart-needed keys, or once per call).
+  A live key must never be read by a singleton during a job: pass it from the job's config (`IGitClient.CommitAsync`
+  takes the author). DI registrations live in `Hosting/RunnerServices`; Program.cs adds the hosted services of its mode.
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
 - Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test`, `--close-test` or the loop yourself: they spend Copilot premium requests
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
@@ -94,7 +104,7 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 - `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
   `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus`, `Hosting/RunnerCommands` and
   `Hosting/IRunnerSetup` (`Web/SetupApi`) and `Hosting/IRunnerActions` (`Web/ActionsApi`); `Core/` and `Jobs/` never reference it.
-- `Program.cs` — DI registration and command-line modes only.
+- `Program.cs` — command-line modes and the hosted services of each; the DI registrations are `Hosting/RunnerServices`.
 
 Key mechanics that span several files:
 
@@ -121,7 +131,7 @@ Key mechanics that span several files:
   So duplicate or late jobs are harmless, and planner rules must stay the single source of "should this run".
 - **Job metadata** (workflow name, timeout, description, PR vs issue) lives on the job as `IJob.Info`; per-job failure bookkeeping goes
   in `IJob.OnFailed`. `JobWorker` must not switch on job type.
-- **Adding a job type:** add to `JobType` (`Core/JobRequest.cs`), add the rule in `JobPlanner`, implement `IJob`, register it in `Program.cs`.
+- **Adding a job type:** add to `JobType` (`Core/JobRequest.cs`), add the rule in `JobPlanner`, implement `IJob`, register it (scoped) in `Hosting/RunnerServices`.
 - **Poller cost control:** issue fingerprints (updated_at + labels) are stored per issue; comments are fetched only when the plan
   returns `NeedsComments` and the issue changed. `PlanDecision.Routine` decisions log at Debug.
 - **No database dependency for correctness.** Bot comments carry a hidden `<!-- ai-runner -->` marker plus a visible `**[ai-runner]**` line;
@@ -258,6 +268,15 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   `AgentInstaller.Install(home)` between jobs: `JobWorker` holds `RunnerCommands.HoldJobSlotAsync` for a whole job and `AgentSync` takes the
   same slot, so a sync waits for the running job. It only copies; extra files in `~/.copilot/` stay. `Poller` compares hashes every poll
   (`AgentFiles.CheckDrift`) and `/api/health` carries `hasAgentDrift` + `agentDriftLabel`.
+- **Live settings** (`Configuration/SettingsSchema`, `Configuration/SettingsJson`, `Infrastructure/ConfigFileStore`,
+  `Hosting/RunnerSettings`, `Web/SettingsApi`): `GET /api/settings/schema` (every key: path pattern, scope
+  `global | defaults | project | component | legacy`, type, allowed values, help = the old repos.yml comments, default,
+  `isRestartNeeded`, `isSecret`; `SettingsSchemaTests` fails when a key of the file types has no entry), `GET /api/settings`
+  (the raw file as snake_case JSON, secrets as `{ isSet }`, the disk hash, per project the merged value and source of each
+  setting), `PUT /api/settings` `{ file, baseHash }`: 409 when the file changed since the read, 400 with the resolver's
+  message, else backup `repos.yml.bak-<UTC>` (last 10), temp file + move, apply, wake the poller. JSON goes back through
+  the same strict YAML reader, and the written text must resolve to the same config or nothing is written
+  (`SettingsJson.Write`). A secret sent as null or as its mask keeps its value. Comments in repos.yml are not kept.
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
   is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on

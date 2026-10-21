@@ -45,12 +45,12 @@ public sealed class WorkspaceActionsTests : IDisposable
         File.WriteAllText(Path.Combine(agentsFolder, "implement-issue.agent.md"), "shared");
 
         var identity = new RunnerIdentity { Login = "bot" };
-        var remote = new GitBucketGitRemote(_config, identity, RunnerCredentials.Of(token: "x"));
-        _gitClient = new GitClient(_config, remote, _processRunner);
-        _workspace = new Workspace(_config, _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
-        var inspector = new WorkspaceInspector(_config, _gitClient, _locks, _sizes);
+        var remote = new GitBucketGitRemote(RunnerConfigSource.Fixed(_config), identity, RunnerCredentials.Of(token: "x"));
+        _gitClient = new GitClient(RunnerConfigSource.Fixed(_config), remote, _processRunner);
+        _workspace = new Workspace(RunnerConfigSource.Fixed(_config), _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
+        var inspector = new WorkspaceInspector(RunnerConfigSource.Fixed(_config), _gitClient, _locks, _sizes);
         _workspaces = new RunnerWorkspaces(
-            _config,
+            RunnerConfigSource.Fixed(_config),
             inspector,
             _gitClient,
             _workspace,

@@ -57,14 +57,14 @@ public sealed class ActionsApiTests : IAsyncDisposable
     {
         var status = new RunnerStatus("laptop-1", "repos.yml", _time);
         var actions = new RunnerActions(
-            _config,
+            RunnerConfigSource.Fixed(_config),
             _host,
             _store,
             _identity,
             _commands,
             _time,
             NullLogger<RunnerActions>.Instance);
-        var options = new DashboardAppOptions(_config, status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), status, _time, Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
             Snapshot = _store,

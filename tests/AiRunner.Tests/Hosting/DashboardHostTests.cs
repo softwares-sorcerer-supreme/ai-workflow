@@ -27,14 +27,15 @@ public sealed class DashboardHostTests : IDisposable
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
 
         builder.Logging.AddProvider(_logs);
-        builder.Services.AddSingleton(config);
+        var configSource = RunnerConfigSource.Fixed(config);
+        builder.Services.AddSingleton(configSource);
         builder.Services.AddSingleton(_status);
-        builder.Services.AddSingleton<ICopilotRunner>(_copilot);
+        builder.Services.AddScoped<ICopilotRunner>(_ => _copilot);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddHostedService(serviceProvider => new DashboardHost(
-            config,
+            configSource,
+            serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             _status,
-            _copilot,
             TimeProvider.System,
             AiRunner.Web.NoJobs.Instance,
             AiRunner.Web.NoSnapshot.Instance,
@@ -44,6 +45,7 @@ public sealed class DashboardHostTests : IDisposable
             AiRunner.Web.NoActions.Instance,
             NoWorkspaces.Instance,
             NoAgents.Instance,
+            AiRunner.Web.NoSettings.Instance,
             new RunnerIdentity(),
             serviceProvider.GetRequiredService<ILogger<DashboardHost>>())
         {

@@ -10,13 +10,13 @@ namespace AiRunner.Infrastructure.CodeHost;
 /// </summary>
 public static class CodeHostRegistration
 {
-    public static void Add(IServiceCollection services, ConfigFile configFile)
+    public static void Add(IServiceCollection services, CodeHostConfig codeHost)
     {
-        var kind = configFile.Config.CodeHost.Kind;
+        var kind = codeHost.Kind;
         switch (kind)
         {
             case CodeHostKinds.GitBucket:
-                AddGitBucket(services, configFile);
+                AddGitBucket(services, codeHost.BaseUrl);
                 break;
             default:
                 // ConfigResolver refuses an unknown kind; this is for a kind added there but not here.
@@ -30,9 +30,8 @@ public static class CodeHostRegistration
     /// (the API has no route for it): a third client with a session cookie, signed in with the web password.
     /// No client carries the token: each request gets it, so a check can use the same clients with its own token.
     /// </summary>
-    private static void AddGitBucket(IServiceCollection services, ConfigFile configFile)
+    private static void AddGitBucket(IServiceCollection services, string baseUrl)
     {
-        var baseUrl = configFile.Config.CodeHost.BaseUrl;
         var apiClient = new HttpClient
         {
             BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/api/v3/"),

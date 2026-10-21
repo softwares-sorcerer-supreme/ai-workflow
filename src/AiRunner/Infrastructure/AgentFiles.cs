@@ -15,8 +15,11 @@ public sealed record AgentFileContent(string Text, string Hash);
 /// checked by <see cref="AgentPaths"/> first and the resolved file must stay inside its folder. Git runs local and
 /// read-only except the revert; the runner's repo is the user's own, so no auth and no token is involved.
 /// </summary>
-public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IProcessRunner processRunner)
+public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copilotHome, IProcessRunner processRunner)
 {
+    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     /// <summary>The folders the installer copies.</summary>
     public static readonly string[] SharedFolders = AgentPaths.AllFolders[..2];
 
@@ -32,7 +35,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     public IReadOnlyList<string> ListPaths()
     {
         return AgentPaths.AllFolders
-            .SelectMany(folder => PathsOf(config.ResolvePath(folder), folder))
+            .SelectMany(folder => PathsOf(Config.ResolvePath(folder), folder))
             .Where(path => AgentPaths.KindOf(path) is not null)
             .Order(StringComparer.Ordinal)
             .ToList();
@@ -47,7 +50,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
             return null;
         }
 
-        var folder = Path.GetFullPath(config.ResolvePath(segments[0]));
+        var folder = Path.GetFullPath(Config.ResolvePath(segments[0]));
         var file = Path.GetFullPath(Path.Combine(folder, Path.Combine(segments[1..])));
         var isInside = GitClient.IsInside(folder, file);
 
@@ -81,13 +84,13 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
 
         // Next to the repo's folders, not inside them: a sync or a drift check must never see the half-written file.
         var temporaryName = ".agent-save-" + Guid.NewGuid().ToString("N");
-        var temporaryFile = Path.Combine(config.ResolvePath("."), temporaryName);
+        var temporaryFile = Path.Combine(Config.ResolvePath("."), temporaryName);
         await File.WriteAllTextAsync(temporaryFile, content, new UTF8Encoding(false), cancellationToken);
         File.Move(temporaryFile, file, overwrite: true);
     }
 
     /// <summary>Content hash of every file the installer copies, by path with "/" separators.</summary>
-    private IReadOnlyDictionary<string, string> SourceHashes() => HashesOfRoot(path => config.ResolvePath(path));
+    private IReadOnlyDictionary<string, string> SourceHashes() => HashesOfRoot(path => Config.ResolvePath(path));
 
     /// <summary>The same for the copy under the Copilot home.</summary>
     private IReadOnlyDictionary<string, string> InstalledHashes() =>
@@ -119,7 +122,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
         var states = paths.ToDictionary(path => path, _ => AgentStates.Unknown, StringComparer.Ordinal);
         foreach (var folder in AgentPaths.AllFolders)
         {
-            var directory = config.ResolvePath(folder);
+            var directory = Config.ResolvePath(folder);
             var prefix = await RepoPrefixAsync(directory, cancellationToken);
             if (prefix is null)
             {
@@ -193,7 +196,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     {
         var segments = AgentPaths.SegmentsOf(path)!;
 
-        return (config.ResolvePath(segments[0]), string.Join('/', segments[1..]));
+        return (Config.ResolvePath(segments[0]), string.Join('/', segments[1..]));
     }
 
     /// <summary>The folder's path inside the repo ("" or "sub/dir/"), or null when it is not in a git repo.</summary>
