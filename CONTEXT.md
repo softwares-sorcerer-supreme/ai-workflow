@@ -63,3 +63,19 @@ _Avoid_: upload, resource
 **Review fix**:
 One reply on a pull request after the agent changed the PR's branch to answer an `@ai` comment, numbered and capped by a limit.
 _Avoid_: AI fix, patch round
+
+**Stage**:
+Where an issue is in the workflow, from new to done, worked out from its labels, its pull requests and its sub-issues. It is separate from whether the issue is open or closed on GitBucket: an issue can be merged and still open.
+_Avoid_: status, state, phase
+
+**Waiting on**:
+The one action a person must take before an issue can move to its next stage, such as answering questions or merging a pull request. An issue that is queued or running waits on nobody.
+_Avoid_: blocked, pending, todo
+
+**Snapshot**:
+The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.
+_Avoid_: cache, mirror, sync
+
+**Health**:
+Whether the runner is working: when it last polled, the last error it hit, and whether it is busy or idle.
+_Avoid_: status, heartbeat
