@@ -140,7 +140,7 @@ public sealed class UserSecretsStore(string path)
         }
     }
 
-    /// <summary>A temp file beside the target, then one move over it: a reader sees the old file or the new one.</summary>
+    /// <summary>A temp file beside the target, then one move over it: readers see the old file or the new.</summary>
     private void WriteFile(Dictionary<string, string> values)
     {
         var folder = Path.GetDirectoryName(FilePath)!;

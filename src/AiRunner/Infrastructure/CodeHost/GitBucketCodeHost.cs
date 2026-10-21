@@ -471,7 +471,8 @@ public sealed class GitBucketCodeHost(
             // The raw reply is the only way to see which GitBucket quirk broke the model.
             throw new CodeHostException(
                 response.StatusCode,
-                $"{method} {url}: cannot read the reply as {typeof(T).Name} ({exception.Message}). Reply: {Quote(text)}");
+                $"{method} {url}: cannot read the reply as {typeof(T).Name} ({exception.Message}). " +
+                $"Reply: {Quote(text)}");
         }
     }
 }

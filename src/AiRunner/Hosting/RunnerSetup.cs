@@ -79,13 +79,13 @@ public sealed class RunnerSetup(
         var values = credentials.Current;
 
         return new SetupState(
-            values.IsTokenSet,
-            values.TokenSource,
-            identity.Login,
-            BaseUrl,
-            values.IsWebPasswordSet,
-            values.WebPasswordSource,
-            sources.Store.FilePath);
+            IsTokenSet: values.IsTokenSet,
+            TokenSource: values.TokenSource,
+            Login: identity.Login,
+            BaseUrl: BaseUrl,
+            IsWebPasswordSet: values.IsWebPasswordSet,
+            WebPasswordSource: values.WebPasswordSource,
+            SecretsFile: sources.Store.FilePath);
     }
 
     public async Task<SetupResult> SaveTokenAsync(string token, CancellationToken cancellationToken)
@@ -111,13 +111,15 @@ public sealed class RunnerSetup(
             // must already know who the runner is (its own PRs are found by the login).
             var previousLogin = identity.Login;
             identity.Login = answer.Login;
-            var failure = TrySave(UserSecretsStore.TokenKey, newToken);
+            var failure = TryChangeStore(store => store.Set(UserSecretsStore.TokenKey, newToken));
             if (failure is not null)
             {
                 identity.Login = previousLogin;
 
                 return failure;
             }
+
+            ApplyStoredSecrets();
 
             commands.WakePoller();
             logger.LogInformation(
@@ -153,13 +155,22 @@ public sealed class RunnerSetup(
                 return new SetupResult(SetupOutcome.Conflict, "No token is saved.");
             }
 
-            var failure = TryRemove(UserSecretsStore.TokenKey);
+            // Without a token the running job could not even report its end or release its claim.
+            if (!sources.HasEnvironmentToken && commands.IsJobRunning)
+            {
+                return new SetupResult(
+                    SetupOutcome.Conflict,
+                    "A job is running and needs the token to finish. Pause the runner, wait for the job to end, " +
+                    "then remove the token.");
+            }
+
+            var failure = TryChangeStore(store => store.Remove(UserSecretsStore.TokenKey));
             if (failure is not null)
             {
                 return failure;
             }
 
-            var message = await AfterTokenRemovedAsync(cancellationToken);
+            var message = await SwapInRemainingTokenAsync(cancellationToken);
             logger.LogInformation("Setup: GitBucket token removed from user secrets.");
 
             return new SetupResult(SetupOutcome.Saved, message);
@@ -199,11 +210,13 @@ public sealed class RunnerSetup(
                 return Refusal(answer, $"GitBucket did not accept the web sign-in of {login}. Nothing was saved.");
             }
 
-            var failure = TrySave(UserSecretsStore.WebPasswordKey, password);
+            var failure = TryChangeStore(store => store.Set(UserSecretsStore.WebPasswordKey, password));
             if (failure is not null)
             {
                 return failure;
             }
+
+            ApplyStoredSecrets();
 
             logger.LogInformation("Setup: web password of {Login} saved in user secrets.", login);
 
@@ -234,11 +247,13 @@ public sealed class RunnerSetup(
                 return new SetupResult(SetupOutcome.Conflict, "No web password is saved.");
             }
 
-            var failure = TryRemove(UserSecretsStore.WebPasswordKey);
+            var failure = TryChangeStore(store => store.Remove(UserSecretsStore.WebPasswordKey));
             if (failure is not null)
             {
                 return failure;
             }
+
+            ApplyStoredSecrets();
 
             logger.LogInformation("Setup: web password removed from user secrets.");
             var message = credentials.Current.IsWebPasswordSet
@@ -254,21 +269,23 @@ public sealed class RunnerSetup(
     }
 
     /// <summary>
-    /// The environment's token, if any, takes over; its user becomes the login. A poll that starts between the swap
-    /// and the check still has the old login for that one poll; the next poll has the right one.
+    /// The environment's token, if any, takes over. Its user is looked up before the swap, because the swap wakes a
+    /// poller that waits in setup mode and its first poll must already know the login.
     /// </summary>
-    private async Task<string> AfterTokenRemovedAsync(CancellationToken cancellationToken)
+    private async Task<string> SwapInRemainingTokenAsync(CancellationToken cancellationToken)
     {
-        var values = credentials.Current;
+        var values = sources.Load();
         if (!values.IsTokenSet)
         {
             identity.Login = "";
+            credentials.Apply(values);
 
             return "Token removed. The runner waits in setup mode until a new one is saved.";
         }
 
         var answer = await check.CheckTokenAsync(values.Token, cancellationToken);
         identity.Login = answer.IsAccepted ? answer.Login : "";
+        credentials.Apply(values);
         commands.WakePoller();
 
         return answer.IsAccepted
@@ -292,43 +309,32 @@ public sealed class RunnerSetup(
         _ => new SetupResult(SetupOutcome.Refused, notAccepted),
     };
 
-    /// <summary>Saves the key and swaps the secrets in; a file that cannot be written is a refusal.</summary>
-    private SetupResult? TrySave(string key, string value)
+    /// <summary>Changes the secrets file; null when it went through, else the refusal.</summary>
+    private SetupResult? TryChangeStore(Action<UserSecretsStore> change)
     {
         try
         {
-            sources.Store.Set(key, value);
+            change(sources.Store);
         }
         catch (Exception exception) when (IsStoreFailure(exception))
         {
             return StoreFailure(exception);
         }
-
-        credentials.Apply(sources.Load());
 
         return null;
     }
 
-    private SetupResult? TryRemove(string key)
+    /// <summary>Reads every source again and swaps the result in.</summary>
+    private void ApplyStoredSecrets()
     {
-        try
-        {
-            sources.Store.Remove(key);
-        }
-        catch (Exception exception) when (IsStoreFailure(exception))
-        {
-            return StoreFailure(exception);
-        }
-
-        credentials.Apply(sources.Load());
-
-        return null;
+        var values = sources.Load();
+        credentials.Apply(values);
     }
 
     private static bool IsStoreFailure(Exception exception) =>
         exception is IOException or UnauthorizedAccessException or InvalidDataException;
 
-    /// <summary>Names the file and the kind of failure only: an I/O message should not quote a secret; stay safe.</summary>
+    /// <summary>Names the file and the kind of failure only: an I/O message should not quote a secret.</summary>
     private SetupResult StoreFailure(Exception exception)
     {
         var file = sources.Store.FilePath;

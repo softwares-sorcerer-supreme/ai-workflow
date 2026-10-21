@@ -37,6 +37,18 @@ public sealed class RunnerCommands
         }
     }
 
+    /// <summary>A job's own run is going on, from its start until its run ends.</summary>
+    public bool IsJobRunning
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _running is not null;
+            }
+        }
+    }
+
     /// <summary>Asks the poller for a poll now; a poll that is running finishes first.</summary>
     public void WakePoller() => _wakes.Writer.TryWrite(true);
 

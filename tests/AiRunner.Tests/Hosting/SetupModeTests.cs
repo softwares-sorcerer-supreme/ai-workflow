@@ -63,6 +63,35 @@ public sealed class SetupModeTests : IDisposable
         Assert.Equal(1, _setup.CheckHost.CurrentUserReads);
     }
 
+    [Fact]
+    public async Task A_job_a_crash_left_running_is_reported_only_once_there_is_a_token()
+    {
+        var job = new StubJob(() => Task.FromResult(JobOutcome.Ok()));
+        var (worker, queue, _) = _kit.CreateWorker(job);
+        var request = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(request);
+        queue.TryDequeue(out var first);
+        _kit.State.SetJobStatus(first!.Id, JobStatus.Running);
+        var (_, restarted, _) = _kit.CreateWorker(job);
+        restarted.Recover();
+        restarted.TryDequeue(out var second);
+        _kit.State.SetJobStatus(second!.Id, JobStatus.Running);
+        using var stop = new CancellationTokenSource();
+
+        await worker.StartAsync(stop.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        var callsInSetupMode = _kit.CodeHost.CallCount;
+
+        _setup.Credentials.Apply(RunnerCredentials.Of(token: "new-token").Current);
+        await WaitUntilAsync(() => _kit.CodeHost.CommentsOf(7).Any());
+
+        await stop.CancelAsync();
+        await worker.StopAsync(default);
+
+        Assert.Equal(0, callsInSetupMode);
+        Assert.Contains("stopped twice", _kit.CodeHost.CommentsOf(7).Single().Body);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TestTimeout;

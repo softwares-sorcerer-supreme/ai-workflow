@@ -161,10 +161,10 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.FromResult(new DownloadedAttachment(path, attachment.Name, attachment.ContentType, attachment.Content.Length));
     }
 
-    /// <summary>When set, GET /user throws it: a token the host refuses (401) or a host that cannot be reached.</summary>
+    /// <summary>When set, GET /user throws it: a token the host refuses (401) or a host out of reach.</summary>
     public Exception? CurrentUserError { get; set; }
 
-    /// <summary>How often GET /user was asked (it is not a repo call, so it is not in <see cref="RepoCalls"/>).</summary>
+    /// <summary>How often GET /user was asked (not a repo call, so not in <see cref="RepoCalls"/>).</summary>
     public int CurrentUserReads { get; private set; }
 
     /// <summary>Every call the runner made, of any kind: zero proves "no code-host call".</summary>

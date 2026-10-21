@@ -112,8 +112,9 @@ public static class SetupApi
     private static Ok<SetupResponse> GetSetup(IRunnerSetup setup)
     {
         var state = setup.Read();
+        var response = SetupResponse.From(state);
 
-        return TypedResults.Ok(SetupResponse.From(state));
+        return TypedResults.Ok(response);
     }
 
     private static async Task<Results<Ok<SetupChangeResponse>, BadRequest<ApiError>, Conflict<ApiError>>>
@@ -177,8 +178,14 @@ public sealed class NoSetup : IRunnerSetup
 
     public static NoSetup Instance { get; } = new();
 
-    public SetupState Read() =>
-        new(true, CredentialSource.None, "", "", false, CredentialSource.None, "");
+    public SetupState Read() => new(
+        IsTokenSet: true,
+        TokenSource: CredentialSource.None,
+        Login: "",
+        BaseUrl: "",
+        IsWebPasswordSet: false,
+        WebPasswordSource: CredentialSource.None,
+        SecretsFile: "");
 
     public Task<SetupResult> SaveTokenAsync(string token, CancellationToken cancellationToken) => Refused();
 

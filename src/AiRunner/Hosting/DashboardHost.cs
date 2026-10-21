@@ -6,8 +6,9 @@ namespace AiRunner.Hosting;
 
 /// <summary>
 /// Serves the local dashboard from inside the runner (docs/adr/0001). Registered only in the polling loop with
-/// <c>dashboard.enabled: true</c>, or in setup mode (no token yet), where the Setup page is the way to start. The dashboard can never stop the real work: when the port is taken it logs one
-/// warning and steps aside while the poller and worker keep running.
+/// <c>dashboard.enabled: true</c>, or in setup mode (no token yet), where the Setup page is the way to start. The
+/// dashboard can never stop the real work: when the port is taken it logs one warning and steps aside while the
+/// poller and worker keep running.
 /// </summary>
 public sealed class DashboardHost(
     RunnerConfig config,

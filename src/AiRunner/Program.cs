@@ -40,9 +40,11 @@ builder.Logging.AddSimpleConsole(options =>
 
 // The secrets: user secrets first, then the environment (GitBucket__Token is the .NET name of the config key),
 // the web password last from repos.yml. With none, the loop waits in setup mode; every other mode stops.
-var environmentToken = builder.Configuration["GitBucket:Token"]
+// Read from the process environment itself, not from builder.Configuration: in the Development environment the host
+// adds user secrets on its own, and a user secret must never count as an environment value.
+var environmentToken = Environment.GetEnvironmentVariable("GitBucket__Token")
     ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN");
-var environmentGitPassword = builder.Configuration["GitBucket:GitPassword"];
+var environmentGitPassword = Environment.GetEnvironmentVariable("GitBucket__GitPassword");
 var environment = new CredentialEnvironment(environmentToken, environmentGitPassword);
 var secretsStore = UserSecretsStore.ForAssembly(typeof(Program).Assembly);
 var credentialSources = new CredentialSources(secretsStore, environment, configFile.WebPassword);
@@ -152,7 +154,8 @@ if (isSetupMode)
 {
     // No code-host call: the poller and the worker wait until the Setup page saves a token (RunnerSetup sets the
     // login).
-    logger.LogWarning("No GitBucket token yet: open {SetupUrl}", RunMode.SetupUrl(config.Dashboard.Port));
+    var setupUrl = RunMode.SetupUrl(config.Dashboard.Port);
+    logger.LogWarning("No GitBucket token yet: open {SetupUrl}", setupUrl);
 }
 else
 {

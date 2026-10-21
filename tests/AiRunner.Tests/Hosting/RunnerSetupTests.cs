@@ -140,6 +140,42 @@ public sealed class RunnerSetupTests : IDisposable
     }
 
     [Fact]
+    public async Task The_last_token_cannot_be_removed_while_a_job_runs()
+    {
+        Use(new SetupFixture(seed: store => store.Set(UserSecretsStore.TokenKey, "old")));
+        var commands = new RunnerCommands();
+        using var jobSource = new CancellationTokenSource();
+        commands.RunStarted(12, jobSource);
+        var setup = _fixture.CreateSetup(commands: commands);
+
+        var whileRunning = await setup.RemoveTokenAsync(default);
+        commands.RunEnded(12);
+        var afterwards = await setup.RemoveTokenAsync(default);
+
+        Assert.Equal(SetupOutcome.Conflict, whileRunning.Outcome);
+        Assert.Contains("A job is running", whileRunning.Message);
+        Assert.Equal(SetupOutcome.Saved, afterwards.Outcome);
+        Assert.False(_fixture.Credentials.IsTokenSet);
+    }
+
+    [Fact]
+    public async Task A_token_with_an_environment_token_behind_it_can_be_removed_while_a_job_runs()
+    {
+        Use(new SetupFixture(
+            new CredentialEnvironment("env-token", null),
+            seed: store => store.Set(UserSecretsStore.TokenKey, "old")));
+        var commands = new RunnerCommands();
+        using var jobSource = new CancellationTokenSource();
+        commands.RunStarted(12, jobSource);
+        var setup = _fixture.CreateSetup(commands: commands);
+
+        var result = await setup.RemoveTokenAsync(default);
+
+        Assert.Equal(SetupOutcome.Saved, result.Outcome);
+        Assert.Equal("env-token", _fixture.Credentials.Current.Token);
+    }
+
+    [Fact]
     public async Task Saving_the_token_keeps_the_other_keys_of_the_secrets_file()
     {
         Use(new SetupFixture(seed: store =>

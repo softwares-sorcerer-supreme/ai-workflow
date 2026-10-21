@@ -23,6 +23,9 @@ public sealed class CredentialSources(
 {
     public UserSecretsStore Store => store;
 
+    /// <summary>A token stays when the user secret is removed: the environment brings one.</summary>
+    public bool HasEnvironmentToken => !string.IsNullOrWhiteSpace(environment.Token);
+
     public CredentialValues Load()
     {
         var secrets = store.Read();
@@ -60,8 +63,12 @@ public sealed class CredentialSources(
         return new CredentialValues(token, tokenSource, gitPassword, webPassword, webPasswordSource);
     }
 
-    private static string? ValueOf(IReadOnlyDictionary<string, string> secrets, string key) =>
-        NullIfEmpty(secrets.GetValueOrDefault(key));
+    private static string? ValueOf(IReadOnlyDictionary<string, string> secrets, string key)
+    {
+        var value = secrets.GetValueOrDefault(key);
+
+        return NullIfEmpty(value);
+    }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

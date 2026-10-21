@@ -5,7 +5,7 @@ namespace AiRunner.Core;
 /// <param name="FailingProjects">Projects whose latest poll failed.</param>
 /// <param name="PollRunningSince">When the poll that is running now started, or null when none is running.</param>
 /// <param name="IsPaused">The worker is paused from the dashboard (it takes no new job; polls go on).</param>
-/// <param name="IsSetupNeeded">No code-host token yet (setup mode): nothing polls until the Setup page saves one.</param>
+/// <param name="IsSetupNeeded">No code-host token yet (setup mode): no poll until the Setup page saves one.</param>
 public sealed record HealthInput(
     DateTimeOffset Now,
     DateTimeOffset StartedAt,

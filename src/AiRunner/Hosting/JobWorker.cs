@@ -44,6 +44,16 @@ public sealed class JobWorker(
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
+        // Setup mode: recovering reports on the code host, so it waits for a token like everything else.
+        try
+        {
+            await credentials.WaitForTokenAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         await RecoverAsync();
 
         while (!cancellationToken.IsCancellationRequested)
