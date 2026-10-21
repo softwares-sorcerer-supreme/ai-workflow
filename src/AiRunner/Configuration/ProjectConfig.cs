@@ -207,9 +207,9 @@ public sealed class CommandsConfig
     public IEnumerable<string> AllowedForAgent() => NonEmpty(Setup, Build, Test, Lint);
 
     /// <summary>Build, test and lint, run by the runner after the agent stops.</summary>
-    public IEnumerable<string> Verification() => NonEmpty(Build, Test, Lint);
+    public IEnumerable<string> Verification() => VerificationByKind().Select(entry => entry.Command);
 
-    /// <summary>The same commands as <see cref="Verification"/>, each with its kind ("build", "test", "lint").</summary>
+    /// <summary>Build, test and lint in that order, each with its kind ("build", "test", "lint").</summary>
     public IEnumerable<(string Kind, string Command)> VerificationByKind()
     {
         var kinds = new (string Kind, string? Command)[] { ("build", Build), ("test", Test), ("lint", Lint) };

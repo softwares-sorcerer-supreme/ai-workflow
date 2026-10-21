@@ -365,8 +365,9 @@ public static class DashboardApi
             return TypedResults.NotFound();
         }
 
-        var steps = JobStepResponse.All(jobs.ListSteps(id), job.Status == JobStatus.Running);
-        var response = JobResponse.From(job, config) with { Steps = steps };
+        var response = JobResponse.From(job, config);
+        var steps = JobStepResponse.All(jobs.ListSteps(id), response.IsRunning);
+        response = response with { Steps = steps };
 
         return TypedResults.Ok(response);
     }
