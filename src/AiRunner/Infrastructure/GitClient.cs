@@ -71,7 +71,23 @@ public interface IGitClient
 
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string directory);
+
+    /// <summary>
+    /// What HEAD of a clone is, from local git only (no network): the commit and the branch it is on. Null when the
+    /// folder has no commit or is not a usable clone.
+    /// </summary>
+    Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken);
 }
+
+/// <summary>The commit a clone stands on.</summary>
+/// <param name="Branch">The local branch, or null when HEAD is detached.</param>
+/// <param name="DetachedAt">A remote branch at the same commit (e.g. "origin/main") when HEAD is detached, else null.</param>
+public sealed record CloneHead(
+    string Sha,
+    string Subject,
+    DateTimeOffset CommittedAt,
+    string? Branch,
+    string? DetachedAt);
 
 /// <summary>
 /// Runs git through IProcessRunner. Credentials and hardening go in GIT_CONFIG_* environment
@@ -370,6 +386,40 @@ public sealed class GitClient(RunnerConfig config, IGitRemote remote, IProcessRu
         var hash = System.Security.Cryptography.SHA256.HashData(content);
 
         return Convert.ToHexString(hash);
+    }
+
+    public async Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken)
+    {
+        // Unit separator between the fields: a subject may hold any printable character.
+        var log = await RunAsync(directory, cancellationToken, "log", "-1", "--format=%H%x1f%s%x1f%cI");
+        if (!log.Ok)
+        {
+            return null;
+        }
+
+        var fields = log.StdOut.Trim().Split('\u001f');
+        var isDate = DateTimeOffset.TryParse(
+            fields.ElementAtOrDefault(2),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var committedAt);
+        if (fields.Length < 3 || !isDate)
+        {
+            return null;
+        }
+
+        var symbolic = await RunAsync(directory, cancellationToken, "symbolic-ref", "--short", "-q", "HEAD");
+        if (symbolic.Ok)
+        {
+            return new CloneHead(fields[0], fields[1], committedAt, symbolic.StdOut.Trim(), null);
+        }
+
+        var remotes = await RunAsync(directory, cancellationToken, "branch", "-r", "--points-at", "HEAD");
+        var detachedAt = remotes.StdOut
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(line => !line.Contains("->", StringComparison.Ordinal));
+
+        return new CloneHead(fields[0], fields[1], committedAt, null, detachedAt);
     }
 
     /// <summary>"12\t3\tpath" lines; binary files show "-" and count as 0 lines.</summary>

@@ -33,6 +33,14 @@ export type { SaveWebPassword$Params as SaveWebPassword$Params } from './fn/setu
 export { saveWebPassword as saveWebPassword } from './fn/setup/save-web-password';
 export type { RemoveWebPassword$Params as RemoveWebPassword$Params } from './fn/setup/remove-web-password';
 export { removeWebPassword as removeWebPassword } from './fn/setup/remove-web-password';
+export type { GetWorkspaces$Params as GetWorkspaces$Params } from './fn/workspaces/get-workspaces';
+export { getWorkspaces as getWorkspaces } from './fn/workspaces/get-workspaces';
+export type { FetchWorkspace$Params as FetchWorkspace$Params } from './fn/workspaces/fetch-workspace';
+export { fetchWorkspace as fetchWorkspace } from './fn/workspaces/fetch-workspace';
+export type { RecloneWorkspace$Params as RecloneWorkspace$Params } from './fn/workspaces/reclone-workspace';
+export { recloneWorkspace as recloneWorkspace } from './fn/workspaces/reclone-workspace';
+export type { DeleteOrphanWorkspace$Params as DeleteOrphanWorkspace$Params } from './fn/workspaces/delete-orphan-workspace';
+export { deleteOrphanWorkspace as deleteOrphanWorkspace } from './fn/workspaces/delete-orphan-workspace';
 export type { PollNow$Params as PollNow$Params } from './fn/runner/poll-now';
 export { pollNow as pollNow } from './fn/runner/poll-now';
 export type { PauseRunner$Params as PauseRunner$Params } from './fn/runner/pause-runner';

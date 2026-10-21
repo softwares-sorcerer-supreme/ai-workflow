@@ -17,6 +17,7 @@ public sealed class GitWorkspaceTests : IDisposable
     private readonly RunnerConfig _config;
     private readonly GitClient _gitClient;
     private readonly Workspace _workspace;
+    private readonly WorkspaceLocks _locks = new();
     private readonly ProjectConfig _project;
 
     public GitWorkspaceTests()
@@ -39,7 +40,7 @@ public sealed class GitWorkspaceTests : IDisposable
         var identity = new RunnerIdentity { Login = "bot" };
         var remote = new GitBucketGitRemote(_config, identity, RunnerCredentials.Of(token: "x"));
         _gitClient = new GitClient(_config, remote, _processRunner);
-        _workspace = new Workspace(_config, _gitClient, remote, NullLogger<Workspace>.Instance);
+        _workspace = new Workspace(_config, _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main
         var bare = Path.Combine(_root, "git", "o", "r.git");

@@ -187,6 +187,41 @@ public sealed class JobWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_project_lock_a_job_took_is_released_when_it_ends_even_when_it_fails()
+    {
+        var holdsAtEnd = new List<bool>();
+        var (worker, queue, _) = _kit.CreateWorker(new StubJob(async () =>
+        {
+            await _kit.Locks.HoldForJobAsync("mbh", default);
+            holdsAtEnd.Add(_kit.Locks.IsHeld("mbh"));
+
+            throw new JobFailedException("push rejected");
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        Assert.Equal([true], holdsAtEnd);
+        Assert.False(_kit.Locks.IsHeld("mbh"));
+    }
+
+    [Fact]
+    public async Task The_project_lock_is_released_after_a_job_that_succeeds()
+    {
+        var (worker, queue, _) = _kit.CreateWorker(new StubJob(async () =>
+        {
+            await _kit.Locks.HoldForJobAsync("mbh", default);
+
+            return JobOutcome.Ok("fine");
+        }));
+        queue.Enqueue(_kit.Request(JobType.AnalyzeIssue, 7));
+
+        await worker.DrainAsync(default);
+
+        Assert.False(_kit.Locks.IsHeld("mbh"));
+    }
+
+    [Fact]
     public async Task Failure_comment_uses_the_jobs_own_retry_hint()
     {
         var timeout = TimeSpan.FromMinutes(1);

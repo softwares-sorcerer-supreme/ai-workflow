@@ -209,6 +209,12 @@ public sealed class FakeGit : IGitClient
         return Task.CompletedTask;
     }
 
+    /// <summary>What HeadAsync answers for every clone; null = no usable clone.</summary>
+    public CloneHead? Head { get; set; }
+
+    public Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken) =>
+        Task.FromResult(Head);
+
     /// <summary>Returned in order; the last value repeats. Two different values = config changed.</summary>
     public Queue<string> Fingerprints { get; } = new();
 
@@ -363,6 +369,9 @@ public sealed class JobTestKit : IDisposable
     /// <summary>The dashboard's runtime controls, shared by the kit's worker and poller.</summary>
     public RunnerCommands Commands { get; }
 
+    /// <summary>The project locks the worker releases when a job ends.</summary>
+    public WorkspaceLocks Locks { get; } = new();
+
     /// <summary>The in-memory health the poller and the worker write, on the kit's clock.</summary>
     public RunnerStatus Status { get; }
 
@@ -419,6 +428,7 @@ public sealed class JobTestKit : IDisposable
             Credentials,
             Status,
             Commands,
+            Locks,
             NullLogger<JobWorker>.Instance);
 
         return (worker, queue, logs);

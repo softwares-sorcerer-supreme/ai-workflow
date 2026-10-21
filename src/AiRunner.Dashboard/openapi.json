@@ -462,6 +462,27 @@
         }
       }
     },
+    "/api/workspaces": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Every clone under work/ per project with its warnings, and the folders no project owns.",
+        "operationId": "getWorkspaces",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runner/poll": {
       "post": {
         "tags": [
@@ -950,6 +971,205 @@
           }
         }
       }
+    },
+    "/api/workspaces/{project}/{repo}/fetch": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "git fetch of one clone. 409 while a job uses the project.",
+        "operationId": "fetchWorkspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{project}/{repo}/reclone": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete one clone; the next job clones it again. 409 while a job uses the project.",
+        "operationId": "recloneWorkspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/orphans/{folder}": {
+      "delete": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete a folder of work/ that belongs to no project (a plain folder name only).",
+        "operationId": "deleteOrphanWorkspace",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1017,6 +1237,98 @@
         "properties": {
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "CloneResponse": {
+        "required": [
+          "repo",
+          "folder",
+          "exists",
+          "components",
+          "headSha",
+          "headSubject",
+          "headAt",
+          "branch",
+          "detachedAt",
+          "lastFetchAt",
+          "changedPaths",
+          "sizeBytes",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headSha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headSubject": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "branch": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "detachedAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastFetchAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "changedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizeBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WarningResponse"
+            }
           }
         }
       },
@@ -1785,6 +2097,25 @@
           }
         }
       },
+      "OrphanResponse": {
+        "required": [
+          "folder",
+          "sizeBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "OverviewResponse": {
         "required": [
           "runningJob",
@@ -1859,6 +2190,28 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "ProjectWorkspaceResponse": {
+        "required": [
+          "name",
+          "isBusy",
+          "clones"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "isBusy": {
+            "type": "boolean"
+          },
+          "clones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloneResponse"
             }
           }
         }
@@ -2156,6 +2509,21 @@
           }
         }
       },
+      "WarningResponse": {
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "WebPasswordRequest": {
         "required": [
           "password"
@@ -2189,6 +2557,27 @@
             "format": "date-time"
           }
         }
+      },
+      "WorkspacesResponse": {
+        "required": [
+          "projects",
+          "orphans"
+        ],
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceResponse"
+            }
+          },
+          "orphans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrphanResponse"
+            }
+          }
+        }
       }
     }
   },
@@ -2210,6 +2599,9 @@
     },
     {
       "name": "Setup"
+    },
+    {
+      "name": "Workspaces"
     },
     {
       "name": "Runner"

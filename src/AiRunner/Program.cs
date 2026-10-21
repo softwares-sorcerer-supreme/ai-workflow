@@ -109,6 +109,10 @@ builder.Services.AddSingleton<CloseSelfTest>();
 builder.Services.AddSingleton<RunnerCommands>();
 builder.Services.AddSingleton<IRunnerSetup, RunnerSetup>();
 builder.Services.AddSingleton<IRunnerActions, RunnerActions>();
+builder.Services.AddSingleton<WorkspaceLocks>();
+builder.Services.AddSingleton<DirectorySizes>();
+builder.Services.AddSingleton<WorkspaceInspector>();
+builder.Services.AddSingleton<IRunnerWorkspaces, RunnerWorkspaces>();
 builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
     config.EffectiveRunnerName(),
     fullConfigPath,

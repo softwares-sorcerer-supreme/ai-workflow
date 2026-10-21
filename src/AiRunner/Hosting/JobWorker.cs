@@ -38,6 +38,7 @@ public sealed class JobWorker(
     RunnerCredentials credentials,
     RunnerStatus status,
     RunnerCommands commands,
+    WorkspaceLocks workspaceLocks,
     ILogger<JobWorker> logger) : BackgroundService
 {
     /// <summary>The failure message of a job cancelled from the dashboard.</summary>
@@ -258,6 +259,8 @@ public sealed class JobWorker(
                 await ReleaseClaimAsync(target);
             }
 
+            // The project lock of Workspace.PrepareAsync ends with the job, whatever the outcome.
+            workspaceLocks.ReleaseJobHolds();
             status.WorkerIdle();
         }
     }

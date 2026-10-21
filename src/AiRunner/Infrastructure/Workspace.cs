@@ -73,6 +73,7 @@ public sealed class Workspace(
     RunnerConfig config,
     IGitClient gitClient,
     IGitRemote remote,
+    WorkspaceLocks locks,
     ILogger<Workspace> logger) : IWorkspace
 {
     private const string RunnerFolder = ".ai-workflow";
@@ -87,19 +88,9 @@ public sealed class Workspace(
     /// <summary>Runner files in the project folder that must not go to the exclude list of a clone.</summary>
     private static readonly string[] RootOnlyFiles = [InstructionsDoc.FileName];
 
-    private string RootOf(ProjectConfig project)
-    {
-        var workFolder = config.ResolvePath(config.Paths.Work);
+    private string RootOf(ProjectConfig project) => WorkspacePaths.RootOf(config, project);
 
-        return Path.Combine(workFolder, project.Name);
-    }
-
-    private string CloneFolderOf(ProjectConfig project, string repo)
-    {
-        var root = RootOf(project);
-
-        return Path.Combine(root, ProjectConfig.FolderOf(repo));
-    }
+    private string CloneFolderOf(ProjectConfig project, string repo) => WorkspacePaths.CloneOf(config, project, repo);
 
     public void Discard(ProjectConfig project, string repo)
     {
@@ -114,6 +105,10 @@ public sealed class Workspace(
     public async Task<PreparedWorkspace> PrepareAsync(WorkspaceRequest request, CancellationToken cancellationToken)
     {
         var project = request.Project;
+
+        // Held until the worker ends the job; a fetch or re-clone from the dashboard waits outside meanwhile.
+        await locks.HoldForJobAsync(project.Name, cancellationToken);
+
         var root = RootOf(project);
         Directory.CreateDirectory(root);
         DeleteStaleRunnerFiles(root);
