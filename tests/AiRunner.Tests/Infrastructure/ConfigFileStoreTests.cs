@@ -52,16 +52,4 @@ public sealed class ConfigFileStoreTests : IDisposable
         Assert.Equal("version: 11\n", File.ReadAllText(Path.Combine(_folder, backups[^1])));
         Assert.Equal("version: 12\n", File.ReadAllText(ConfigPath));
     }
-
-    [Fact]
-    public void Read_gives_the_text_and_its_hash()
-    {
-        File.WriteAllText(ConfigPath, "a: 1\n");
-        var store = new ConfigFileStore(_time);
-
-        var (text, hash) = store.Read(ConfigPath);
-
-        Assert.Equal("a: 1\n", text);
-        Assert.Equal(RunnerConfigSource.HashOf("a: 1\n"), hash);
-    }
 }

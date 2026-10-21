@@ -117,15 +117,15 @@ public class SettingsJsonTests
     }
 
     [Fact]
-    public void A_new_web_password_replaces_the_old_one()
+    public void A_web_password_sent_as_text_is_refused_the_Setup_page_saves_it()
     {
         var file = SettingsJson.Read(LegacyShape);
         file["git_bucket"]!["web_password"] = "new-secret";
 
-        var saved = SettingsJson.Write(file, LegacyShape);
+        var error = Assert.Throws<InvalidOperationException>(() => SettingsJson.Write(file, LegacyShape));
 
-        Assert.Contains("new-secret", saved);
-        Assert.DoesNotContain("hunter2", saved);
+        Assert.Contains("Setup page", error.Message);
+        Assert.DoesNotContain("new-secret", error.Message);
     }
 
     [Fact]

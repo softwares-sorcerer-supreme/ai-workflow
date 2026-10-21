@@ -134,7 +134,7 @@ public sealed class JobRun(string directory, ILogger logger)
 
 public sealed class JobLog(RunnerConfigSource configSource, ILogger<JobLog> logger)
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>The logs folder needs a restart; log_retention_days is read once, when the old logs are cleaned up.</summary>
     private RunnerConfig Config => configSource.Current;
 
     private string Root => Config.JobLogsFolder;

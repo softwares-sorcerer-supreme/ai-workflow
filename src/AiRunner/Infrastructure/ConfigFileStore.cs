@@ -3,25 +3,14 @@ using AiRunner.Configuration;
 
 namespace AiRunner.Infrastructure;
 
-/// <summary>The text of repos.yml and the hash a save must start from.</summary>
-public sealed record ConfigFileText(string Text, string Hash);
-
 /// <summary>
-/// Reads and writes repos.yml for the Settings screen. A write first copies the old file to
-/// <c>repos.yml.bak-&lt;UTC time&gt;</c> (the last 10 are kept), then writes a temp file next to it and moves it over
-/// the old one, so a reader never sees half a file.
+/// Writes repos.yml for the Settings screen (<see cref="RunnerConfigSource.TryReplace"/> calls it under its lock).
+/// A write first copies the old file to <c>repos.yml.bak-&lt;UTC time&gt;</c> (the last 10 are kept), then writes a
+/// temp file next to it and moves it over the old one, so a reader never sees half a file.
 /// </summary>
 public sealed class ConfigFileStore(TimeProvider time)
 {
     private const int BackupsKept = 10;
-
-    public ConfigFileText Read(string path)
-    {
-        var text = File.ReadAllText(path);
-        var hash = RunnerConfigSource.HashOf(text);
-
-        return new ConfigFileText(text, hash);
-    }
 
     public void Write(string path, string text)
     {

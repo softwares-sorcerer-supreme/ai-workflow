@@ -91,10 +91,9 @@ public sealed class Poller(
         using var scope = scopes.CreateScope();
         var services = scope.ServiceProvider;
         var config = services.GetRequiredService<RunnerConfig>();
-        var tools = new PollTools(
-            services.GetRequiredService<JobLoader>(),
-            services.GetRequiredService<SnapshotRecorder>());
-        var snapshot = tools.Snapshot;
+        var jobLoader = services.GetRequiredService<JobLoader>();
+        var snapshot = services.GetRequiredService<SnapshotRecorder>();
+        var tools = new PollTools(jobLoader, snapshot);
 
         _pollCount++;
         if (SnapshotRecorder.IsRefreshDue(_pollCount))
@@ -111,7 +110,7 @@ public sealed class Poller(
 
             try
             {
-                openIssues = await PollIssuesAsync(project, snapshot, cancellationToken);
+                openIssues = await PollIssuesAsync(project, tools, cancellationToken);
             }
             // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -168,9 +167,11 @@ public sealed class Poller(
     /// <summary>Plans every open issue in scope; returns them for the snapshot.</summary>
     private async Task<IReadOnlyList<HostIssue>> PollIssuesAsync(
         ProjectConfig project,
-        SnapshotRecorder snapshot,
+        PollTools tools,
         CancellationToken cancellationToken)
     {
+        var snapshot = tools.Snapshot;
+
         // All issues of a project live in its issues repo; issues anywhere else are ignored.
         var repo = project.IssuesRepo;
 

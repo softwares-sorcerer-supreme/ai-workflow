@@ -103,7 +103,8 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
   `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
 - `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
   `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus`, `Hosting/RunnerCommands` and
-  `Hosting/IRunnerSetup` (`Web/SetupApi`) and `Hosting/IRunnerActions` (`Web/ActionsApi`); `Core/` and `Jobs/` never reference it.
+  `Hosting/IRunnerSetup` (`Web/SetupApi`), `Hosting/IRunnerActions` (`Web/ActionsApi`), `Hosting/IRunnerWorkspaces`,
+  `Hosting/IRunnerAgents` and `Hosting/IRunnerSettings` (`Web/SettingsApi`); `Core/` and `Jobs/` never reference it.
 - `Program.cs` — command-line modes and the hosted services of each; the DI registrations are `Hosting/RunnerServices`.
 
 Key mechanics that span several files:
@@ -276,7 +277,10 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   setting), `PUT /api/settings` `{ file, baseHash }`: 409 when the file changed since the read, 400 with the resolver's
   message, else backup `repos.yml.bak-<UTC>` (last 10), temp file + move, apply, wake the poller. JSON goes back through
   the same strict YAML reader, and the written text must resolve to the same config or nothing is written
-  (`SettingsJson.Write`). A secret sent as null or as its mask keeps its value. Comments in repos.yml are not kept.
+  (`SettingsJson.Write`). A secret sent as null or as its mask keeps its value; one sent as text is refused (Setup page).
+  A save checks the base hash, writes and applies under the reload lock (`RunnerConfigSource.TryReplace`), so a hand edit
+  is never overwritten. `GET /api/settings` applies a changed file too (so a reload after a 409 gets the new hash).
+  Comments in repos.yml are not kept.
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
   is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on

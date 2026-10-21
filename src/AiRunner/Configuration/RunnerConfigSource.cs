@@ -7,50 +7,63 @@ namespace AiRunner.Configuration;
 public sealed record ConfigReload(bool IsChanged, string? Error);
 
 /// <summary>
+/// Everything <see cref="RunnerConfigSource"/> knows at one moment, swapped as a whole, so a reader never pairs the
+/// text of one file with the hash of another.
+/// </summary>
+/// <param name="Config">The applied config.</param>
+/// <param name="Version">1 at the start, one more for every config applied since.</param>
+/// <param name="Error">Why the file on disk is not applied; null when it is.</param>
+/// <param name="Text">The text of the applied config (the last good file).</param>
+/// <param name="FileHash">Hash of the file last read from disk (or saved), applied or not: a save starts from it.</param>
+/// <param name="RestartNeeded">Keys whose new value waits for a restart (schema paths, e.g. <c>dashboard.port</c>).</param>
+public sealed record ConfigState(
+    RunnerConfig Config,
+    int Version,
+    string? Error,
+    string Text,
+    string FileHash,
+    IReadOnlyList<string> RestartNeeded);
+
+/// <summary>
 /// The config the runner works with now, live (docs/adr/0004). A new repos.yml goes through the same strict path as
 /// the start (<see cref="RunnerConfig.FromText"/>); one that fails never replaces the working config, it only sets
-/// <see cref="Error"/>. A published config is never changed afterwards, so whoever took <see cref="Current"/> keeps a
-/// stable snapshot: a job takes it once, in its DI scope, and uses it to its end.
+/// the error. A published config is never changed afterwards, so whoever took <see cref="Current"/> keeps a stable
+/// snapshot: a job takes it once, in its DI scope, and uses it to its end.
 /// The keys that cannot change in a running process (<c>code_host</c>, <c>paths</c>, <c>dashboard</c>,
-/// <c>runner_name</c>) keep their startup values in every new config and are listed in <see cref="RestartNeeded"/>,
-/// so a singleton that reads only those may read <see cref="Current"/> at any time.
+/// <c>runner_name</c>) keep their startup values in every new config and are listed in
+/// <see cref="ConfigState.RestartNeeded"/>, so a singleton that reads only those may read <see cref="Current"/> at any
+/// time.
 /// </summary>
 public sealed class RunnerConfigSource
 {
     private readonly Lock _lock = new();
     private readonly ConfigFile _startup;
-    private volatile RunnerConfig _current;
-    private string? _lastSeenHash;
+    private volatile ConfigState _state;
 
     private RunnerConfigSource(ConfigFile startup, string? path, string text)
     {
         _startup = startup;
-        _current = startup.Config;
+        _state = new ConfigState(startup.Config, Version: 1, Error: null, text, HashOf(text), RestartNeeded: []);
         Path = path;
-        Text = text;
-        FileHash = HashOf(text);
-        _lastSeenHash = FileHash;
     }
 
     /// <summary>Full path of repos.yml; null for a source without a file (tests, the OpenAPI export).</summary>
     public string? Path { get; }
 
-    public RunnerConfig Current => _current;
+    /// <summary>All of the source's state at once; read it once per answer.</summary>
+    public ConfigState State => _state;
 
-    /// <summary>1 at the start, one more for every config applied since.</summary>
-    public int Version { get; private set; } = 1;
+    public RunnerConfig Current => _state.Config;
 
-    /// <summary>Why the file on disk is not applied; null when it is.</summary>
-    public string? Error { get; private set; }
+    public int Version => _state.Version;
 
-    /// <summary>The text of the applied config (the last good file).</summary>
-    public string Text { get; private set; }
+    public string? Error => _state.Error;
 
-    /// <summary>Hash of the file last read from disk (or saved), applied or not: a save must start from it.</summary>
-    public string FileHash { get; private set; }
+    public string Text => _state.Text;
 
-    /// <summary>Keys whose new value waits for a restart (schema paths, e.g. <c>dashboard.port</c>).</summary>
-    public IReadOnlyList<string> RestartNeeded { get; private set; } = [];
+    public string FileHash => _state.FileHash;
+
+    public IReadOnlyList<string> RestartNeeded => _state.RestartNeeded;
 
     /// <summary>The web password repos.yml held at the start; applied once (the Setup page is the live way).</summary>
     public string StartupWebPassword => _startup.WebPassword;
@@ -107,55 +120,57 @@ public sealed class RunnerConfigSource
             }
 
             var hash = HashOf(text);
-            if (hash == _lastSeenHash)
+            if (hash == _state.FileHash)
             {
                 return new ConfigReload(IsChanged: false, Error);
             }
 
-            _lastSeenHash = hash;
-            FileHash = hash;
-            TryPublish(text);
+            try
+            {
+                var loaded = RunnerConfig.FromText(text, Path);
+                Publish(loaded, text);
+            }
+            catch (InvalidOperationException exception)
+            {
+                _state = _state with { Error = exception.Message, FileHash = hash };
+            }
 
             return new ConfigReload(IsChanged: true, Error);
         }
     }
 
     /// <summary>
-    /// Applies text the runner has just written to repos.yml (a dashboard save, already checked). Throws
-    /// <see cref="InvalidOperationException"/> when it is not valid after all; the old config then stays.
+    /// Replaces repos.yml with <paramref name="text"/> (a dashboard save) and applies it, all under the reload lock: only
+    /// when the file on disk still has <paramref name="baseHash"/> (else false and nothing is written, so a hand edit
+    /// is never overwritten), and only after the text was checked (an <see cref="InvalidOperationException"/> leaves
+    /// the file untouched). <paramref name="writeFile"/> does the write (backup, temp file, move).
     /// </summary>
-    public void Apply(string text)
+    public bool TryReplace(string baseHash, string text, Action<string> writeFile)
     {
-        var fullPath = Path ?? "repos.yml";
+        var path = Path ?? throw new InvalidOperationException("This runner has no repos.yml to save.");
 
         lock (_lock)
         {
-            var loaded = RunnerConfig.FromText(text, fullPath);
-            var hash = HashOf(text);
-            _lastSeenHash = hash;
-            FileHash = hash;
+            var onDisk = File.ReadAllText(path);
+            if (HashOf(onDisk) != baseHash)
+            {
+                return false;
+            }
+
+            var loaded = RunnerConfig.FromText(text, path);
+            writeFile(text);
             Publish(loaded, text);
+
+            return true;
         }
     }
 
-    private void TryPublish(string text)
-    {
-        try
-        {
-            var loaded = RunnerConfig.FromText(text, Path!);
-            Publish(loaded, text);
-        }
-        catch (InvalidOperationException exception)
-        {
-            Error = exception.Message;
-        }
-    }
-
+    /// <summary>Called under the lock. Restart-needed keys keep their startup values.</summary>
     private void Publish(ConfigFile loaded, string text)
     {
         var startup = _startup.Config;
         var config = loaded.Config;
-        RestartNeeded = ChangedRestartKeys(loaded);
+        var restartNeeded = ChangedRestartKeys(loaded);
 
         config.CodeHost = startup.CodeHost;
         config.Paths = startup.Paths;
@@ -163,10 +178,8 @@ public sealed class RunnerConfigSource
         config.RunnerName = startup.RunnerName;
         config.RootDir = startup.RootDir;
 
-        Text = text;
-        Error = null;
-        Version++;
-        _current = config;
+        var hash = HashOf(text);
+        _state = new ConfigState(config, _state.Version + 1, Error: null, text, hash, restartNeeded);
     }
 
     private List<string> ChangedRestartKeys(ConfigFile loaded)

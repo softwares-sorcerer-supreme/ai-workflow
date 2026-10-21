@@ -45,7 +45,8 @@ public sealed record SettingsResponse(
 
 /// <summary>
 /// The body of <c>PUT /api/settings</c>: the whole edited file and the hash it was read with. A secret sent as null
-/// (or as its <c>{ isSet }</c> mask) keeps its value; any other null means "not written" (inherited).
+/// (or as its <c>{ isSet }</c> mask) keeps its value, one sent as text is refused (passwords are saved on the Setup
+/// page); any other null means "not written" (inherited).
 /// </summary>
 public sealed record SettingsRequest(JsonObject File, string BaseHash);
 

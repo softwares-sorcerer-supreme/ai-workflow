@@ -70,20 +70,24 @@ public sealed class RunnerSettings(
 
     public SettingsView Read()
     {
-        configSource.ReloadIfChanged();
-        var text = configSource.Text;
-        var file = SettingsJson.Read(text);
-        var effective = SettingsJson.Effective(text);
-        var hasComments = SettingsJson.HasComments(text);
+        // A hand edit is applied here too, not only at the next poll: after a 409 the screen reloads and must get the
+        // new hash at once.
+        var reload = configSource.ReloadIfChanged();
+        LogReload(reload);
+
+        var state = configSource.State;
+        var file = SettingsJson.Read(state.Text);
+        var effective = SettingsJson.Effective(state.Text);
+        var hasComments = SettingsJson.HasComments(state.Text);
 
         return new SettingsView(
             file,
-            configSource.FileHash,
-            configSource.Version,
+            state.FileHash,
+            state.Version,
             ConfigPath,
-            configSource.Error,
+            state.Error,
             hasComments,
-            configSource.RestartNeeded,
+            state.RestartNeeded,
             effective);
     }
 
@@ -103,8 +107,21 @@ public sealed class RunnerSettings(
     private SettingsSaveResult Save(SettingsSave save)
     {
         var path = ConfigPath;
-        var onDisk = store.Read(path);
-        if (onDisk.Hash != save.BaseHash)
+
+        // Secrets kept as they are come from the applied file: the one on disk may be a broken hand edit.
+        string newText;
+        bool isReplaced;
+        try
+        {
+            newText = SettingsJson.Write(save.File, configSource.Text);
+            isReplaced = configSource.TryReplace(save.BaseHash, newText, text => store.Write(path, text));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return new SettingsSaveResult(SettingsSaveOutcome.Invalid, exception.Message);
+        }
+
+        if (!isReplaced)
         {
             return new SettingsSaveResult(
                 SettingsSaveOutcome.Stale,
@@ -112,29 +129,32 @@ public sealed class RunnerSettings(
                 "Reload the settings and make the change again.");
         }
 
-        // Secrets kept as they are come from the applied file: the one on disk may be a broken hand edit.
-        string newText;
-        try
-        {
-            newText = SettingsJson.Write(save.File, configSource.Text);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return new SettingsSaveResult(SettingsSaveOutcome.Invalid, exception.Message);
-        }
-
-        store.Write(path, newText);
-        configSource.Apply(newText);
         commands.WakePoller();
-        logger.LogInformation(
-            "repos.yml saved from the dashboard: config version {Version} applied",
-            configSource.Version);
+        var state = configSource.State;
+        logger.LogInformation("repos.yml saved from the dashboard: config version {Version} applied", state.Version);
 
-        var restartNeeded = configSource.RestartNeeded;
+        var restartNeeded = state.RestartNeeded;
         var message = restartNeeded.Count == 0
             ? "Saved and applied."
             : $"Saved and applied; these take effect at the next start: {string.Join(", ", restartNeeded)}.";
 
         return new SettingsSaveResult(SettingsSaveOutcome.Saved, message);
+    }
+
+    private void LogReload(ConfigReload reload)
+    {
+        if (!reload.IsChanged)
+        {
+            return;
+        }
+
+        if (reload.Error is null)
+        {
+            logger.LogInformation("repos.yml changed: config version {Version} applied", configSource.Version);
+        }
+        else
+        {
+            logger.LogError("repos.yml has errors, the runner keeps its config: {Error}", reload.Error);
+        }
     }
 }

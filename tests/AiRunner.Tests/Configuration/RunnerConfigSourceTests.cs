@@ -133,16 +133,50 @@ public sealed class RunnerConfigSourceTests : IDisposable
     }
 
     [Fact]
-    public void Applying_saved_text_publishes_it_without_reading_the_file()
+    public void A_save_from_the_current_file_is_written_and_applied()
     {
         var source = LoadStart();
         var saved = Start.Replace("poll_interval_seconds: 60", "poll_interval_seconds: 20");
 
-        source.Apply(saved);
+        var startHash = RunnerConfigSource.HashOf(Start);
 
+        var isReplaced = source.TryReplace(startHash, saved, text => File.WriteAllText(ConfigPath, text));
+
+        Assert.True(isReplaced);
         Assert.Equal(20, source.Current.PollIntervalSeconds);
-        Assert.Equal(saved, source.Text);
-        Assert.Equal(RunnerConfigSource.HashOf(saved), source.FileHash);
+        Assert.Equal(saved, File.ReadAllText(ConfigPath));
+        Assert.Equal(RunnerConfigSource.HashOf(saved), source.State.FileHash);
+        Assert.False(source.ReloadIfChanged().IsChanged);
+    }
+
+    [Fact]
+    public void A_save_from_an_older_file_writes_nothing()
+    {
+        var source = LoadStart();
+        var handEdit = Start.Replace("poll_interval_seconds: 60", "poll_interval_seconds: 61");
+        File.WriteAllText(ConfigPath, handEdit);
+        var isWritten = false;
+
+        var isReplaced = source.TryReplace(RunnerConfigSource.HashOf(Start), Start, _ => isWritten = true);
+
+        Assert.False(isReplaced);
+        Assert.False(isWritten);
+        Assert.Equal(60, source.Current.PollIntervalSeconds);
+    }
+
+    [Fact]
+    public void An_invalid_save_is_refused_before_the_file_is_written()
+    {
+        var source = LoadStart();
+        var isWritten = false;
+
+        var startHash = RunnerConfigSource.HashOf(Start);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            source.TryReplace(startHash, Start + "mystery_key: 1", _ => isWritten = true));
+
+        Assert.False(isWritten);
+        Assert.Equal(1, source.Version);
     }
 
     [Fact]

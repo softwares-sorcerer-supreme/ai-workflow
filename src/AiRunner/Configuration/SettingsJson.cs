@@ -51,7 +51,8 @@ public static class SettingsJson
 
     /// <summary>
     /// The new text of repos.yml for an edited <paramref name="file"/>. A secret sent as null or as its
-    /// <c>{ isSet }</c> mask keeps its value in <paramref name="currentYaml"/>; any other null means "not written".
+    /// <c>{ isSet }</c> mask keeps its value in <paramref name="currentYaml"/>, a secret sent as text is refused; any
+    /// other null means "not written".
     /// Throws <see cref="InvalidOperationException"/> with the resolver's message when the result is invalid.
     /// </summary>
     public static string Write(JsonObject file, string currentYaml)
@@ -207,10 +208,12 @@ public static class SettingsJson
 
         var (parent, key) = location;
 
-        // A string is a new value; null or the mask means "keep what the file has".
+        // Secrets are not settings (docs/specs/dashboard-control.md section 8): a new one is saved on the Setup page,
+        // never written into repos.yml from here. Null or the mask means "keep what the file has".
         if (sent is JsonValue)
         {
-            return;
+            throw new InvalidOperationException(
+                $"{path} cannot be changed on the Settings screen. Save passwords on the Setup page.");
         }
 
         var kept = Find(current, path);

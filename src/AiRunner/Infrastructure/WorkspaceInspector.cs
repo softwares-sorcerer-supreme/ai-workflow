@@ -44,10 +44,12 @@ public sealed class WorkspaceInspector(
 
     public async Task<WorkspaceListing> ListAsync(CancellationToken cancellationToken)
     {
-        var installedAgents = NamesOfAgentFiles(Config.ResolvePath("agents"));
+        // One config for the whole listing: the projects and the orphans must not come from two files.
+        var config = Config;
+        var installedAgents = NamesOfAgentFiles(config.ResolvePath("agents"));
         var projects = new List<ProjectWorkspace>();
 
-        foreach (var project in Config.Projects)
+        foreach (var project in config.Projects)
         {
             var isBusy = locks.IsHeld(project.Name);
             var clones = new List<CloneInfo>();
@@ -60,7 +62,7 @@ public sealed class WorkspaceInspector(
             projects.Add(new ProjectWorkspace(project.Name, isBusy, clones));
         }
 
-        return new WorkspaceListing(projects, ListOrphans());
+        return new WorkspaceListing(projects, ListOrphans(config));
     }
 
     private async Task<CloneInfo> InspectCloneAsync(
@@ -160,15 +162,15 @@ public sealed class WorkspaceInspector(
         return missing;
     }
 
-    private List<OrphanFolder> ListOrphans()
+    private List<OrphanFolder> ListOrphans(RunnerConfig config)
     {
-        var workFolder = WorkspacePaths.WorkFolder(Config);
+        var workFolder = WorkspacePaths.WorkFolder(config);
         if (!Directory.Exists(workFolder))
         {
             return [];
         }
 
-        var projectNames = Config.Projects.Select(project => project.Name).ToList();
+        var projectNames = config.Projects.Select(project => project.Name).ToList();
         var orphans = new List<OrphanFolder>();
 
         foreach (var directory in Directory.EnumerateDirectories(workFolder).Order(StringComparer.OrdinalIgnoreCase))
