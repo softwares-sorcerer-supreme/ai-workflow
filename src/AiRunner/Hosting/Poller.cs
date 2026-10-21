@@ -54,12 +54,12 @@ public sealed class Poller(
 
             tick ??= timer.WaitForNextTickAsync(cancellationToken).AsTask();
             wake ??= commands.WaitForWakeAsync(cancellationToken);
-            var first = await Task.WhenAny(tick, wake);
+            var completed = await Task.WhenAny(tick, wake);
 
             // Rethrows a shutdown.
-            await first;
+            await completed;
 
-            if (first == tick)
+            if (completed == tick)
             {
                 tick = null;
             }

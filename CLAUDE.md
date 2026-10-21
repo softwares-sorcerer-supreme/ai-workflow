@@ -201,13 +201,14 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   route is mapped in the `writes` group of `MapDashboardApi` (metadata `WriteRoute`), and any other method or route is 405.
   `DashboardApp.GuardWritesAsync` runs `Web/WriteGuard` after routing and before parameter binding (so not as an endpoint
   filter): header `X-AiRunner-Request: 1`, `Content-Type: application/json`, an `Origin` (when sent) equal to
-  `http://localhost:<port>` or `http://127.0.0.1:<port>`, a loopback caller; else 403. Order: method gate (405), host filter
+  `http://localhost:<port>` or `http://127.0.0.1:<port>`, a loopback caller (the spec's "writes only while Kestrel listens on
+  loopback", checked per request); else 403. Order: method gate (405), host filter
   (400), routing, guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
   The web app gets no token and no code-host client: its only way to act is `Hosting/RunnerCommands`, the same instance the
   poller and worker use (registered in both containers, like `RunnerStatus`). Every new write route gets a guard test.
 - **Runtime controls** (in memory, a restart resumes): `POST /api/runner/poll` wakes the poller (a wake during a poll gives
   one more poll after it); `/pause` and `/resume` hold the worker after its dequeue (the poller keeps polling and queuing;
-  health code `paused`, `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends
+  health code `paused`, below `stale` and `error`, plus `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends
   through the timeout path of `JobWorker` with "Cancelled from the dashboard." (failure comment, `ai:failed` or `OnFailed`,
   claim released, cost row) and is not planned again; 409 when that job is not running (a pending job cannot be cancelled).
 

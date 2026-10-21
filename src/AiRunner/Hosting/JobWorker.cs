@@ -102,6 +102,7 @@ public sealed class JobWorker(
         timeoutSource.CancelAfter(timeout);
 
         // Declared after the source, so it is disposed first: a cancel from the dashboard never meets a disposed source.
+        // It is also released as soon as the job's own run is over (below): a cancel after that has nothing to stop.
         using var runningHandle = commands.Track(stored.Id, timeoutSource);
 
         // Claims (claim_enabled): a normal job claims its issue or PR up front, a routine one just before its first
@@ -154,7 +155,16 @@ public sealed class JobWorker(
                 }
             }
 
-            var outcome = await job.RunAsync(request, run, timeoutSource.Token);
+            JobOutcome outcome;
+            try
+            {
+                outcome = await job.RunAsync(request, run, timeoutSource.Token);
+            }
+            finally
+            {
+                runningHandle.Dispose();
+            }
+
             if (outcome.Quiet)
             {
                 // e.g. sequencing checks every poll: nothing worth keeping (Record keeps a cost row only if Copilot

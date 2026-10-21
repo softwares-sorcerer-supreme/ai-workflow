@@ -161,14 +161,14 @@ public static class DashboardApp
         return app;
     }
 
-    /// <summary>Only GET and the methods a write route may use get past this; anything else is a 405 at once.</summary>
+    /// <summary>
+    /// Only GET and the methods the write routes use (POST today) get past this; anything else is a 405 at once.
+    /// A write route with another method adds it here.
+    /// </summary>
     private static async Task RejectOtherMethodsAsync(HttpContext context, RequestDelegate next)
     {
         var method = context.Request.Method;
-        var isKnown = HttpMethods.IsGet(method) ||
-                      HttpMethods.IsPost(method) ||
-                      HttpMethods.IsPut(method) ||
-                      HttpMethods.IsDelete(method);
+        var isKnown = HttpMethods.IsGet(method) || HttpMethods.IsPost(method);
         if (!isKnown)
         {
             RejectMethod(context);

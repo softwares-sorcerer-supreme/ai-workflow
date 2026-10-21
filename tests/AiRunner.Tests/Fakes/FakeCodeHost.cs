@@ -171,13 +171,21 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.FromResult(new HostRepo(DefaultBranch));
     }
 
-    public Task<IReadOnlyList<HostIssue>> ListOpenIssuesAsync(
+    /// <summary>Awaited before each open-issue list, so a test can hold a poll while it runs.</summary>
+    public Func<Task>? BeforeIssueList { get; set; }
+
+    public async Task<IReadOnlyList<HostIssue>> ListOpenIssuesAsync(
         string repo,
         string? label,
         string? assignee,
         CancellationToken cancellationToken)
     {
         RepoCalls.Add(("issues", repo));
+        if (BeforeIssueList is not null)
+        {
+            await BeforeIssueList();
+        }
+
         if (IssueListError is not null)
         {
             throw new HttpRequestException(IssueListError);
@@ -189,7 +197,7 @@ public sealed class FakeCodeHost : ICodeHost
                 && (assignee is null || issue.IsAssignedTo(assignee)))
             .ToList();
 
-        return Task.FromResult<IReadOnlyList<HostIssue>>(matchingIssues);
+        return matchingIssues;
     }
 
     public Task<IReadOnlyList<HostIssue>> ListClosedIssuesAsync(

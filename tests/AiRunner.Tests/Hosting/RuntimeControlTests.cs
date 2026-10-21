@@ -172,6 +172,70 @@ public sealed class RuntimeControlTests : IDisposable
     }
 
     [Fact]
+    public async Task Wakes_during_a_running_poll_give_exactly_one_more_poll_after_it()
+    {
+        _kit.Config.PollIntervalSeconds = 3600;
+        var (_, queue, _) = _kit.CreateWorker();
+        var poller = _kit.NewPoller(queue);
+        var pollEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePoll = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _kit.CodeHost.BeforeIssueList = async () =>
+        {
+            pollEntered.TrySetResult();
+            await releasePoll.Task;
+        };
+        using var stop = new CancellationTokenSource();
+
+        await poller.StartAsync(stop.Token);
+        await pollEntered.Task.WaitAsync(TestTimeout);
+        _kit.Commands.WakePoller();
+        _kit.Commands.WakePoller();
+        _kit.Commands.WakePoller();
+        _kit.CodeHost.BeforeIssueList = null;
+        releasePoll.SetResult();
+        await WaitForPollsAsync(2);
+        await Task.Delay(300);
+
+        Assert.Equal(2, IssueListCalls() / IssueListsPerPoll);
+        await stop.CancelAsync();
+        await poller.StopAsync(default);
+    }
+
+    [Fact]
+    public async Task A_cancel_after_the_job_has_run_is_refused_while_its_failure_is_reported()
+    {
+        var job = new FailingJob();
+        var (worker, queue, _) = _kit.CreateWorker(job);
+        var request = _kit.Request(JobType.AnalyzeIssue, 7);
+        queue.Enqueue(request);
+        var queued = Assert.Single(Pending());
+        CancelResult? lateCancel = null;
+        _kit.CodeHost.OnCommentAdded = number =>
+        {
+            // The claim comment comes before the run (a cancel then is fine); the failure comment after it.
+            var isFailureReport = _kit.CodeHost.CommentsOf(number)
+                .Any(comment => (comment.Body ?? "").Contains("no ANALYSIS block", StringComparison.Ordinal));
+            if (isFailureReport)
+            {
+                lateCancel ??= _kit.Commands.Cancel(queued.Id);
+            }
+        };
+
+        await worker.DrainAsync(default);
+
+        Assert.Equal(CancelResult.NotRunning, lateCancel);
+        Assert.Contains(_kit.CodeHost.CommentsOf(7), comment => (comment.Body ?? "").Contains("no ANALYSIS block"));
+    }
+
+    private sealed class FailingJob : IJob
+    {
+        public JobType Type => JobType.AnalyzeIssue;
+        public JobInfo Info => new(Workflows.Analyze, "Issue analysis", TimeSpan.FromMinutes(1));
+        public Task<JobOutcome> RunAsync(JobRequest request, JobRun jobRun, CancellationToken cancellationToken) =>
+            throw new JobFailedException("no ANALYSIS block");
+    }
+
+    [Fact]
     public async Task Wakes_that_come_before_the_poller_reads_one_give_one_wake()
     {
         _kit.Commands.WakePoller();

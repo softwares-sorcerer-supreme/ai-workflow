@@ -31,6 +31,7 @@ public sealed class RunningJobHandle : IDisposable
     /// <summary>The dashboard cancelled this job; its failure says so instead of "did not finish in time".</summary>
     public bool IsCancelled { get; internal set; }
 
+    /// <summary>Safe to call more than once: the worker releases it when the run ends and again at the job's end.</summary>
     public void Dispose() => _release(this);
 }
 
@@ -89,8 +90,9 @@ public sealed class RunnerCommands(RunnerStatus status)
             _resumed = null;
         }
 
-        resumed?.SetResult();
+        // The health first, so it never shows "paused" while a job already starts.
         status.SetPaused(false);
+        resumed?.SetResult();
     }
 
     /// <summary>Returns at once when not paused, else when resumed.</summary>
