@@ -30,6 +30,7 @@ function sampleFile(overrides: Partial<AgentFileResponse> = {}): AgentFileRespon
     syncState: 'in-sync',
     syncStateLabel: 'In sync',
     isEditable: true,
+    canRevert: false,
     ...overrides,
   };
 }
@@ -40,6 +41,7 @@ const MODIFIED = sampleFile({
   gitStateLabel: 'Modified',
   syncState: 'differs',
   syncStateLabel: 'Differs from ~/.copilot',
+  canRevert: true,
 });
 
 const SKILL = sampleFile({ path: 'skills/ui-checklist/SKILL.md', kind: 'skill' });

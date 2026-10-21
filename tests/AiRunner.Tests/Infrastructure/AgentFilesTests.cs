@@ -116,6 +116,8 @@ public sealed class AgentFilesTests : IDisposable
         Assert.Equal(AgentStates.Modified, listing.Files.Single(file => file.Path == "agents/scout.agent.md").GitState);
         Assert.Equal(AgentStates.Untracked, listing.Files.Single(file => file.Path == "skills/checklist/extra.md").GitState);
         Assert.Equal(AgentStates.Unchanged, listing.Files.Single(file => file.Path == "skills/checklist/SKILL.md").GitState);
+        Assert.True(listing.Files.Single(file => file.Path == "agents/scout.agent.md").CanRevert);
+        Assert.False(listing.Files.Single(file => file.Path == "skills/checklist/SKILL.md").CanRevert);
     }
 
     [Fact]

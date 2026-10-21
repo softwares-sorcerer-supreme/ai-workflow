@@ -430,7 +430,7 @@ file reads `GET /api/agents/file` once (never polled, so a poll never replaces u
 fresher states); an Edit / Diff toggle; Edit is a plain monospace `<textarea>` (no editor library), `readonly` when
 `isEditable` is false; Diff is `pages/agents/agent-diff` (`parseDiff` styles lines by the unified-diff format only:
 `+` success tone, `-` danger tone, `@@` and file headers muted; empty diff = "No changes against git"). Buttons: Save
-(only when editable, disabled until the text differs, sends `baseHash`), Revert (only for a modified, editable file;
+(only when editable, disabled until the text differs, sends `baseHash`), Revert (only when the file has `canRevert`;
 `confirmWrite` first), Reload. A 400 shows its `message` and every `reasons` entry under the editor; a 409 shows the
 message with a Reload button and keeps the edits. After a Save or Revert the runner accepted, the file is read again
 and the list and health reload; leaving or reloading a file with unsaved edits asks first ("Discard your changes?").

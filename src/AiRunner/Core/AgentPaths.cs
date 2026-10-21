@@ -19,6 +19,13 @@ public static class AgentPaths
     public const string AgentsFolder = "agents";
     public const string SkillsFolder = "skills";
     public const string TemplatesFolder = "templates";
+
+    /// <summary>Every folder the Agents screen shows; the first two are what the installer copies.</summary>
+    public static readonly string[] AllFolders = [AgentsFolder, SkillsFolder, TemplatesFolder];
+
+    /// <summary>The answer for a path that is none of the shapes above.</summary>
+    public const string NotSharedMessage = "Not a shared agent, skill or template file.";
+
     public const string AgentSuffix = ".agent.md";
     public const string SkillFile = "SKILL.md";
 

@@ -1481,7 +1481,8 @@
           "gitStateLabel",
           "syncState",
           "syncStateLabel",
-          "isEditable"
+          "isEditable",
+          "canRevert"
         ],
         "type": "object",
         "properties": {
@@ -1504,6 +1505,9 @@
             "type": "string"
           },
           "isEditable": {
+            "type": "boolean"
+          },
+          "canRevert": {
             "type": "boolean"
           }
         }

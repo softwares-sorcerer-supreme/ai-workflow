@@ -29,7 +29,14 @@ public sealed record AgentReply(AgentOutcome Outcome, string Message)
 
 /// <param name="GitState">A code of <see cref="AgentStates"/>.</param>
 /// <param name="SyncState">A code of <see cref="AgentStates"/>; <c>not-installed</c> for a template.</param>
-public sealed record AgentFileInfo(string Path, string Kind, string GitState, string SyncState, bool IsEditable);
+/// <param name="CanRevert">Editable and different from git HEAD: Revert would change something.</param>
+public sealed record AgentFileInfo(
+    string Path,
+    string Kind,
+    string GitState,
+    string SyncState,
+    bool IsEditable,
+    bool CanRevert);
 
 /// <param name="BaseHash">The hash of the file when the editor opened it; a different hash on disk means a stale save.</param>
 public sealed record AgentSave(string Path, string Text, string BaseHash);
@@ -77,7 +84,7 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
         var drift = files.CheckDrift();
 
         var infos = paths
-            .Select(path => InfoOf(path, gitStates[path], drift))
+            .Select(path => InfoOf(path, gitStates[path], SyncStateIn(drift, path)))
             .ToList();
 
         return new AgentListing(infos, drift.Extra, drift.IsOutOfSync);
@@ -92,7 +99,7 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
         }
 
         var gitStates = await files.GitStatesAsync([path], cancellationToken);
-        var info = InfoOf(path, gitStates[path], files.CheckDrift());
+        var info = InfoOf(path, gitStates[path], SyncStateOf(path));
         var diff = info.GitState == AgentStates.Modified ? await files.DiffAsync(path, cancellationToken) : "";
 
         return new AgentFileDetail(info, content.Text, content.Hash, diff);
@@ -101,15 +108,10 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
     public async Task<AgentReply> SaveAsync(AgentSave save, CancellationToken cancellationToken)
     {
         var path = save.Path;
-        var kind = AgentPaths.KindOf(path);
-        if (kind is null)
+        var rejection = RejectionOf(path);
+        if (rejection is not null)
         {
-            return new AgentReply(AgentOutcome.NotFound, "Not a shared agent or skill file.");
-        }
-
-        if (!AgentPaths.IsEditable(path))
-        {
-            return new AgentReply(AgentOutcome.Refused, TemplateMessage);
+            return rejection;
         }
 
         await _editGate.WaitAsync(cancellationToken);
@@ -149,14 +151,15 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
 
     public async Task<AgentReply> RevertAsync(string path, CancellationToken cancellationToken)
     {
-        if (AgentPaths.KindOf(path) is null || files.FileOf(path) is null)
+        var rejection = RejectionOf(path);
+        if (rejection is not null)
         {
-            return new AgentReply(AgentOutcome.NotFound, "Not a shared agent or skill file.");
+            return rejection;
         }
 
-        if (!AgentPaths.IsEditable(path))
+        if (files.FileOf(path) is null)
         {
-            return new AgentReply(AgentOutcome.Refused, TemplateMessage);
+            return new AgentReply(AgentOutcome.NotFound, AgentPaths.NotSharedMessage);
         }
 
         await _editGate.WaitAsync(cancellationToken);
@@ -188,15 +191,32 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
         return new AgentReply(AgentOutcome.Done, "Sync queued: it runs now, or right after the running job.");
     }
 
-    private static AgentFileInfo InfoOf(string path, string gitState, AgentDriftResult drift)
+    /// <summary>The reply for a path the screen may not edit (not a shared file, or a template); null when it may.</summary>
+    private static AgentReply? RejectionOf(string path)
     {
-        var kind = AgentPaths.KindOf(path)!;
-        var isTemplate = kind == AgentKinds.Template;
-        var syncState = isTemplate
+        if (AgentPaths.KindOf(path) is null)
+        {
+            return new AgentReply(AgentOutcome.NotFound, AgentPaths.NotSharedMessage);
+        }
+
+        return AgentPaths.IsEditable(path) ? null : new AgentReply(AgentOutcome.Refused, TemplateMessage);
+    }
+
+    private static string SyncStateIn(AgentDriftResult drift, string path) =>
+        AgentPaths.KindOf(path) == AgentKinds.Template
             ? AgentStates.NotInstalled
             : drift.States.GetValueOrDefault(path, AgentStates.Missing);
 
-        return new AgentFileInfo(path, kind, gitState, syncState, AgentPaths.IsEditable(path));
+    private string SyncStateOf(string path) =>
+        AgentPaths.KindOf(path) == AgentKinds.Template ? AgentStates.NotInstalled : files.SyncStateOf(path);
+
+    private static AgentFileInfo InfoOf(string path, string gitState, string syncState)
+    {
+        var kind = AgentPaths.KindOf(path)!;
+        var isEditable = AgentPaths.IsEditable(path);
+        var canRevert = isEditable && gitState == AgentStates.Modified;
+
+        return new AgentFileInfo(path, kind, gitState, syncState, isEditable, canRevert);
     }
 }
 

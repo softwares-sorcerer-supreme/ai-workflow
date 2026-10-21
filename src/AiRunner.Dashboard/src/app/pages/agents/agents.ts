@@ -39,12 +39,6 @@ export const AGENT_KIND_GROUPS: readonly AgentKindGroup[] = [
   { kind: 'template', heading: 'Templates', hasTemplatesNote: true },
 ];
 
-/**
- * Git state codes that offer Revert (restore from git HEAD). The task offers it only for `modified`; the API would
- * ideally send this as a `canRevert` flag per file.
- */
-const REVERTIBLE_GIT_STATES: ReadonlySet<string> = new Set(['modified']);
-
 /** The two views of the selected file. */
 type FileView = 'edit' | 'diff';
 
@@ -125,7 +119,7 @@ export class Agents {
   protected readonly canRevert = computed(() => {
     const file = this.selectedFile();
 
-    return file !== undefined && file.isEditable && REVERTIBLE_GIT_STATES.has(file.gitState);
+    return file?.canRevert === true;
   });
 
   protected readonly stateTone = agentStateTone;

@@ -18,7 +18,7 @@ public sealed record AgentFileContent(string Text, string Hash);
 public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IProcessRunner processRunner)
 {
     /// <summary>The folders the installer copies.</summary>
-    public static readonly string[] SharedFolders = [AgentPaths.AgentsFolder, AgentPaths.SkillsFolder];
+    public static readonly string[] SharedFolders = AgentPaths.AllFolders[..2];
 
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(30);
 
@@ -31,10 +31,8 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     /// <summary>Every file the dashboard shows, with "/" separators, templates included.</summary>
     public IReadOnlyList<string> ListPaths()
     {
-        string[] folders = [AgentPaths.AgentsFolder, AgentPaths.SkillsFolder, AgentPaths.TemplatesFolder];
-
-        return folders
-            .SelectMany(folder => HashesOf(config.ResolvePath(folder), folder).Keys)
+        return AgentPaths.AllFolders
+            .SelectMany(folder => PathsOf(config.ResolvePath(folder), folder))
             .Where(path => AgentPaths.KindOf(path) is not null)
             .Order(StringComparer.Ordinal)
             .ToList();
@@ -51,7 +49,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
 
         var folder = Path.GetFullPath(config.ResolvePath(segments[0]));
         var file = Path.GetFullPath(Path.Combine(folder, Path.Combine(segments[1..])));
-        var isInside = file.StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        var isInside = GitClient.IsInside(folder, file);
 
         return isInside && File.Exists(file) ? file : null;
     }
@@ -75,7 +73,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     /// </summary>
     public async Task WriteAsync(string path, string text, CancellationToken cancellationToken)
     {
-        var file = FileOf(path) ?? throw new FileNotFoundException("Not a shared agent or skill file.", path);
+        var file = FileOf(path) ?? throw new FileNotFoundException(AgentPaths.NotSharedMessage, path);
         var current = await File.ReadAllTextAsync(file, cancellationToken);
         var hasWindowsEndings = current.Contains("\r\n", StringComparison.Ordinal);
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
@@ -89,11 +87,27 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     }
 
     /// <summary>Content hash of every file the installer copies, by path with "/" separators.</summary>
-    public IReadOnlyDictionary<string, string> SourceHashes() => HashesOfRoot(path => config.ResolvePath(path));
+    private IReadOnlyDictionary<string, string> SourceHashes() => HashesOfRoot(path => config.ResolvePath(path));
 
     /// <summary>The same for the copy under the Copilot home.</summary>
-    public IReadOnlyDictionary<string, string> InstalledHashes() =>
+    private IReadOnlyDictionary<string, string> InstalledHashes() =>
         HashesOfRoot(folder => Path.Combine(copilotHome.Path, folder));
+
+    /// <summary>The sync state of one file (hashes only that file and its copy).</summary>
+    public string SyncStateOf(string path)
+    {
+        var file = FileOf(path);
+        var installedFile = Path.Combine(copilotHome.Path, path);
+        if (file is null || !File.Exists(installedFile))
+        {
+            return AgentStates.Missing;
+        }
+
+        var sourceHash = HashOf(File.ReadAllBytes(file));
+        var installedHash = HashOf(File.ReadAllBytes(installedFile));
+
+        return sourceHash == installedHash ? AgentStates.InSync : AgentStates.Differs;
+    }
 
     public AgentDriftResult CheckDrift() => AgentDrift.Compare(SourceHashes(), InstalledHashes());
 
@@ -103,8 +117,7 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
         CancellationToken cancellationToken)
     {
         var states = paths.ToDictionary(path => path, _ => AgentStates.Unknown, StringComparer.Ordinal);
-        string[] folders = [AgentPaths.AgentsFolder, AgentPaths.SkillsFolder, AgentPaths.TemplatesFolder];
-        foreach (var folder in folders)
+        foreach (var folder in AgentPaths.AllFolders)
         {
             var directory = config.ResolvePath(folder);
             var prefix = await RepoPrefixAsync(directory, cancellationToken);
@@ -250,18 +263,31 @@ public sealed class AgentFiles(RunnerConfig config, CopilotHome copilotHome, IPr
     private static Dictionary<string, string> HashesOf(string directory, string folder)
     {
         var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (path, file) in FilesOf(directory, folder))
+        {
+            hashes[path] = HashOf(File.ReadAllBytes(file));
+        }
+
+        return hashes;
+    }
+
+    private static IEnumerable<string> PathsOf(string directory, string folder) =>
+        FilesOf(directory, folder).Select(entry => entry.Path);
+
+    /// <summary>Every file under the folder as (path with "/" separators, full path); none when it is missing.</summary>
+    private static IEnumerable<(string Path, string File)> FilesOf(string directory, string folder)
+    {
         if (!Directory.Exists(directory))
         {
-            return hashes;
+            yield break;
         }
 
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
         {
-            var relativePath = Path.GetRelativePath(directory, file).Replace('\\', '/');
-            hashes[folder + "/" + relativePath] = HashOf(File.ReadAllBytes(file));
-        }
+            var relativePath = System.IO.Path.GetRelativePath(directory, file).Replace('\\', '/');
 
-        return hashes;
+            yield return (folder + "/" + relativePath, file);
+        }
     }
 
     private static string HashOf(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));

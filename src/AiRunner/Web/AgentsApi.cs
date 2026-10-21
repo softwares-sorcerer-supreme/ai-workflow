@@ -14,6 +14,7 @@ namespace AiRunner.Web;
 
 /// <summary>One shared file. Codes are stable (for styling), labels are the text to show.</summary>
 /// <param name="Kind"><c>agent</c>, <c>skill</c> or <c>template</c> (templates are read-only).</param>
+/// <param name="CanRevert">Revert would change something: an editable file that differs from git HEAD.</param>
 public sealed record AgentFileResponse(
     string Path,
     string Kind,
@@ -21,7 +22,8 @@ public sealed record AgentFileResponse(
     string GitStateLabel,
     string SyncState,
     string SyncStateLabel,
-    bool IsEditable);
+    bool IsEditable,
+    bool CanRevert);
 
 /// <param name="Extra">Files in ~/.copilot/ the repo does not have; they are never deleted.</param>
 /// <param name="IsOutOfSync">A file differs or is not installed: the Sync banner shows.</param>
@@ -95,7 +97,7 @@ public static class AgentsApi
         var detail = await agents.ReadAsync(path, cancellationToken);
         if (detail is null)
         {
-            return TypedResults.NotFound(new ApiError("Not a shared agent, skill or template file."));
+            return TypedResults.NotFound(new ApiError(AgentPaths.NotSharedMessage));
         }
 
         return TypedResults.Ok(new AgentFileDetailResponse(ToResponse(detail.Info), detail.Text, detail.Hash, detail.Diff));
@@ -150,5 +152,6 @@ public static class AgentsApi
         AgentStates.LabelOf(info.GitState),
         info.SyncState,
         AgentStates.LabelOf(info.SyncState),
-        info.IsEditable);
+        info.IsEditable,
+        info.CanRevert);
 }
