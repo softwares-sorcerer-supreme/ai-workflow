@@ -380,7 +380,11 @@ public static class DashboardApi
         }
 
         var files = logs.List(job)
-            .Select(file => new LogFileResponse(file.Name, FormatOf(file.Name), file.SizeBytes, LogFileRules.IsLiveName(file.Name)))
+            .Select(file => new LogFileResponse(
+                file.Name,
+                FormatOf(file.Name),
+                file.SizeBytes,
+                LogFileRules.IsLiveName(file.Name)))
             .ToList();
 
         return TypedResults.Ok(new LogFilesResponse(id, files));

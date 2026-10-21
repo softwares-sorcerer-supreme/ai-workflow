@@ -45,8 +45,9 @@ const FOLLOW_SLACK_PX = 24;
 
 /**
  * One job: its facts and steps, its log files and the chosen file. A live file of a running job is tailed: each
- * poll reads from the previous `nextOffset` and appends; one more read after the job ended brings the end. The file name goes to the generated client as it came
- * from the file list; the runner checks it, the UI never builds a path or URL from it.
+ * poll reads from the previous `nextOffset` and appends; one more read after the job ended brings the end. The file
+ * name goes to the generated client as it came from the file list; the runner checks it, the UI never builds a path
+ * or URL from it.
  */
 @Component({
   selector: 'app-job-log',
