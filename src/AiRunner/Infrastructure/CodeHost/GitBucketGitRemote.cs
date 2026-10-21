@@ -5,15 +5,18 @@ namespace AiRunner.Infrastructure.CodeHost;
 
 /// <summary>
 /// git over HTTP on GitBucket: repos under /git/, basic auth with the login and the git secret (the token, or
-/// GitBucket:GitPassword), PR heads under refs/pull/N/head (not on every GitBucket version).
+/// GitBucket:GitPassword), PR heads under refs/pull/N/head (not on every GitBucket version). The secret is read per
+/// git call, so a token saved on the Setup page is used from the next call on.
 /// </summary>
-public sealed class GitBucketGitRemote(RunnerConfig config, RunnerIdentity identity) : IGitRemote
+public sealed class GitBucketGitRemote(RunnerConfig config, RunnerIdentity identity, RunnerCredentials credentials)
+    : IGitRemote
 {
     public string UrlOf(string repo) => $"{config.CodeHost.BaseUrl.TrimEnd('/')}/git/{repo}.git";
 
     public string AuthorizationHeader()
     {
-        var credentialBytes = Encoding.UTF8.GetBytes($"{identity.Login}:{identity.GitSecret}");
+        var gitSecret = credentials.Current.GitSecret;
+        var credentialBytes = Encoding.UTF8.GetBytes($"{identity.Login}:{gitSecret}");
         var basicCredentials = Convert.ToBase64String(credentialBytes);
 
         return $"Authorization: Basic {basicCredentials}";

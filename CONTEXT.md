@@ -40,6 +40,10 @@ _Avoid_: last-handled comment
 The server that holds the issues, pull requests and repos the runner works on. GitBucket today; the runner reaches it only through one provider, so it can be replaced.
 _Avoid_: GitBucket (for the role), forge, server
 
+**Setup mode**:
+How the runner starts in its loop when it has no code-host token yet: only the dashboard runs, nothing is polled and no job runs, until the token is saved on the dashboard's Setup page. Every other mode stops instead.
+_Avoid_: first run, onboarding mode, unconfigured
+
 **Project**:
 A group of components that are worked on together; its issues live in one place (`issues_in`). Every job checks out all components of one project.
 _Avoid_: workspace, product

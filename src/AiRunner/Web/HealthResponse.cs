@@ -5,14 +5,20 @@ using AiRunner.Hosting;
 namespace AiRunner.Web;
 
 /// <summary>
-/// Builds the health from the runner's status and the pause, which <see cref="RunnerCommands"/> owns (the worker
-/// obeys it there; the status only reports).
+/// Builds the health from the runner's status, the pause, which <see cref="RunnerCommands"/> owns (the worker
+/// obeys it there; the status only reports), and setup mode, which <see cref="IRunnerSetup"/> owns.
 /// </summary>
-public sealed class HealthReader(RunnerStatus status, RunnerCommands commands, RunnerConfig config, TimeProvider time)
+public sealed class HealthReader(
+    RunnerStatus status,
+    RunnerCommands commands,
+    IRunnerSetup setup,
+    RunnerConfig config,
+    TimeProvider time)
 {
     public HealthResponse Read()
     {
-        var snapshot = status.Snapshot() with { IsPaused = commands.IsPaused };
+        var isSetupNeeded = !setup.Read().IsTokenSet;
+        var snapshot = status.Snapshot() with { IsPaused = commands.IsPaused, IsSetupNeeded = isSetupNeeded };
         var now = time.GetUtcNow();
 
         return HealthResponse.From(snapshot, config, now);
@@ -27,7 +33,8 @@ public sealed record PollErrorResponse(string Project, string Message, DateTimeO
 
 /// <summary>
 /// <c>GET /api/health</c>: is the runner working? Every state comes as a stable code (for styling) plus the text to
-/// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button. Times are UTC.
+/// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button;
+/// <c>IsSetupNeeded</c> shows the setup banner on every screen. Times are UTC.
 /// </summary>
 public sealed record HealthResponse(
     string State,
@@ -41,6 +48,7 @@ public sealed record HealthResponse(
     DateTimeOffset? LastPollEndedAt,
     bool IsPolling,
     bool IsPaused,
+    bool IsSetupNeeded,
     WorkerHealth Worker,
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
@@ -58,7 +66,8 @@ public sealed record HealthResponse(
             pollInterval,
             status.Errors.Count,
             PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null,
-            IsPaused: status.IsPaused);
+            IsPaused: status.IsPaused,
+            IsSetupNeeded: status.IsSetupNeeded);
         var health = RunnerHealth.Assess(input);
 
         var worker = status.WorkerBusySince is { } busySince
@@ -81,6 +90,7 @@ public sealed record HealthResponse(
             status.LastPollEndedAt,
             status.IsPolling,
             status.IsPaused,
+            status.IsSetupNeeded,
             worker,
             ErrorsLabelOf(errors.Count),
             errors);

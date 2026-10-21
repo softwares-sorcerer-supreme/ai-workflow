@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using AiRunner.Core;
@@ -9,12 +10,15 @@ namespace AiRunner.Infrastructure.CodeHost;
 /// GitBucket's /api/v3 (GitHub-compatible, design doc section 10) plus the web routes it lacks. Every text sent to
 /// GitBucket goes through AsciiSanitizer, because this GitBucket returns HTTP 500 on non-ASCII text. Every comment
 /// gets the bot marker. Lists read every page.
+/// The token goes on each request, never on the client (ADR 0004): a token saved on the Setup page is used from the
+/// next request on, and a request already sent keeps the old one.
 /// </summary>
 /// <param name="baseUrl">The GitBucket root (code_host.base_url), where _attached links live.</param>
 public sealed class GitBucketCodeHost(
     HttpClient httpClient,
     HttpClient downloadClient,
     GitBucketWeb web,
+    RunnerCredentials credentials,
     string baseUrl)
     : ICodeHost
 {
@@ -272,7 +276,7 @@ public sealed class GitBucketCodeHost(
         }
 
         var reply = created.ValueKind == JsonValueKind.Undefined ? "(empty response)" : created.GetRawText();
-        var shortReply = Text.Short(reply);
+        var shortReply = Quote(reply);
         throw new CodeHostException(
             HttpStatusCode.OK,
             $"POST repos/{repo}/pulls: the reply has no usable PR number and no open PR matches " +
@@ -295,6 +299,7 @@ public sealed class GitBucketCodeHost(
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        Authorize(request);
         using var response = await downloadClient.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         var status = (int)response.StatusCode;
@@ -376,6 +381,24 @@ public sealed class GitBucketCodeHost(
                string.Equals(uri.Authority, gitBucket.Authority, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The current token, read now; no header at all while there is none (setup mode).</summary>
+    private void Authorize(HttpRequestMessage request)
+    {
+        var token = credentials.Current.Token;
+        if (token.Length > 0)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("token", token);
+        }
+    }
+
+    /// <summary>A reply quoted in an error message, shortened and without any secret a server might echo.</summary>
+    private string Quote(string reply)
+    {
+        var redacted = credentials.Redact(reply);
+
+        return Text.Short(redacted);
+    }
+
     private static string WithMarker(string body)
     {
         var clean = AsciiSanitizer.Clean(body);
@@ -418,6 +441,7 @@ public sealed class GitBucketCodeHost(
     private async Task<T> SendAsync<T>(HttpMethod method, string url, object? body, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, url);
+        Authorize(request);
         if (body is not null)
         {
             var jsonBody = JsonSerializer.Serialize(body, Json);
@@ -430,7 +454,7 @@ public sealed class GitBucketCodeHost(
         {
             throw new CodeHostException(
                 response.StatusCode,
-                $"{method} {url} -> {(int)response.StatusCode}: {Text.Short(text)}");
+                $"{method} {url} -> {(int)response.StatusCode}: {Quote(text)}");
         }
 
         if (string.IsNullOrWhiteSpace(text))
@@ -447,7 +471,7 @@ public sealed class GitBucketCodeHost(
             // The raw reply is the only way to see which GitBucket quirk broke the model.
             throw new CodeHostException(
                 response.StatusCode,
-                $"{method} {url}: cannot read the reply as {typeof(T).Name} ({exception.Message}). Reply: {Text.Short(text)}");
+                $"{method} {url}: cannot read the reply as {typeof(T).Name} ({exception.Message}). Reply: {Quote(text)}");
         }
     }
 }

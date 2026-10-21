@@ -34,6 +34,7 @@ Copilot change the PR's branch; it is planned before the review, and the pushed 
 ## Commands
 
 ```powershell
+dotnet run --project src/AiRunner                       # the loop; with no token: setup mode (see below)
 dotnet run --project src/AiRunner -- --once --dry-run   # poll once, print planned jobs, change nothing
 dotnet run --project src/AiRunner -- --once             # poll once, run queued jobs, exit
 dotnet run --project src/AiRunner -- --setup-labels     # create the workflow labels in every repo
@@ -53,6 +54,18 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
 - Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test`, `--close-test` or the loop yourself: they spend Copilot premium requests
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
   and VPN; leave these to the user.
+- **Setup mode**: the loop with no token (no user secret `GitBucket:Token`, no `GITBUCKET_TOKEN` / `GitBucket__Token`)
+  does not stop: it starts the dashboard (even when disabled; still 127.0.0.1), logs "No GitBucket token yet: open
+  http://localhost:<port>/setup", and the poller and worker wait (`RunnerCredentials.WaitForTokenAsync`: no code-host
+  call, no job) until the Setup page saves one. Every other mode stops with `RunMode.NoTokenMessage`.
+- **Secrets** live in `Infrastructure/RunnerCredentials` (token, git secret, web password, version), filled by
+  `CredentialSources` (user secret, else environment; web password: user secret, else `code_host.web_password`) from
+  `UserSecretsStore` (the `UserSecretsId` file; a write keeps the other keys, flattens like `dotnet user-secrets`, temp
+  file + move). No client holds the token: `GitBucketCodeHost` sets `Authorization` per request, `GitBucketGitRemote`
+  reads the git secret per git call, `GitBucketWeb` signs in again when `Version` changed. `Hosting/RunnerSetup`
+  (`IRunnerSetup`, shared with the web app) checks a new secret through `ICredentialCheck` on throwaway clients, saves
+  it only when accepted, swaps it in, sets `RunnerIdentity.Login` and wakes the poller. No answer, log line or
+  exception message carries a secret (`SetupApiTests` checks it; `RunnerCredentials.Redact` for quoted server text).
 - `repos.yml` is found in the current folder or a parent (or `--config <path>`); `paths` in it are relative to its folder.
   The code host is the global `code_host: { kind: gitbucket, base_url, web_password }` block; the old `git_bucket:` block
   (no `kind`) still means `gitbucket`; both at once, a missing or an unknown `kind` stop the start (`ConfigResolver`).
@@ -79,8 +92,8 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
   write), `RunnerCommands` (the dashboard's runtime controls: wake the poller, pause the worker, cancel the running job),
   `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
 - `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
-  `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus` and `Hosting/RunnerCommands`; `Core/` and `Jobs/`
-  never reference it.
+  `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus`, `Hosting/RunnerCommands` and
+  `Hosting/IRunnerSetup` (`Web/SetupApi`); `Core/` and `Jobs/` never reference it.
 - `Program.cs` — DI registration and command-line modes only.
 
 Key mechanics that span several files:
@@ -190,9 +203,9 @@ Key mechanics that span several files:
 ## Dashboard
 
 Local status page and control panel of one runner (`docs/specs/dashboard.md`, `docs/specs/dashboard-control.md` (built up to
-slice 2), `docs/adr/0001`, `0002`, `0004`). `repos.yml` global block
+slice 3), `docs/adr/0001`, `0002`, `0004`). `repos.yml` global block
 `dashboard: { enabled: false, port: 5180 }`; only the polling loop (not `--once`, `--dry-run` or the other modes) starts
-`Hosting/DashboardHost`, which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
+`Hosting/DashboardHost` (in setup mode even when disabled), which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
 token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; no CORS, no auth). A taken port
 is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`,
 `Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
@@ -203,8 +216,14 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   binding (so not as an endpoint filter): header `X-AiRunner-Request: 1`, a JSON `Content-Type`, an `Origin` (when sent)
   equal to `http://<AllowedHosts>:<port>`, a loopback caller (the spec's "writes only while Kestrel listens on loopback",
   checked per request); else 403. Order: host filter (400), routing, method rule (405), guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
-  The web app gets no token and no code-host client: its only way to act is `Hosting/RunnerCommands`, the same instance the
-  poller and worker use (registered in both containers, like `RunnerStatus`). Every new write route gets a guard test.
+  The web app gets no token and no code-host client: its only ways to act are `Hosting/RunnerCommands` and
+  `Hosting/IRunnerSetup`, the same instances the poller and worker use (registered in both containers, like
+  `RunnerStatus`). `IRunnerSetup` takes a secret but never returns one. Every new write route gets a guard test.
+- **Setup** (`Web/SetupApi`): `GET /api/setup` (sources `user-secrets | environment | none` and
+  `user-secrets | repos-yml | none`, login, base URL, secrets file, `canRemove*`; no secret), `PUT`/`DELETE
+  /api/setup/token` and `/api/setup/web-password`: 200 `{ message, setup }`, 400 when the check refuses (not accepted,
+  not reachable (VPN?), host error), 409 when the value lives in the environment or `repos.yml`. Health code
+  `needs-setup` (first rule) plus `isSetupNeeded` for the banner.
 - **Runtime controls** (in memory, a restart resumes): `POST /api/runner/poll` wakes the poller (a wake during a poll gives
   one more poll after it); `/pause` and `/resume` hold the worker after its dequeue (the poller keeps polling and queuing;
   health code `paused`, below `stale` and `error`, plus `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends

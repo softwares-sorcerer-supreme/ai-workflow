@@ -56,11 +56,22 @@ Analysis and review are read-only. Implementation and review fixes can change co
 - Network/VPN access to the configured GitBucket server
 - A GitBucket account and API token
 
-Add the token to .NET user secrets; do not put credentials in `repos.yml`:
+First run: set `code_host.base_url` in `repos.yml`, build the dashboard once (`./build-dashboard.ps1`), start the runner
+(`dotnet run --project src/AiRunner`) and open the setup page it names, `http://localhost:5180/setup`. With no token
+the runner starts in **setup mode**: only the dashboard runs (even with `dashboard.enabled: false`, on 127.0.0.1 only),
+nothing is polled and no job runs. Paste the token (and the web password, needed to close issues after a merge): the
+runner checks each one against GitBucket, saves it in .NET user secrets and starts polling without a restart. The same
+page replaces an expired token later. Secrets never go into `repos.yml` and are never shown again.
+
+Instead of the setup page you can still set the token yourself; the runner reads the same file:
 
 ```powershell
 dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner
 ```
+
+Where each secret comes from: the token from user secrets, else the `GITBUCKET_TOKEN` (or `GitBucket__Token`)
+environment variable; the web password from user secrets, else `code_host.web_password` in `repos.yml` (old setups).
+`--once`, `--dry-run` and the other modes need a token and stop without one.
 
 Configure the code host (`code_host: { kind: gitbucket, base_url: ... }`; the old `git_bucket:` block still works) and at least one project in [`repos.yml`](repos.yml). All keys are snake_case; an unknown or misspelled key stops the start with a hint. A **project** groups **components** (a repo plus an optional folder `path`): every job checks out all components so the agent sees the whole project, but code is changed in one component only. Issues and sub-issues live in the project's `issues_in` component. Settings in `defaults:` apply to every project, and a project overrides only the keys it names (objects merge key by key, lists replace). For implementation and review fixes, configure each code component's setup/build/test/lint `commands`; they are stack-agnostic and run in the component folder (`run_in: repo` runs them at the clone root; the sample `repos.yml` lints its frontend with a type check plus a formatting check, and a real ESLint setup would be the better lint once the repo has one). The old flat `repos:` list still works: each entry becomes a project with one component.
 
@@ -139,7 +150,8 @@ dashboard:
 
 Build the UI once with `./build-dashboard.ps1` (needs Node, see `src/AiRunner.Dashboard/package.json`), then start the
 runner in its normal loop. `--once`, `--dry-run` and the other modes never start it. If the port is taken the runner logs
-one warning and keeps working without the dashboard.
+one warning and keeps working without the dashboard. In setup mode (no token yet) the loop starts the dashboard even when
+it is disabled, so the Setup page can be reached.
 
 ### Several runners (claims)
 
@@ -186,7 +198,7 @@ dotnet run --project src/AiRunner -- --once
 dotnet run --project src/AiRunner
 ```
 
-Other diagnostic modes are `--copilot-test` (check the Copilot child process), `--attachment-test <url>` (check a GitBucket `/_attached/` download) and `--close-test owner/repo#n` (close one issue through the web form; needs `code_host.web_password`). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
+Other diagnostic modes are `--copilot-test` (check the Copilot child process), `--attachment-test <url>` (check a GitBucket `/_attached/` download) and `--close-test owner/repo#n` (close one issue through the web form; needs the web password, from the Setup page or `code_host.web_password`). Normal runs and tests that invoke Copilot or GitBucket can incur cost or change remote data. The test suite uses fakes for GitBucket, Copilot, and process execution and does not need VPN access.
 
 The runner locates `repos.yml` in the current directory or a parent directory. Use `--config <path>` to select another file. On a non-dry run, it installs the checked-out `agents/` and `skills/` definitions into `~/.copilot/`.
 

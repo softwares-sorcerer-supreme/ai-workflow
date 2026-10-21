@@ -25,6 +25,7 @@ public sealed class Poller(
     IStateStore stateStore,
     JobQueue queue,
     RunnerIdentity identity,
+    RunnerCredentials credentials,
     RunnerStatus status,
     SnapshotRecorder snapshot,
     RunnerCommands commands,
@@ -50,6 +51,8 @@ public sealed class Poller(
         Task? wake = null;
         while (true)
         {
+            // Setup mode: no code-host call until the Setup page saves a token (or after it removed the last one).
+            await credentials.WaitForTokenAsync(cancellationToken);
             await PollOnceAsync(cancellationToken);
 
             tick ??= timer.WaitForNextTickAsync(cancellationToken).AsTask();

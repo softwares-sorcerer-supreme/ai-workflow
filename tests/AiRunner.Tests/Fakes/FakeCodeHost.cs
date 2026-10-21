@@ -161,8 +161,29 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.FromResult(new DownloadedAttachment(path, attachment.Name, attachment.ContentType, attachment.Content.Length));
     }
 
-    public Task<HostUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new HostUser(Login));
+    /// <summary>When set, GET /user throws it: a token the host refuses (401) or a host that cannot be reached.</summary>
+    public Exception? CurrentUserError { get; set; }
+
+    /// <summary>How often GET /user was asked (it is not a repo call, so it is not in <see cref="RepoCalls"/>).</summary>
+    public int CurrentUserReads { get; private set; }
+
+    /// <summary>Every call the runner made, of any kind: zero proves "no code-host call".</summary>
+    public int CallCount =>
+        RepoCalls.Count + CurrentUserReads + IssueReads.Count + Downloads.Count + Updated.Count + _labelWrites;
+
+    /// <summary>Label adds and removals, which <see cref="RepoCalls"/> does not list.</summary>
+    private int _labelWrites;
+
+    public Task<HostUser> GetCurrentUserAsync(CancellationToken cancellationToken)
+    {
+        CurrentUserReads++;
+        if (CurrentUserError is not null)
+        {
+            return Task.FromException<HostUser>(CurrentUserError);
+        }
+
+        return Task.FromResult(new HostUser(Login));
+    }
 
     public Task<HostRepo> GetRepoAsync(string repo, CancellationToken cancellationToken)
     {
@@ -298,6 +319,7 @@ public sealed class FakeCodeHost : ICodeHost
 
     public Task AddLabelsAsync(string repo, int number, IEnumerable<string> labels, CancellationToken cancellationToken)
     {
+        _labelWrites++;
         if (Issues.ContainsKey(number))
         {
             var allLabels = LabelsOf(number).Concat(labels);
@@ -312,6 +334,7 @@ public sealed class FakeCodeHost : ICodeHost
 
     public Task RemoveLabelAsync(string repo, int number, string label, CancellationToken cancellationToken)
     {
+        _labelWrites++;
         RemovedLabels.Add((number, label));
         if (Issues.ContainsKey(number))
         {

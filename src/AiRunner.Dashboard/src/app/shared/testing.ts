@@ -3,6 +3,7 @@ import { HealthResponse } from '../api/models/health-response';
 import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
 import { PullResponse } from '../api/models/pull-response';
+import { SetupResponse } from '../api/models/setup-response';
 import { PollResource } from './poll-resource';
 import { Clock } from './time/clock';
 
@@ -167,9 +168,30 @@ export function sampleHealth(overrides: Partial<HealthResponse> = {}): HealthRes
     lastPollEndedAt: '2026-01-01T11:59:30Z',
     isPolling: false,
     isPaused: false,
+    isSetupNeeded: false,
     worker: { state: 'idle', stateLabel: 'Idle', since: null },
     errorsLabel: 'No poll errors',
     errors: [],
+    ...overrides,
+  };
+}
+
+/** A runner with a token from the user secrets and no web password; override fields per test. */
+export function sampleSetup(overrides: Partial<SetupResponse> = {}): SetupResponse {
+  return {
+    baseUrl: 'http://gitbucket.local',
+    isTokenSet: true,
+    tokenSource: 'user-secrets',
+    tokenSourceLabel: 'User secrets',
+    tokenNote: null,
+    login: 'ai-bot',
+    canRemoveToken: true,
+    isWebPasswordSet: false,
+    webPasswordSource: 'none',
+    webPasswordSourceLabel: 'Not set',
+    webPasswordNote: null,
+    canRemoveWebPassword: false,
+    secretsFile: '/home/dev/.microsoft/usersecrets/ai-runner/secrets.json',
     ...overrides,
   };
 }

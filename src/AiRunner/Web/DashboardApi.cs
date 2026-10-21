@@ -14,8 +14,8 @@ namespace AiRunner.Web;
 /// <summary>
 /// The dashboard's JSON API under <c>/api</c>: computed answers only (codes plus labels), UTC times.
 /// It reads the runner's in-memory status and local data; it never calls GitBucket (docs/adr/0001). The writes are
-/// runtime controls handed to <see cref="RunnerCommands"/>; each is marked <see cref="WriteRoute"/>, so it is behind
-/// the <see cref="WriteGuard"/>.
+/// runtime controls handed to <see cref="RunnerCommands"/> and setup changes handed to <see cref="IRunnerSetup"/>
+/// (<see cref="SetupApi"/>); each is marked <see cref="WriteRoute"/>, so it is behind the <see cref="WriteGuard"/>.
 /// </summary>
 public static class DashboardApi
 {
@@ -91,6 +91,8 @@ public static class DashboardApi
             .WithTags("Jobs")
             .WithName("cancelJob")
             .WithSummary("Cancel the running job; it fails like a timeout. A pending job cannot be cancelled.");
+
+        SetupApi.MapSetupApi(api, writes);
 
         return endpoints;
     }

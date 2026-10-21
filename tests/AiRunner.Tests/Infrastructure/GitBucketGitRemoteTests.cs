@@ -11,9 +11,10 @@ public sealed class GitBucketGitRemoteTests
         var config = RunnerConfig.Parse("""
             code_host: { kind: gitbucket, base_url: "http://gb.test:3000/" }
             """);
-        var identity = new RunnerIdentity { Login = "bot", GitSecret = "s3cret" };
+        var identity = new RunnerIdentity { Login = "bot" };
+        var credentials = RunnerCredentials.Of(token: "s3cret");
 
-        return new GitBucketGitRemote(config, identity);
+        return new GitBucketGitRemote(config, identity, credentials);
     }
 
     [Fact]

@@ -34,6 +34,7 @@ public sealed class JobWorker(
     IStateStore stateStore,
     ICodeHost codeHost,
     ClaimService claims,
+    RunnerCredentials credentials,
     RunnerStatus status,
     RunnerCommands commands,
     ILogger<JobWorker> logger) : BackgroundService
@@ -55,6 +56,9 @@ public sealed class JobWorker(
                 // After the dequeue: an idle worker waits in DequeueAsync when the pause comes. The held job stays
                 // pending; a stale payload is harmless, because every job re-plans on fresh data.
                 await commands.WaitWhilePausedAsync(cancellationToken);
+
+                // Setup mode: a job left pending by an earlier run must not reach the code host without a token.
+                await credentials.WaitForTokenAsync(cancellationToken);
             }
             catch (OperationCanceledException)
             {

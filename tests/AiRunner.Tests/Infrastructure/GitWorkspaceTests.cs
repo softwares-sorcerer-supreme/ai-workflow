@@ -36,8 +36,8 @@ public sealed class GitWorkspaceTests : IDisposable
         var templateFile = Path.Combine(_root, "templates", "analysis.md");
         File.WriteAllText(templateFile, "template");
 
-        var identity = new RunnerIdentity { Login = "bot", GitSecret = "x" };
-        var remote = new GitBucketGitRemote(_config, identity);
+        var identity = new RunnerIdentity { Login = "bot" };
+        var remote = new GitBucketGitRemote(_config, identity, RunnerCredentials.Of(token: "x"));
         _gitClient = new GitClient(_config, remote, _processRunner);
         _workspace = new Workspace(_config, _gitClient, remote, NullLogger<Workspace>.Instance);
 

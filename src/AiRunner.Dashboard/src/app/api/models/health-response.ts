@@ -10,6 +10,7 @@ export interface HealthResponse {
   errorsLabel: string;
   isPaused: boolean;
   isPolling: boolean;
+  isSetupNeeded: boolean;
   lastPollEndedAt: (string | null);
   lastPollStartedAt: (string | null);
   pollIntervalSeconds: number;

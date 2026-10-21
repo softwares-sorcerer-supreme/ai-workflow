@@ -40,6 +40,38 @@ public class RunModeTests
     }
 
     [Fact]
+    public void Setup_mode_starts_the_dashboard_even_when_it_is_disabled()
+    {
+        var mode = RunMode.Parse([]);
+
+        Assert.True(mode.CanStartInSetupMode);
+        Assert.True(mode.ShouldStartDashboard(new DashboardConfig(), isSetupMode: true));
+    }
+
+    [Theory]
+    [InlineData("--once")]
+    [InlineData("--dry-run")]
+    [InlineData("--setup-labels")]
+    [InlineData("--attachment-test", "http://gb.test/_attached/1")]
+    [InlineData("--close-test", "o/r#7")]
+    public void Other_modes_never_wait_in_setup_mode(params string[] arguments)
+    {
+        var mode = RunMode.Parse(arguments);
+
+        Assert.False(mode.CanStartInSetupMode);
+        Assert.False(mode.ShouldStartDashboard(Enabled, isSetupMode: true));
+    }
+
+    [Fact]
+    public void Without_a_token_the_message_names_the_setup_page_and_the_user_secrets_command()
+    {
+        var message = RunMode.NoTokenMessage(5190);
+
+        Assert.Contains("http://localhost:5190/setup", message);
+        Assert.Contains("dotnet user-secrets set GitBucket:Token", message);
+    }
+
+    [Fact]
     public void Flags_with_a_value_are_read()
     {
         var mode = RunMode.Parse(["--config", "other.yml", "--openapi", "out/openapi.json"]);

@@ -17,9 +17,10 @@ public class GitBucketCodeHostTests
         });
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://gb/api/v3/") };
 
-        var web = new GitBucketWeb(new HttpClient(handler), "");
+        var credentials = RunnerCredentials.Of(token: "t0ken");
+        var web = new GitBucketWeb(new HttpClient(handler), credentials);
 
-        return (new GitBucketCodeHost(httpClient, new HttpClient(handler), web, "http://gb"), handler);
+        return (new GitBucketCodeHost(httpClient, new HttpClient(handler), web, credentials, "http://gb"), handler);
     }
 
     private static int Page(HttpRequestMessage request)
@@ -274,9 +275,12 @@ public class GitBucketCodeHostTests
         server.Bodies = handler.Bodies;
         var apiClient = new HttpClient(handler) { BaseAddress = new Uri($"http://gb{server.Root}/api/v3/") };
         var webClient = new HttpClient(handler) { BaseAddress = new Uri($"http://gb{server.Root}/") };
-        var web = new GitBucketWeb(webClient, password);
+        var credentials = RunnerCredentials.Of(token: "t0ken", webPassword: password);
+        var web = new GitBucketWeb(webClient, credentials);
 
-        return (new GitBucketCodeHost(apiClient, new HttpClient(handler), web, $"http://gb{server.Root}"), handler);
+        return (
+            new GitBucketCodeHost(apiClient, new HttpClient(handler), web, credentials, $"http://gb{server.Root}"),
+            handler);
     }
 
     /// <summary>The first close signs in; then the issue reopens and the session ends before the next close.</summary>
@@ -380,7 +384,7 @@ public class GitBucketCodeHostTests
         var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
-        Assert.Contains("git_bucket.web_password", exception.Message);
+        Assert.Contains("web password on the dashboard's Setup page", exception.Message);
         Assert.DoesNotContain("/o/issues/issue_comments/state", handler.Urls);
     }
 
@@ -416,7 +420,7 @@ public class GitBucketCodeHostTests
         var exception = await Assert.ThrowsAsync<CodeHostException>(
             () => client.CloseIssueAsync("o/issues", 7, default));
 
-        Assert.Contains("set git_bucket.web_password in repos.yml", exception.Message);
+        Assert.Contains("set it on the dashboard's Setup page", exception.Message);
         Assert.Equal(["/api/v3/repos/o/issues/issues/7"], handler.Urls);
     }
 

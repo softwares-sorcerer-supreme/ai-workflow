@@ -1,4 +1,5 @@
-# ai-runner config. Tokens are NOT here: use user secrets (see README). Only web_password may be here.
+# ai-runner config. Tokens are NOT here: the dashboard's Setup page (or dotnet user-secrets) keeps them; see README.
+# web_password may still be here for old setups; the Setup page is preferred (a saved one wins over this one).
 # All keys are snake_case. An unknown or misspelled key stops the start, with a hint.
 code_host:                  # the old name 'git_bucket:' (without kind) still works; not both
   kind: gitbucket           # the only provider so far

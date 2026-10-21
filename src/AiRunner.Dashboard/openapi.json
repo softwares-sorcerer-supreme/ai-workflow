@@ -433,6 +433,27 @@
         }
       }
     },
+    "/api/setup": {
+      "get": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Where the token and the web password come from, the login and the secrets file; no secret.",
+        "operationId": "getSetup",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runner/poll": {
       "post": {
         "tags": [
@@ -521,6 +542,186 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/token": {
+      "put": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Check the token against the code host, save it in user secrets and use it now.",
+        "operationId": "saveToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Remove the token from user secrets; a token from the environment cannot be removed here.",
+        "operationId": "removeToken",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/web-password": {
+      "put": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Check the web password with a sign-in, save it in user secrets and use it now.",
+        "operationId": "saveWebPassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Remove the web password from user secrets; one in repos.yml cannot be removed here.",
+        "operationId": "removeWebPassword",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -745,6 +946,7 @@
           "lastPollEndedAt",
           "isPolling",
           "isPaused",
+          "isSetupNeeded",
           "worker",
           "errorsLabel",
           "errors"
@@ -792,6 +994,9 @@
             "type": "boolean"
           },
           "isPaused": {
+            "type": "boolean"
+          },
+          "isSetupNeeded": {
             "type": "boolean"
           },
           "worker": {
@@ -1432,6 +1637,86 @@
           }
         }
       },
+      "SetupChangeResponse": {
+        "required": [
+          "message",
+          "setup"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupResponse"
+          }
+        }
+      },
+      "SetupResponse": {
+        "required": [
+          "isTokenSet",
+          "tokenSource",
+          "tokenSourceLabel",
+          "tokenNote",
+          "login",
+          "baseUrl",
+          "isWebPasswordSet",
+          "webPasswordSource",
+          "webPasswordSourceLabel",
+          "webPasswordNote",
+          "secretsFile",
+          "canRemoveToken",
+          "canRemoveWebPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "isTokenSet": {
+            "type": "boolean"
+          },
+          "tokenSource": {
+            "type": "string"
+          },
+          "tokenSourceLabel": {
+            "type": "string"
+          },
+          "tokenNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "login": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "isWebPasswordSet": {
+            "type": "boolean"
+          },
+          "webPasswordSource": {
+            "type": "string"
+          },
+          "webPasswordSourceLabel": {
+            "type": "string"
+          },
+          "webPasswordNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secretsFile": {
+            "type": "string"
+          },
+          "canRemoveToken": {
+            "type": "boolean"
+          },
+          "canRemoveWebPassword": {
+            "type": "boolean"
+          }
+        }
+      },
       "SubIssueCountResponse": {
         "required": [
           "closed",
@@ -1446,6 +1731,17 @@
           "total": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "TokenRequest": {
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       },
@@ -1500,6 +1796,17 @@
           }
         }
       },
+      "WebPasswordRequest": {
+        "required": [
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
       "WorkerHealth": {
         "required": [
           "state",
@@ -1540,6 +1847,9 @@
     },
     {
       "name": "Cost"
+    },
+    {
+      "name": "Setup"
     },
     {
       "name": "Runner"

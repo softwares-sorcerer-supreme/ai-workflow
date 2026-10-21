@@ -6,7 +6,7 @@ namespace AiRunner.Hosting;
 
 /// <summary>
 /// Serves the local dashboard from inside the runner (docs/adr/0001). Registered only in the polling loop with
-/// <c>dashboard.enabled: true</c>. The dashboard can never stop the real work: when the port is taken it logs one
+/// <c>dashboard.enabled: true</c>, or in setup mode (no token yet), where the Setup page is the way to start. The dashboard can never stop the real work: when the port is taken it logs one
 /// warning and steps aside while the poller and worker keep running.
 /// </summary>
 public sealed class DashboardHost(
@@ -18,6 +18,7 @@ public sealed class DashboardHost(
     ISnapshotReader snapshot,
     ICostReader cost,
     RunnerCommands commands,
+    IRunnerSetup setup,
     ILogger<DashboardHost> logger) : BackgroundService
 {
     /// <summary>Where build-dashboard.ps1 puts the built UI (copied next to the runner's binaries).</summary>
@@ -32,6 +33,7 @@ public sealed class DashboardHost(
             Snapshot = snapshot,
             Cost = cost,
             Commands = commands,
+            Setup = setup,
         };
         var builder = DashboardApp.CreateBuilder(options);
         await using var app = DashboardApp.Build(builder, options);

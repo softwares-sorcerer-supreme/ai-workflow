@@ -29,6 +29,12 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
     /// export runs no runner). This is the web app's only way to act: it holds no token and no code-host client.
     /// </summary>
     public RunnerCommands Commands { get; init; } = new();
+
+    /// <summary>
+    /// The Setup page's way to give the runner a secret, shared with the runner; the default sets nothing up (the
+    /// OpenAPI export runs no runner). It takes secrets but never hands one back.
+    /// </summary>
+    public IRunnerSetup Setup { get; init; } = NoSetup.Instance;
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -60,7 +66,8 @@ public sealed class NoJobs : IJobReader
 /// <summary>
 /// The dashboard's small web app. It is built from an empty builder on purpose: it reads no appsettings, no
 /// environment variables and no user secrets, so the GitBucket token can never reach it, and it gets only the
-/// services the API reads. Kestrel listens on 127.0.0.1; host filtering refuses any other Host header, so a web page
+/// services the API reads. The Setup page can hand a new secret to <see cref="IRunnerSetup"/>, which has no way to
+/// give one back. Kestrel listens on 127.0.0.1; host filtering refuses any other Host header, so a web page
 /// on another site cannot reach the API through DNS rebinding. Reads are GET; a write is allowed only on a route
 /// marked <see cref="WriteRoute"/> and only past the <see cref="WriteGuard"/>; any other method is a 405.
 /// </summary>
@@ -110,6 +117,7 @@ public static class DashboardApp
         builder.Services.AddSingleton(options.Snapshot);
         builder.Services.AddSingleton(options.Cost);
         builder.Services.AddSingleton(options.Commands);
+        builder.Services.AddSingleton(options.Setup);
         builder.Services.AddSingleton<CostReader>();
         builder.Services.AddSingleton<LogViewer>();
         builder.Services.AddSingleton<HealthReader>();

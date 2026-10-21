@@ -314,6 +314,9 @@ public sealed class JobTestKit : IDisposable
     public FakeProcesses Processes { get; } = new();
     public SqliteStateStore State { get; }
     public RunnerIdentity Identity { get; } = new() { Login = "bot" };
+
+    /// <summary>The live secrets of the kit's poller and worker; a token by default, empty for setup mode.</summary>
+    public RunnerCredentials Credentials { get; init; } = RunnerCredentials.Of(token: "kit-token");
     public JobRun Run { get; }
 
     private readonly string _tempFolder = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
@@ -402,6 +405,7 @@ public sealed class JobTestKit : IDisposable
             workerState,
             CodeHost,
             new ClaimService(config, CodeHost, Time),
+            Credentials,
             Status,
             Commands,
             NullLogger<JobWorker>.Instance);
@@ -421,7 +425,18 @@ public sealed class JobTestKit : IDisposable
 
         var logger = NullLogger<Poller>.Instance;
 
-        return new Poller(Config, CodeHost, Loader, State, queue, Identity, Status, recorder, Commands, logger);
+        return new Poller(
+            Config,
+            CodeHost,
+            Loader,
+            State,
+            queue,
+            Identity,
+            Credentials,
+            Status,
+            recorder,
+            Commands,
+            logger);
     }
 
     /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>

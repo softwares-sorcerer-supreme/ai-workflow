@@ -16,6 +16,18 @@ public class RunnerHealthTests
     }
 
     [Fact]
+    public void Setup_mode_wins_over_a_runner_that_never_polled()
+    {
+        var now = Start + TimeSpan.FromHours(1);
+        var input = new HealthInput(now, Start, null, Interval, 0, IsSetupNeeded: true);
+
+        var health = RunnerHealth.Assess(input);
+
+        Assert.Equal(RunnerHealth.NeedsSetup, health.Code);
+        Assert.Equal("needs-setup", health.Code);
+    }
+
+    [Fact]
     public void Before_the_first_poll_the_runner_is_starting()
     {
         var health = Assess(TimeSpan.FromSeconds(30), pollEndedAfterStart: null);

@@ -6,7 +6,8 @@ using AiRunner.Jobs;
 using AiRunner.Web;
 
 // Modes:
-//   (none)                     poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard)
+//   (none)                     poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard);
+//                              with no token yet: setup mode (only the dashboard, open /setup to save the token)
 //   --once                     poll once, run the queued jobs, exit
 //   --dry-run                  print what would be queued; run nothing (with --once: a single poll)
 //   --setup-labels             create the runner's labels in every repo of every project in repos.yml
@@ -27,9 +28,9 @@ var configFile = RunnerConfig.LoadFile(configPath);
 var config = configFile.Config;
 var fullConfigPath = Path.GetFullPath(configPath);
 
-// No args passed to the host on purpose: flags like "--once" are not config keys.
+// No args passed to the host on purpose: flags like "--once" are not config keys. No AddUserSecrets either: the
+// secrets file is read (and written by the Setup page) through UserSecretsStore only.
 var builder = Host.CreateApplicationBuilder();
-builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
 {
@@ -37,18 +38,32 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "HH:mm:ss ";
 });
 
-var token = builder.Configuration["GitBucket:Token"]
-    ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
-    ?? (mode.CopilotTest ? "" : throw new InvalidOperationException(
-        "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
-var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket:GitPassword"] ?? token };
+// The secrets: user secrets first, then the environment (GitBucket__Token is the .NET name of the config key),
+// the web password last from repos.yml. With none, the loop waits in setup mode; every other mode stops.
+var environmentToken = builder.Configuration["GitBucket:Token"]
+    ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN");
+var environmentGitPassword = builder.Configuration["GitBucket:GitPassword"];
+var environment = new CredentialEnvironment(environmentToken, environmentGitPassword);
+var secretsStore = UserSecretsStore.ForAssembly(typeof(Program).Assembly);
+var credentialSources = new CredentialSources(secretsStore, environment, configFile.WebPassword);
+var credentialValues = credentialSources.Load();
+var credentials = new RunnerCredentials(credentialValues);
+var isSetupMode = !credentials.IsTokenSet && mode.CanStartInSetupMode;
+if (!credentials.IsTokenSet && !isSetupMode && !mode.CopilotTest)
+{
+    throw new InvalidOperationException(RunMode.NoTokenMessage(config.Dashboard.Port));
+}
+
+var identity = new RunnerIdentity();
 
 // Configuration and Infrastructure: one instance each, every side effect behind an interface.
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton(identity);
+builder.Services.AddSingleton(credentials);
+builder.Services.AddSingleton(credentialSources);
 
-// The code host (code_host.kind): the API client and the git remote of its provider.
-CodeHostRegistration.Add(builder.Services, configFile, token);
+// The code host (code_host.kind): the API client, the git remote and the credential check of its provider.
+CodeHostRegistration.Add(builder.Services, configFile);
 
 builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
 builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
@@ -89,6 +104,7 @@ builder.Services.AddSingleton<CopilotSelfTest>();
 builder.Services.AddSingleton<AttachmentSelfTest>();
 builder.Services.AddSingleton<CloseSelfTest>();
 builder.Services.AddSingleton<RunnerCommands>();
+builder.Services.AddSingleton<IRunnerSetup, RunnerSetup>();
 builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
     config.EffectiveRunnerName(),
     fullConfigPath,
@@ -104,7 +120,7 @@ if (mode.IsPollingLoop)
     }
 }
 
-if (mode.ShouldStartDashboard(config.Dashboard))
+if (mode.ShouldStartDashboard(config.Dashboard, isSetupMode))
 {
     builder.Services.AddHostedService<DashboardHost>();
 }
@@ -131,14 +147,23 @@ if (mode.CloseTestIssue is { } closeTestIssue)
     return;
 }
 
-// Who are we on the code host? Needed for the scope guard and for git over HTTP.
-var currentUser = await services.GetRequiredService<ICodeHost>().GetCurrentUserAsync(cancellationToken);
-identity.Login = currentUser.Login;
-
 var logger = services.GetRequiredService<ILogger<Program>>();
+if (isSetupMode)
+{
+    // No code-host call: the poller and the worker wait until the Setup page saves a token (RunnerSetup sets the
+    // login).
+    logger.LogWarning("No GitBucket token yet: open {SetupUrl}", RunMode.SetupUrl(config.Dashboard.Port));
+}
+else
+{
+    // Who are we on the code host? Needed for the scope guard and for git over HTTP.
+    var currentUser = await services.GetRequiredService<ICodeHost>().GetCurrentUserAsync(cancellationToken);
+    identity.Login = currentUser.Login;
+}
+
 logger.LogInformation(
     "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
-    identity.Login,
+    isSetupMode ? "(setup mode)" : identity.Login,
     config.CodeHost.BaseUrl,
     config.Projects.Count,
     config.AllRepos().Count(),

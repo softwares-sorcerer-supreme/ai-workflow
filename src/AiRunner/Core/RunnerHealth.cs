@@ -5,6 +5,7 @@ namespace AiRunner.Core;
 /// <param name="FailingProjects">Projects whose latest poll failed.</param>
 /// <param name="PollRunningSince">When the poll that is running now started, or null when none is running.</param>
 /// <param name="IsPaused">The worker is paused from the dashboard (it takes no new job; polls go on).</param>
+/// <param name="IsSetupNeeded">No code-host token yet (setup mode): nothing polls until the Setup page saves one.</param>
 public sealed record HealthInput(
     DateTimeOffset Now,
     DateTimeOffset StartedAt,
@@ -12,18 +13,21 @@ public sealed record HealthInput(
     TimeSpan PollInterval,
     int FailingProjects,
     DateTimeOffset? PollRunningSince = null,
-    bool IsPaused = false);
+    bool IsPaused = false,
+    bool IsSetupNeeded = false);
 
 /// <summary>A stable code for the UI to style by, and the text to show.</summary>
 public sealed record HealthState(string Code, string Label);
 
 /// <summary>
 /// Whether the runner is working (the **Health** of CONTEXT.md). Lives here, not in the UI, so "idle" and "broken"
-/// are told apart by one tested rule. First match wins: a runner that stopped polling is stale even when its last
-/// poll had errors, because those errors may be long gone; a failing poll is louder than a pause the user chose.
+/// are told apart by one tested rule. First match wins: setup mode first (nothing can poll without a token, so it
+/// would otherwise look stale); a runner that stopped polling is stale even when its last poll had errors, because
+/// those errors may be long gone; a failing poll is louder than a pause the user chose.
 /// </summary>
 public static class RunnerHealth
 {
+    public const string NeedsSetup = "needs-setup";
     public const string Starting = "starting";
     public const string Stale = "stale";
     public const string Error = "error";
@@ -41,6 +45,11 @@ public static class RunnerHealth
 
     public static HealthState Assess(HealthInput input)
     {
+        if (input.IsSetupNeeded)
+        {
+            return new HealthState(NeedsSetup, "Setup needed: no GitBucket token yet");
+        }
+
         var staleAfter = input.PollInterval * StaleAfterIntervals;
 
         // Never shorter than the normal stale limit, or a long poll would be stale sooner than an idle runner.

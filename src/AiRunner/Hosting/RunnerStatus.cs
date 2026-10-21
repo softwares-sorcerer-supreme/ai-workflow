@@ -30,6 +30,9 @@ public sealed record RunnerStatusSnapshot(
     /// <summary>The worker is paused from the dashboard; set from <see cref="RunnerCommands"/>, which owns it.</summary>
     public bool IsPaused { get; init; }
 
+    /// <summary>No code-host token yet (setup mode); set from <see cref="IRunnerSetup"/>, which owns it.</summary>
+    public bool IsSetupNeeded { get; init; }
+
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);
 }

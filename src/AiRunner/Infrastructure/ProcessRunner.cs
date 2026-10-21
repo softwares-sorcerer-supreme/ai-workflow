@@ -50,7 +50,7 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
     /// </summary>
     private static readonly string[] SecretVars =
     [
-        "GITBUCKET_TOKEN", "GitBucket__Token", "GitBucket__GitPassword",
+        "GITBUCKET_TOKEN", "GitBucket__Token", "GitBucket__GitPassword", "GitBucket__WebPassword",
         "GH_TOKEN", "GITHUB_TOKEN", "AIRUNNER_GITHUB_TOKEN",
     ];
 

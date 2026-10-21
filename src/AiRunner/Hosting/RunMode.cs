@@ -38,8 +38,25 @@ public sealed record RunMode
         OpenApiPath = ValueOf(arguments, "--openapi"),
     };
 
-    /// <summary>Only the real loop serves the dashboard: a one-off mode or a dry run must never open a port.</summary>
-    public bool ShouldStartDashboard(DashboardConfig dashboard) => dashboard.Enabled && IsPollingLoop && !DryRun;
+    /// <summary>
+    /// With no token, only the real loop waits in setup mode (dashboard up, no code-host call, no job); every other
+    /// mode needs the token at once and stops with <see cref="NoTokenMessage"/>.
+    /// </summary>
+    public bool CanStartInSetupMode => IsPollingLoop && !DryRun;
+
+    /// <summary>
+    /// Only the real loop serves the dashboard: a one-off mode or a dry run must never open a port. In setup mode it
+    /// is served even when disabled, since the Setup page is the way out (still on 127.0.0.1 only).
+    /// </summary>
+    public bool ShouldStartDashboard(DashboardConfig dashboard, bool isSetupMode = false) =>
+        (dashboard.Enabled || isSetupMode) && IsPollingLoop && !DryRun;
+
+    /// <summary>Why a mode other than the loop cannot start without a token, and the two ways to give one.</summary>
+    public static string NoTokenMessage(int port) =>
+        $"No GitBucket token. Start the runner without flags and open {SetupUrl(port)}, or run: " +
+        "dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner";
+
+    public static string SetupUrl(int port) => $"http://localhost:{port}/setup";
 
     private static string? ValueOf(string[] arguments, string name)
     {

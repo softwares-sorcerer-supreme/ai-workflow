@@ -99,6 +99,38 @@ public sealed class WriteGuardTests : IAsyncDisposable
         Assert.False(IsWakePending());
     }
 
+    [Theory]
+    [InlineData("PUT", "api/setup/token")]
+    [InlineData("DELETE", "api/setup/token")]
+    [InlineData("PUT", "api/setup/web-password")]
+    [InlineData("DELETE", "api/setup/web-password")]
+    [InlineData("POST", "api/runner/pause")]
+    [InlineData("POST", "api/runner/resume")]
+    [InlineData("POST", "api/jobs/12/cancel")]
+    public async Task Every_write_route_without_the_header_is_403(string method, string path)
+    {
+        var client = await StartAsync();
+        using var request = Write(path, method: new HttpMethod(method));
+        request.Headers.Remove(WriteGuard.HeaderName);
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("PUT", "api/setup/token")]
+    [InlineData("DELETE", "api/setup/web-password")]
+    public async Task A_setup_write_from_a_foreign_origin_is_403(string method, string path)
+    {
+        var client = await StartAsync();
+        using var request = Write(path, "http://evil.example", new HttpMethod(method));
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     [Fact]
     public async Task A_write_with_another_header_value_is_403()
     {

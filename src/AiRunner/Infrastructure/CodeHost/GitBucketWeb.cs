@@ -8,21 +8,25 @@ namespace AiRunner.Infrastructure.CodeHost;
 /// cookie. The sign-in and its quirks live here only; <see cref="GitBucketCodeHost"/> just posts a form.
 /// Build it with <see cref="Create"/>; tests pass their own client.
 /// </summary>
-/// <param name="password">git_bucket.web_password from repos.yml. Empty = not set: posting a form then fails.</param>
-public sealed class GitBucketWeb(HttpClient client, string password)
+/// <param name="credentials">
+/// The web password is read at each sign-in (Setup page, else code_host.web_password). Empty = not set: posting a
+/// form then fails.
+/// </param>
+public sealed class GitBucketWeb(HttpClient client, RunnerCredentials credentials)
 {
     /// <summary>
-    /// True once the session cookie is set. No lock: only jobs post forms and the worker runs one job at a time;
-    /// a race would only sign in twice.
+    /// The credentials version the session cookie was got with, or null before a sign-in. A new web password or a new
+    /// token (maybe of another user) changes the version, so the next form signs in again. No lock: only jobs post
+    /// forms and the worker runs one job at a time; a race would only sign in twice.
     /// </summary>
-    private bool _isSignedIn;
+    private int? _signedInVersion;
 
     /// <summary>
     /// The client the web side needs: its own cookies (the session), no redirects (a redirect to the sign-in page is
     /// how GitBucket says "not signed in", and the password is never sent on to another host) and the GitBucket root
     /// as base address, so a server under a context path (http://host/gitbucket) works.
     /// </summary>
-    public static GitBucketWeb Create(string baseUrl, string password)
+    public static GitBucketWeb Create(string baseUrl, RunnerCredentials credentials)
     {
         var handler = new SocketsHttpHandler
         {
@@ -37,7 +41,7 @@ public sealed class GitBucketWeb(HttpClient client, string password)
             Timeout = TimeSpan.FromSeconds(30),
         };
 
-        return new GitBucketWeb(webClient, password);
+        return new GitBucketWeb(webClient, credentials);
     }
 
     /// <summary>
@@ -51,15 +55,15 @@ public sealed class GitBucketWeb(HttpClient client, string password)
         Func<CancellationToken, Task<string>> loginOf,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(password))
+        if (!credentials.Current.IsWebPasswordSet)
         {
             throw new CodeHostException(
                 HttpStatusCode.Unauthorized,
                 "GitBucket /api/v3 cannot close an issue, so the runner uses the web page, which needs the password " +
-                "of the token's user: set git_bucket.web_password in repos.yml.");
+                "of the token's user: set it on the dashboard's Setup page (or code_host.web_password in repos.yml).");
         }
 
-        if (!_isSignedIn)
+        if (_signedInVersion != credentials.Version)
         {
             await SignInAsync(loginOf, cancellationToken);
         }
@@ -70,7 +74,7 @@ public sealed class GitBucketWeb(HttpClient client, string password)
             return answer;
         }
 
-        _isSignedIn = false;
+        _signedInVersion = null;
         await SignInAsync(loginOf, cancellationToken);
 
         return await PostFormAsync(url, form, cancellationToken);
@@ -80,11 +84,20 @@ public sealed class GitBucketWeb(HttpClient client, string password)
     /// For a form that did not do its work although the answer looked fine: the session may have ended without a
     /// redirect to the sign-in page, so the next form signs in again.
     /// </summary>
-    public void ForgetSession() => _isSignedIn = false;
+    public void ForgetSession() => _signedInVersion = null;
+
+    /// <summary>
+    /// Signs in as <paramref name="login"/>: the Setup page's check of a new web password, on a web client built for
+    /// the check. Throws <see cref="CodeHostException"/> (401) when GitBucket refuses it.
+    /// </summary>
+    public Task CheckSignInAsync(string login, CancellationToken cancellationToken) =>
+        SignInAsync(_ => Task.FromResult(login), cancellationToken);
 
     private async Task SignInAsync(Func<CancellationToken, Task<string>> loginOf, CancellationToken cancellationToken)
     {
         var login = await loginOf(cancellationToken);
+        var version = credentials.Version;
+        var password = credentials.Current.WebPassword;
         KeyValuePair<string, string>[] signInForm = [new("userName", login), new("password", password)];
         var answer = await PostFormAsync("signin", signInForm, cancellationToken);
 
@@ -94,10 +107,11 @@ public sealed class GitBucketWeb(HttpClient client, string password)
             throw new CodeHostException(
                 HttpStatusCode.Unauthorized,
                 $"POST signin -> {(int)answer.Status}: GitBucket did not accept the web sign-in of {login}. " +
-                "Check git_bucket.web_password in repos.yml (the password that account uses on the sign-in page).");
+                "Check the web password on the dashboard's Setup page (or code_host.web_password in repos.yml): " +
+                "the password that account uses on the sign-in page.");
         }
 
-        _isSignedIn = true;
+        _signedInVersion = version;
     }
 
     private async Task<WebAnswer> PostFormAsync(
