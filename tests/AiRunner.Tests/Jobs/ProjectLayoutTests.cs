@@ -33,10 +33,10 @@ public sealed class ProjectLayoutTests
 
         await poller.PollOnceAsync(default);
 
-        Assert.Equal([project.IssuesRepo], kit.GitBucket.ReposOf("issues"));
+        Assert.Equal([project.IssuesRepo], kit.CodeHost.ReposOf("issues"));
         Assert.Equal(
             project.CodeRepos.Order(),
-            kit.GitBucket.ReposOf("pulls").Order());
+            kit.CodeHost.ReposOf("pulls").Order());
     }
 
     [Theory]
@@ -45,13 +45,13 @@ public sealed class ProjectLayoutTests
     {
         var project = Layout(layout);
         using var kit = new JobTestKit(project: project);
-        var setup = new LabelSetup(kit.Config, kit.GitBucket, NullLogger<LabelSetup>.Instance);
+        var setup = new LabelSetup(RunnerConfigSource.Fixed(kit.Config), kit.CodeHost, NullLogger<LabelSetup>.Instance);
 
         await setup.RunAsync(default);
 
-        Assert.Equal(project.Repos.Order(), kit.GitBucket.ReposOf("label").Order());
+        Assert.Equal(project.Repos.Order(), kit.CodeHost.ReposOf("label").Order());
 
-        var labelNames = kit.GitBucket.CreatedLabels
+        var labelNames = kit.CodeHost.CreatedLabels
             .Where(created => created.Repo == project.IssuesRepo)
             .Select(created => created.Label.Name)
             .ToList();
@@ -64,7 +64,7 @@ public sealed class ProjectLayoutTests
     {
         var project = Layout(layout);
         using var kit = new JobTestKit(project: project);
-        kit.GitBucket.AddPull(3, "ai/issue-7", "main", labels: ["ai"]);
+        kit.CodeHost.AddPull(3, "ai/issue-7", "main", labels: ["ai"]);
         var queue = new JobQueue(kit.State, NullLogger<JobQueue>.Instance);
         var poller = kit.NewPoller(queue);
 
@@ -82,10 +82,10 @@ public sealed class ProjectLayoutTests
     {
         var project = Layout(layout);
         using var kit = new JobTestKit(project: project);
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
         kit.Copilot.StdOut = Samples.AgentOutput(Samples.Analysis("questions-open", "simple"));
         var job = new AnalyzeIssueJob(
-            kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Copilot, kit.State, kit.Attachments);
+            kit.Config, kit.CodeHost, kit.Loader, kit.Workspace, kit.Copilot, kit.State, kit.Attachments);
 
         await job.RunAsync(kit.Request(JobType.AnalyzeIssue, 7), kit.Run, default);
 
@@ -127,14 +127,14 @@ public sealed class SeparateIssuesRepoImplementTests : IDisposable
             ],
         };
         _kit = new JobTestKit(project: project);
-        _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
-        _kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        _kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
     }
 
     public void Dispose() => _kit.Dispose();
 
     private ImplementIssueJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
+        new(_kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
     [Fact]
     public async Task Branch_and_pr_are_in_the_code_repo_and_the_issue_stays_in_the_issues_repo()
@@ -148,10 +148,10 @@ public sealed class SeparateIssuesRepoImplementTests : IDisposable
         Assert.True(workspaceRequest.Writable);
         Assert.Equal("backend", workspaceRequest.TargetComponent);
 
-        Assert.Equal([CodeRepo], _kit.GitBucket.ReposOf("create-pull"));
-        Assert.Contains(IssuesRepo, _kit.GitBucket.ReposOf("comment"));
-        Assert.DoesNotContain(CodeRepo, _kit.GitBucket.ReposOf("comment"));
-        Assert.DoesNotContain(CodeRepo, _kit.GitBucket.ReposOf("create-issue"));
+        Assert.Equal([CodeRepo], _kit.CodeHost.ReposOf("create-pull"));
+        Assert.Contains(IssuesRepo, _kit.CodeHost.ReposOf("comment"));
+        Assert.DoesNotContain(CodeRepo, _kit.CodeHost.ReposOf("comment"));
+        Assert.DoesNotContain(CodeRepo, _kit.CodeHost.ReposOf("create-issue"));
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class SeparateIssuesRepoImplementTests : IDisposable
     {
         await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
 
-        var body = _kit.GitBucket.Pulls.Single().Body!;
+        var body = _kit.CodeHost.Pulls.Single().Body!;
         Assert.Contains($"Issue: {IssuesRepo}#12", body);
         Assert.DoesNotContain("Closes", body);
     }
@@ -186,10 +186,10 @@ public sealed class AmbiguousTargetTests : IDisposable
     [Fact]
     public async Task Implement_asks_for_the_analysis_to_run_again_instead_of_guessing()
     {
-        _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
-        _kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        _kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.Spec, Markers.Spec));
         var job = new ImplementIssueJob(
-            _kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
+            _kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
         var exception = await Assert.ThrowsAsync<JobFailedException>(
             () => job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
@@ -197,7 +197,7 @@ public sealed class AmbiguousTargetTests : IDisposable
         Assert.Contains("more than one code component", exception.Message);
         Assert.Contains("@ai", exception.Message);
         Assert.Empty(_kit.Copilot.Requests);
-        Assert.Empty(_kit.GitBucket.Pulls);
+        Assert.Empty(_kit.CodeHost.Pulls);
     }
 }
 
@@ -211,16 +211,16 @@ public sealed class AmbiguousSequenceTests : IDisposable
     [Fact]
     public async Task Sequencing_with_several_code_components_reads_and_opens_nothing()
     {
-        _kit.GitBucket.AddIssue(5, "Parent", "body", "ai", Labels.Parent);
-        _kit.GitBucket.AddBotComment(5, SubIssueBody.ListMarker([6]));
-        _kit.GitBucket.AddIssue(6, "Sub", "body", "ai", Labels.SubIssue);
-        var job = new SequenceSubIssuesJob(_kit.GitBucket, _kit.Loader);
+        _kit.CodeHost.AddIssue(5, "Parent", "body", "ai", Labels.Parent);
+        _kit.CodeHost.AddBotComment(5, SubIssueBody.ListMarker([6]));
+        _kit.CodeHost.AddIssue(6, "Sub", "body", "ai", Labels.SubIssue);
+        var job = new SequenceSubIssuesJob(_kit.CodeHost, _kit.Loader);
 
         var outcome = await job.RunAsync(_kit.Request(JobType.SequenceSubIssues, 5), _kit.Run, default);
 
         Assert.True(outcome.Quiet);
-        Assert.Empty(_kit.GitBucket.ReposOf("pulls"));
-        Assert.Empty(_kit.GitBucket.ReposOf("create-pull"));
+        Assert.Empty(_kit.CodeHost.ReposOf("pulls"));
+        Assert.Empty(_kit.CodeHost.ReposOf("create-pull"));
     }
 }
 
@@ -238,8 +238,8 @@ public sealed class TriggerSettingsTests : IDisposable
     [Fact]
     public async Task Poller_filters_on_the_trigger_label_of_the_project()
     {
-        _kit.GitBucket.AddIssue(7, "Mine", null, "bot");
-        _kit.GitBucket.AddIssue(8, "Not mine", null, "ai");
+        _kit.CodeHost.AddIssue(7, "Mine", null, "bot");
+        _kit.CodeHost.AddIssue(8, "Not mine", null, "ai");
         var queue = new JobQueue(_kit.State, NullLogger<JobQueue>.Instance);
         var poller = _kit.NewPoller(queue);
 
@@ -309,7 +309,7 @@ public sealed class SiblingCloneGuardTests : IDisposable
 
         var project = _kit.Project;
         var target = project.CodeComponents.First();
-        var workspaceRequest = new WorkspaceRequest(project, target.Repo, "origin/main", "ai/issue-1", [])
+        var workspaceRequest = new WorkspaceRequest(project, target.Repo, "origin/main", "ai/issue-1", null)
         {
             Writable = true,
         };

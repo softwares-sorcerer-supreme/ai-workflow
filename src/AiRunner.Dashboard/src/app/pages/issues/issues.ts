@@ -13,6 +13,7 @@ import { Subject, debounceTime, filter } from 'rxjs';
 import { Api } from '../../api/api';
 import { getIssues } from '../../api/fn/issues/get-issues';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
+import { ActionButtons, issueTarget } from '../../shared/action-buttons/action-buttons';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { CountToggle } from '../../shared/count-toggle/count-toggle';
@@ -56,6 +57,7 @@ export interface IssueTableRow extends IssueRowResponse {
 @Component({
   selector: 'app-issues',
   imports: [
+    ActionButtons,
     AppTime,
     CountToggle,
     DataCell,
@@ -187,6 +189,7 @@ export class Issues {
   ];
 
   protected readonly link = (row: IssueRowResponse) => issueLink(row.repo, row.number);
+  protected readonly actionTarget = issueTarget;
   protected readonly markTone = issueMarkTone;
   protected readonly markIcon = issueMarkIcon;
   protected readonly laneTone = laneTone;

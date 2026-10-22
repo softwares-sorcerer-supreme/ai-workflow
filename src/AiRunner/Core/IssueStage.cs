@@ -34,11 +34,11 @@ public sealed record StageInput(
     ProjectConfig Project,
     IssueSnapshot Issue,
     IReadOnlyList<IssueSnapshot> SubIssues,
-    IReadOnlyDictionary<string, IReadOnlyList<GbPull>> PullsByRepo)
+    IReadOnlyDictionary<string, IReadOnlyList<HostPull>> PullsByRepo)
 {
     public JobActivity Jobs { get; init; } = JobActivity.None;
 
-    public IReadOnlyList<GbPull> PullsOf(string repo) =>
+    public IReadOnlyList<HostPull> PullsOf(string repo) =>
         PullsByRepo.TryGetValue(repo, out var pulls) ? pulls : [];
 }
 
@@ -51,7 +51,7 @@ public sealed record StageResult(CodeLabel Stage, IReadOnlyList<CodeLabel> Flags
     public bool IsFailed => Flags.Any(flag => flag.Code == IssueMarks.Failed);
 
     /// <summary>"Its PRs" the stage was read from (final PRs of a parent), for the PR links and the waiting-on action.</summary>
-    public IReadOnlyList<GbPull> Pulls { get; init; } = [];
+    public IReadOnlyList<HostPull> Pulls { get; init; } = [];
 }
 
 /// <summary>How far the sub-issues of a parent are: closed ones of all. The n/m of "Broken down (n/m)".</summary>
@@ -112,9 +112,9 @@ public static class IssueStage
     }
 
     /// <summary>The PRs that count as "its PR" and where they stand.</summary>
-    private sealed record ItsPulls(PullOutcome Outcome, IReadOnlyList<GbPull> Pulls)
+    private sealed record ItsPulls(PullOutcome Outcome, IReadOnlyList<HostPull> Pulls)
     {
-        public static ItsPulls Of(IReadOnlyList<GbPull> pulls) => new(IssuePulls.OutcomeOf(pulls), pulls);
+        public static ItsPulls Of(IReadOnlyList<HostPull> pulls) => new(IssuePulls.OutcomeOf(pulls), pulls);
     }
 
     private static CodeLabel StageOf(StageInput input, PullOutcome outcome)
@@ -210,7 +210,7 @@ public static class IssueStage
         var finalPulls = SubIssueSequencer.FinalPulls(input.Issue.Number, repos, input.PullsOf);
 
         var found = finalPulls.Values
-            .OfType<GbPull>()
+            .OfType<HostPull>()
             .ToList();
 
         if (SubIssueSequencer.AllMerged(finalPulls))

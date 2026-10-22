@@ -4,7 +4,9 @@ The rules every screen of the ai-runner dashboard follows. Read this before you 
 what is here before you create anything new. If you add a shared piece, add it to this file in the same change.
 
 Stack: Angular 22 (standalone components, signals, zoneless, OnPush by default), Angular Material 3, Vitest.
-The dashboard is **read-only** and **local** (served by the runner on `127.0.0.1`).
+The dashboard is **local** (served by the runner on `127.0.0.1`). It mostly reads; the few buttons that write
+(Poll now, Pause / Resume, Cancel, the Setup screen's Check and save / Remove, the Workspaces screen's Fetch / Re-clone /
+Delete, the Agents screen's Sync now / Save / Revert, the Settings screen's Save, and the actions on issues and PRs: Implement, Retry, Answer, Full review...) follow section 8.
 
 ## 1. Ground rules
 
@@ -22,7 +24,9 @@ The dashboard is **read-only** and **local** (served by the runner on `127.0.0.1
 4. **Refresh by polling** with `pollResource` (section 7). No websockets, no `setInterval` in components.
 5. **Times are UTC ISO-8601 from the API, shown in local time** with `<app-time>`; durations with `| duration`.
 6. **No new colors.** Status colors are the six tones (section 2); everything else is a `--mat-sys-*` token.
-7. **A new component gets a unit test** (`*.spec.ts` next to it). Run `npm test` and `npm run build` before you finish.
+7. **Writes go through `writeAction`** (section 8): busy button, the runner's message in a snack bar, a confirmation
+   for anything destructive, never an optimistic update.
+8. **A new component gets a unit test** (`*.spec.ts` next to it). Run `npm test` and `npm run build` before you finish.
 
 ## 2. Theme tokens
 
@@ -57,12 +61,14 @@ background) and `--app-tone-<tone>-dot` (solid dot or icon).
 | `danger` | failed or broken | Failed flag, job failed, poll errors, runner not reachable |
 
 Map an API code to a tone with a `Record<string, Tone>` in `src/app/shared/tone.ts` (`STAGE_TONES`, `HEALTH_TONES`,
-`JOB_STATUS_TONES`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
-`PULL_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`,
+`JOB_STATUS_TONES`, `STEP_STATE_TONES`, `STEP_STATE_ICONS`, `ISSUE_MARK_TONES`, `ISSUE_MARK_ICONS`, `WORKER_ICONS`, `LANE_TONES`, `FOCUS_TONES`,
+`PULL_STATE_TONES`, `WORKSPACE_WARNING_ICONS`, `AGENT_STATE_TONES`) and read it through its helper (`stageTone(code)`, `healthTone(code)`, `jobStatusTone(code)`, `stepStateTone(code)`, `stepStateIcon(code)`,
 `issueMarkTone(code)`, `issueMarkIcon(code)`, `workerIcon(code)`, `laneTone(code)`, `focusTone(code)`,
-`pullStateTone(code)`), which falls back to `neutral` (or no icon) for an unknown code. Lanes: `todo` neutral, `ready`
+`pullStateTone(code)`, `workspaceWarningIcon(code)`, `agentStateTone(code)`), which falls back to `neutral` (or no icon, or the plain `warning` icon) for an unknown code. Lanes: `todo` neutral, `ready`
 info, `in-progress` progress, `in-review` info, `finished` success. Focuses: `needs-you` warning, `working` progress,
-`failed` danger. PR states: `open` info, `merged` success, `closed` neutral. Those maps are the only place a code is interpreted: a template never compares
+`failed` danger. Job step states: `running` progress, `ok` success, `failed` danger, `interrupted` warning. PR states: `open` info, `merged` success, `closed` neutral. Workspace warnings (`agent-override`, `instructions-missing`, `has-changes`) all use the
+`warning` tone; `WORKSPACE_WARNING_ICONS` only gives each its icon. Agent file states (git and sync codes in one map):
+`unchanged`, `unknown`, `not-installed` neutral, `modified` info, `untracked`, `differs`, `missing` warning, `in-sync` success. Those maps are the only place a code is interpreted: a template never compares
 a code to read its meaning (`state === 'busy'`) and never builds label text (plurals, counts, state words). If text
 is missing, the API should send it ready (like `errorsLabel` on `/api/health`). Two things are not "interpreting":
 comparing the chosen filter value with an option's code to mark the selected option
@@ -114,19 +120,27 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 
 ```
 +--------------------------------------------------------------+
-| toolbar: [menu]  ai-runner   dashboard - read only           |  app.html
+| toolbar: [menu]  ai-runner   dashboard - local               |  app.html
 +--------------------------------------------------------------+
 | health strip (every screen, tone colored)                    |  layout/health-strip
 +-----------+--------------------------------------------------+
 | side menu | <main class="content">  (max 1280 px, centered) |
-| Overview  |   <app-page-header>                              |
+| Overview  |   <app-setup-banner> (only in setup mode)        |
+|           |   <app-page-header>                              |
 | Issues    |   <div class="app-stack">                        |
 | Jobs      |     <section class="app-card"> ... </section>    |
 | Cost      |     <section class="app-card"> ... </section>    |
+| Workspaces|                                                  |
+| Agents    |                                                  |
+| Settings  |                                                  |
+| Setup     |                                                  |
 +-----------+--------------------------------------------------+
 ```
 
 - The toolbar and the health strip never scroll; the page scrolls below them.
+- `layout/setup-banner` stands above every routed screen except `/setup`: while `health.isSetupNeeded` (the runner
+  has no GitBucket token) it says nothing is polled and no job runs, and links to Setup. It reads `HealthStore`;
+  the health strip's state label links to `/setup` at the same time.
 - At 900 px and wider the menu stands beside the page; below it slides over the page (menu button in the toolbar).
   The breakpoint is `NARROW_QUERY` in `app.ts`. Inside screens use the same two widths: `599.98px` (phone) and
   `899.98px` (tablet) in `@media (max-width: ...)`.
@@ -151,13 +165,20 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-issue-card` | one issue as a card (the lanes of the board, short lists) | a table row (use `app-data-table`) |
 | `app-count-toggle` | a toned toggle button with a label and an API count (focus chips, pipeline segments) | a plain action button (use `mat-button`) |
 | `app-pull-link` | one PR as a toned "#50" link | PR details (use a table) |
+| `app-job-steps` | the steps of one job (`steps` of the running job or of `GET /api/jobs/{id}`) | job facts (use `.app-facts`) |
 | `app-sub-issue-progress` | a parent's `progress` as a thin bar + "closed/total" | any other ratio |
 | `app-view-state` | loading / empty / error of a panel that is not a table | inline hints |
 | `app-inline-note` | one tone colored line inside a panel: stale data, a cut file | a whole-panel state |
 | `app-markdown` | Markdown text from the API (log files), rendered safely | text that is not Markdown (use `<pre class="app-mono">`) |
 | `app-time` | every point in time | durations |
 | `duration` pipe | every duration in seconds | points in time |
+| `jobModelText`, `modelUsesText` (`shared/model-text.ts`) | the model of a job ("claude-opus-5.5 - issue override", the reason alone without a model, "-" for an old job) and the models of a cost row ("claude-opus-5.5 (issue override) x2"), joined from the API's fields | deciding a model or a reason (the API sends both) |
+| `bytes` pipe (`formatBytes`) | every size in bytes from the API: "512 B", "12.4 KB", "2.1 MB" (`shared/bytes.pipe.ts`) | counts (use `\| number`) |
 | `pollResource` | every API read | one-off actions |
+| `writeAction` | every button that writes: busy state, the runner's message in a snack bar (section 8) | reads |
+| `app-action-buttons` | the actions the API offers for one issue or PR (`actions` of a row or a PR), one button each, with the text box for actions that need text (section 8) | buttons of the runner itself (Poll now, Pause) |
+| `confirmWrite` + `ConfirmDialog` | the confirmation before a destructive write (section 8) | harmless writes, information |
+| `writeGuardInterceptor` | adds the guard header to every non-GET request (registered once in `app.config.ts`) | anything set by hand |
 | `.app-card`, `.app-stack`, `.app-facts`, `.app-muted`, `.app-mono` | page structure and text (global CSS) | |
 
 ### `app-page-header`
@@ -249,9 +270,31 @@ The label is shown as sent ("Broken down (2/5)").
 ```
 The card shows, from the row only: `#number` + muted "project · component" + GitBucket icon, the title (link to the
 detail page, at most 2 lines), "Part of #parent" for a sub-issue, the stage chip, badge and flag chips, the `waiting`
-action as a warning line, PR links, the sub-issue progress and the relative update time. It needs `provideRouter`.
+action as a warning line, the row's `actions` (`app-action-buttons`, compact; the card's `after` output fires after
+an answer, so the screen reloads), PR links, the sub-issue progress and the relative update time. It needs
+`provideRouter` (and `Api`, a `FakeApi` in tests).
 `issueKey(item)` (`shared/issue-link.ts`) gives the "owner/repo#n" key of an issue or a PR for every `track` and
 keyed state; do not build it inline.
+
+### `app-action-buttons`
+
+```html
+<app-action-buttons compact [actions]="row.actions" [target]="actionTarget(row)" (after)="issues.reload()" />
+<!-- target: { kind: 'issue' | 'pull', repo: 'owner/repo', number } -->
+```
+One `mat-stroked-button` per entry of `actions`, in the API's order, with its `label`; nothing when the list is empty.
+The API alone decides which actions exist: never filter, reorder, rename or add one, and never look at a stage, a
+label or a code to show or hide it. `needsText: false` runs at once (`runIssueAction` / `runPullAction`); `needsText:
+true` opens the text box first (section 8); `needsModel: true` (set-model) opens `ActionModelDialog`
+(`shared/action-buttons/action-model-dialog.ts`) first: it reads `GET /api/model-options` once when it opens (loading and
+error with Try again inside the box), offers a workflow select from `workflows` and a model select from `allowedModels`
+(first option "No override (remove it)" = empty) or a text box when that list is empty, and sends `{ text: null, workflow,
+model }` (an empty model removes the override); it closes when the runner accepted, stays open on a refusal. One `writeAction` per group: while one call runs every button of the group
+is disabled and the clicked one shows the spinner. `after` fires after every answer: reload the screen's
+`pollResource`. `compact` (table rows, cards) makes the buttons shorter; they wrap at 360 px. The `actions` attribute
+of `app-page-header`'s slot is also this component's input, so in a page header put it inside `<div actions>`.
+Used in: Issues list (Next column, sub-issue rows too), board cards, Issue detail (page header, the Next column of
+Sub-issues, the Actions column of Pull requests).
 
 ### `app-count-toggle`
 
@@ -263,6 +306,25 @@ keyed state; do not build it inline.
 The component is the button itself, so `(click)`, `data-*` attributes and the focus ring stay on it. `look` is
 `chip` (a pill with a small count badge, default) or `segment` (a tile with a colored top edge and a large count).
 No `tone` = no dot (an "All" option); no `count` = no number. It sets `aria-pressed` and the selected colors.
+
+### `app-job-steps`
+
+```html
+<app-job-steps [steps]="job.steps" />        <!-- JobStepResponse[]; null or [] for an old job -->
+```
+One line per step in the API's order: an `app-status-chip` with `stateLabel` (tone and icon from `stepStateTone` /
+`stepStateIcon`), the step's `label`, its duration (none while it runs), and `detail` as a muted second line when
+sent. The line's left edge carries the state's tone; the running step also gets the tone's soft background. An empty
+or missing list says "No steps recorded for this job." Used on the Overview's Running job card and the job page.
+
+### Live log files
+
+A file whose entry in the job's file list has `isLive: true` is Copilot output the runner appends to while the job
+runs. While the job's `isRunning` is true the job page tails it: each poll calls `getJobFile` with `offset` = the
+previous answer's `nextOffset` and appends the text; the first poll that starts after `isRunning` turned false reads
+once more (the end of the log) and then the file is not read again. The text box scrolls on its own and keeps its
+end in view until the user scrolls up. Every other file is read as before. The page never looks at a file name or a
+status code to decide this.
 
 ### `app-view-state`
 
@@ -300,6 +362,7 @@ logs go in `<pre class="app-mono">` with `white-space: pre-wrap`, so they wrap i
 <app-time [value]="row.startedAt" />                 <!-- 14:03:12 today, "19 Oct 2026, 14:03:12" otherwise -->
 <app-time [value]="health.lastPollEndedAt" mode="relative" />   <!-- "30 s ago" -->
 {{ row.durationSeconds | duration }}                  <!-- "3 min 05 s"; "-" for null (old rows) -->
+{{ clone.sizeBytes | bytes }}                         <!-- "2.1 MB"; "-" for null -->
 ```
 `app-time` has a tooltip with the full local date and time, shows `-` for null, and updates relative text every
 second from the shared `Clock`. Use `relative` where recency matters (health, "last seen"), `absolute` in tables and
@@ -344,16 +407,85 @@ the focus chips (All + the API's `focuses` with counts), then:
 - **List**: the pipeline summary (one toggle button per entry of `lanes`, `aria-pressed`, a click on the selected one
   clears `lane`) and the table: Issue (chevron for parents, `aria-expanded`; collapsed unless lane, focus, stage or
   search is set; "Expand all / Collapse all" above), Stage (+ progress), Next (badge, else `waiting` as a warning
-  chip, else "-"), Flags, PR, Updated.
+  chip, else "-" when there is no action either; then the row's actions), Flags, PR, Updated.
 - **Board** (`pages/issues/issue-board`): always `flat=true`, no stage, lane or flat filter; one lane per entry of
   `lanes` with `app-issue-card`s grouped by the row's `lane` code, in the API's order; it scrolls sideways in its own
   box (lanes at least 260 px wide below a 1280 px window, at least 180 px from 1280 px up).
+
+### Workspaces screen
+
+`GET /api/workspaces`: one card per project (name, a `Busy` chip with the hover text "A job is using this project"
+while `isBusy`), each with a table of its clones: Repository (+ components), Checked out (branch, "detached at
+<detachedAt>", or "Not cloned yet" while `exists` is false), Last commit (short sha, subject, `app-time`), Last fetch
+("never" when null), Changed files (the count of `changedPaths`, the paths in a tooltip), Size (`| bytes`,
+"calculating..." while `sizeBytes` is null), and the buttons Fetch and Re-clone (re-clone asks first). Both buttons go
+to the runner with the project name and the clone's `folder` (never `repo`), are one `writeAction` group, and are
+disabled while the project `isBusy` (the runner also refuses with a 409 and its message). The clone's `warnings` follow
+the table as `app-inline-note`s ("<repo>: <message>", icon from `workspaceWarningIcon`). Last card: Orphan folders
+(folder, size, Delete with a confirmation naming the folder), or "No orphan folders." when there are none.
+
+### Agents screen
+
+`GET /api/agents` (polled) beside one selected file. **Files** card: the files grouped by `kind` in the order of
+`AGENT_KIND_GROUPS` (`pages/agents/agents.ts`: Agents, Skills, Templates; only the heading text lives there), each a
+button with the path and two `app-status-chip`s (`gitStateLabel` with icon `commit`, `syncStateLabel` with icon `sync`,
+tones from `agentStateTone`); the API's `templatesNote` once above the templates; the `extra` paths last, as a muted
+note that the runner never deletes them. A **Sync banner** (warning tone, `role="status"`) stands above both cards while
+`isOutOfSync`, with Sync now (`writeAction`, the runner's "queued" message in the snack bar). **File** card: picking a
+file reads `GET /api/agents/file` once (never polled, so a poll never replaces unsaved text; the list's row gives the
+fresher states); an Edit / Diff toggle; Edit is a plain monospace `<textarea>` (no editor library), `readonly` when
+`isEditable` is false; Diff is `pages/agents/agent-diff` (`parseDiff` styles lines by the unified-diff format only:
+`+` success tone, `-` danger tone, `@@` and file headers muted; empty diff = "No changes against git"). Buttons: Save
+(only when editable, disabled until the text differs, sends `baseHash`), Revert (only when the file has `canRevert`;
+`confirmWrite` first), Reload. A 400 shows its `message` and every `reasons` entry under the editor; a 409 shows the
+message with a Reload button and keeps the edits. After a Save or Revert the runner accepted, the file is read again
+and the list and health reload; leaving or reloading a file with unsaved edits asks first ("Discard your changes?").
+At 900 px and wider the two cards stand side by side (list 260-360 px), below that one above the other.
+
+### Settings screen
+
+`pages/settings`: repos.yml as forms built only from `GET /api/settings/schema` (a new schema key shows up with no
+UI change). One card with a `mat-tab-group`: **Global** (scope `global`, file root), **Defaults** (`defaults`, under
+`file.defaults`) and one tab per entry of `file.projects` (scope `project`), with its components below (scope
+`component`, under `components.<name>`). Fields are grouped by the first part of their key (`buildGroups` in
+`settings-form.ts`; keys without a dot go to "General"); keys of three or more parts are also split into sections by
+their second part (`models.implement.default` -> group Models, section `implement`, label `default`), each with a small
+monospace heading; `legacy` keys get no form, only a note when the file has
+`repos` or `git_bucket`. Each field is `app-setting-field` (`pages/settings/setting-field`): string = text or a
+select (`allowedValues`), integer = text with a whole-number check (Save waits while one is invalid), boolean = slide
+toggle, string-list = one entry per line (written on blur) or a multi-select (`allowedValues`), string-map = a key/value
+editor (Name / Value lines with a remove button each and "Add entry"; written on blur; a line without a name is kept on
+screen but not in the file; no line left = key not written; `mapRows` / `rowsToMap`), any other type = its raw JSON with
+"edited in repos.yml by hand"; the schema's help,
+"Restart needed" chip, and a line saying what applies when the key is not written. A project key that the API merges
+(`effective`) shows the API's `inherited` value with its `sourceLabel` ("Inherited from defaults: X" / "Built-in
+default: X"; exact also right after an unsaved reset), never merged or labelled in the UI; a written one has "Reset to inherited" (removes the key and the
+objects it leaves empty, never the project's own object). Secrets (`isSecret`) are read-only "Set / Not set in
+repos.yml" with a link to Setup, and their `{ isSet }` mask goes back unchanged. The file is polled; a poll rebuilds
+the form only while nothing is edited (else "repos.yml changed since you started editing" + Reload). Save lists
+every change first (`diffSettings`: path, added / removed / old -> new; presentation only) in
+`settings-diff-dialog`, with the comments warning while `hasComments`; it sends the whole draft with `baseHash`. A
+400 shows the resolver's message above the form and keeps the edits; a 409 shows the message with Reload (asks
+before it drops edits). Banners on top: the file's `error` (danger), the `restartNeeded` list (info). The
+`commands` group carries a note that these run on this machine.
+
+### Model of a job
+
+The Jobs table (column Model, hidden below 900 px), the issue detail's Job timeline (column Model) and the job page
+(fact Model) show `jobModelText(job.model, job.modelReason)`. The Cost table shows each row's `models` as a muted second
+line under its group (`modelUsesText`), nothing when the list is empty.
 
 ### Health
 
 The health is polled once for the whole app by `HealthStore` (`layout/health-store.ts`). A screen that shows health
 data injects `HealthStore` and reads `health.value()`; it never polls `/api/health` itself. Health codes map to
-tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`).
+tones in `HEALTH_TONES` (`shared/tone.ts`, use `healthTone(code)`): `ok` success, `starting` info, `stale`,
+`paused` and `needs-setup` warning, `error` danger. Setup mode (no token yet) is read from `health.isSetupNeeded`,
+never from the state code: it shows the setup banner and turns the strip's state label into a link to `/setup`.
+When `hasAgentDrift` is true the strip shows `agentDriftLabel` as a small warning-toned pill linked to `/agents`
+(`AGENTS_PATH`). When `configError` is set it shows `configErrorLabel` as a danger-toned pill linked to `/settings`
+(`SETTINGS_PATH`), the message in its tooltip. Paused shows through the state chip and the strip's tone like any other state; the Pause / Resume button reads
+`health.isPaused`, never a state of its own.
 
 ### Charts
 
@@ -388,17 +520,79 @@ Write state text for the user, in plain words: what is shown, what it means, wha
 ## 7. Refresh
 
 Each screen polls its own endpoint every 3 s while visible, with `pollResource`. Do not add refresh buttons for
-normal use (the "Try again" of an error state calls `reload()`). Avoid layout jumps on refresh: track rows by id,
+normal use (the "Try again" of an error state calls `reload()`). "Poll now" is not one: it asks the runner to poll
+GitBucket now, a write (section 8). Avoid layout jumps on refresh: track rows by id,
 keep data on screen while reloading, never show the loading state again after the first answer.
 
-## 8. Accessibility
+## 8. Buttons that write
+
+Writes are a security boundary (any page the user opens can send a request to `127.0.0.1`), so every write follows
+the same pattern. Today: Poll now and Pause / Resume on the Overview's Runner card, Cancel on its Running job card,
+Check and save / Remove for the token and the web password on the Setup screen, Fetch / Re-clone per clone and Delete
+per orphan folder on the Workspaces screen, Sync now, Save and Revert on the Agents screen, Save on the Settings screen, and the actions on issues and PRs (`app-action-buttons`) on the Issues
+list, the board cards and Issue detail.
+
+1. **Generated client only, the interceptor adds the guard.** Call the generated function through `Api`. The
+   `writeGuardInterceptor` (`shared/write-guard.interceptor.ts`) gives every request that is not a GET the header
+   `X-AiRunner-Request: 1`, `Content-Type: application/json` and the body `{}` when it has none. Never set that
+   header by hand, and never send a write with `HttpClient` directly.
+2. **One `writeAction` per button**, created in a field initializer:
+   ```ts
+   protected readonly pollNow = writeAction({
+     failure: 'The runner did not start a poll.',   // shown when the runner sends no message
+     after: () => this.health.reload(),              // reload what the write changes
+   });
+   protected startPoll(): void {
+     void this.pollNow.run(() => this.api.invoke(pollNow));
+   }
+   ```
+   `run` ignores a click while the call runs and resolves to true when the runner accepted it.
+3. **Busy state on the button** while the call runs: disabled, `aria-busy`, and an 18 px spinner in place of the icon.
+   ```html
+   <button mat-stroked-button type="button" [disabled]="pollNow.isBusy()" [attr.aria-busy]="pollNow.isBusy()"
+           (click)="startPoll()">
+     @if (pollNow.isBusy()) {
+       <mat-progress-spinner class="busy" mode="indeterminate" diameter="18" aria-hidden="true" />
+     } @else {
+       <mat-icon aria-hidden="true">sync</mat-icon>
+     }
+     Poll now
+   </button>
+   ```
+4. **The runner's message in a snack bar**, as sent: `CommandResponse.message` on success, `ApiError.message` on a
+   403, 409 or any other failure, "The runner is not reachable." without an answer, else the action's `failure`
+   sentence. `writeAction` does this; never build the text from a status code.
+5. **No optimistic update.** The screen changes only when the next poll shows the real state: `after` reloads the
+   resources the write touches (a `pollResource`'s `reload()`, `HealthStore.health.reload()`). A label that depends
+   on the state (Pause or Resume) reads the API's field (`health.isPaused`), never a local flag.
+6. **Confirm anything destructive** (it stops work, posts to GitBucket or cannot be undone; Cancel is destructive)
+   with `confirmWrite(dialog, { title, message, confirmLabel, dismissLabel })` (`shared/confirm-dialog`). It opens
+   an `alertdialog` with the dismiss button first (it gets the focus) and resolves to true only on the confirm
+   button; Escape and a click outside write nothing. The title is a question ("Cancel the running job?"), the
+   message says what happens and what the person must do afterwards, the confirm label is a verb ("Cancel job"),
+   the dismiss label keeps things as they are ("Keep running"). Call `run` only after it resolved to true.
+7. **A write that answers with the new state** (`SetupChangeResponse { message, setup }`): pass a call to `run` that
+   puts the answer's state into a `linkedSignal` over the poll's value, then returns the answer, so the screen shows
+   what the runner sent until the next poll replaces it (`pages/setup`). Still no guess of our own.
+8. **A write that needs text** (an action with `needsText`: answer, ask, fix): `app-action-buttons` opens
+   `ActionTextDialog` (`shared/action-buttons/action-text-dialog.ts`, built like `confirm-dialog`): the action's label
+   as title, the target ("team/shop #42") under it, one multi-line field, Cancel and Send. Send is disabled while the
+   text is blank (after trimming) and busy while the call runs; the typed text goes unchanged as `body.text`. The box
+   closes when the runner accepted the text; on a refusal it stays open with the text, and the runner's message shows
+   in the snack bar. Cancel and Escape send nothing. No confirmation: these actions are not destructive.
+9. **Secrets** (Setup screen): a `type="password"` field with `autocomplete="new-password"`, bound to a plain
+   component signal (never a service, storage or the URL), never filled from the server, emptied the moment the
+   call is sent (success or failure). The runner checks the value and its refusal ("not accepted", "not reachable
+   (VPN?)") is shown in the snack bar like any other write.
+
+## 9. Accessibility
 
 - One `h1` per screen (the page header), `h2` per card; `aria-labelledby` from the `section` to its `h2`.
 - Color is never the only signal: every chip has text, every state has a label.
 - Clickable rows and buttons are reachable by keyboard and show the focus ring (`--mat-sys-primary`).
 - Live areas: the health strip is `role="status"`; error states are `role="alert"` (the components set this).
 
-## 9. Tests
+## 10. Tests
 
 Vitest through `ng test` (`npm test` runs once, `npm run test:watch` watches). Test what the user sees: text,
 tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePollResource(value)` (set `value`,
@@ -406,12 +600,16 @@ tone classes, rows, states. Test helpers in `src/app/shared/testing.ts`: `fakePo
 fake store with `{ provide: HealthStore, useValue: { health: fakePollResource(...) } }`. For a screen that polls
 its own endpoint provide `FakeApi` (`{ provide: Api, useValue: new FakeApi().answer(getJobs, (params) => page) }`;
 `callsOf(getJobFile)` returns the parameters of every call), build rows with `sampleJob(overrides)`,
-`sampleIssue(overrides)` or `samplePull(overrides)`, and wait for the
+`sampleIssue(overrides)`, `samplePull(overrides)`, `sampleStep(overrides)` or `sampleClone(overrides)`, and wait for the
 answers with `await settle(fixture)`. Material controls are driven with their harnesses (`MatSelectHarness`,
-`MatPaginatorHarness`). For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
+`MatPaginatorHarness`, `MatButtonHarness`). A write test answers the write in `FakeApi` (throw an
+`HttpErrorResponse` for a 409 or 403), provides `{ provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } }`
+and finds the dialog and the snack bar with `TestbedHarnessEnvironment.documentRootLoader(fixture)`
+(`MatDialogHarness`, `MatSnackBarHarness`; they live in the overlay, outside the fixture); see
+`pages/overview/overview.spec.ts`. For a test of the HTTP layer itself use `provideHttpClient()` + `provideHttpClientTesting()`
 and `HttpTestingController`.
 
-## 10. Commands (in `src/AiRunner.Dashboard/`)
+## 11. Commands (in `src/AiRunner.Dashboard/`)
 
 | Command | Does |
 |---|---|

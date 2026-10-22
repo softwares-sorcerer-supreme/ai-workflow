@@ -2,6 +2,7 @@ using System.Text;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -11,14 +12,14 @@ namespace AiRunner.Jobs;
 /// <param name="Pulls">Open and closed PRs of that repo.</param>
 public sealed record FinalPullInput(
     string Repo,
-    GbIssue Parent,
+    HostIssue Parent,
     string IssuesRepo,
     IReadOnlyList<SubIssueRef> SubIssues,
-    IReadOnlyList<GbPull> Pulls);
+    IReadOnlyList<HostPull> Pulls);
 
 /// <summary>The final PRs of a parent, one per repo, for the comment on the parent.</summary>
 public sealed record FinalPullList(
-    IReadOnlyList<(string Repo, GbPull Pull)> Pulls,
+    IReadOnlyList<(string Repo, HostPull Pull)> Pulls,
     string FeatureBranch);
 
 /// <summary>
@@ -28,7 +29,7 @@ public sealed record FinalPullList(
 /// of them are merged it closes the parent. API calls only, no Copilot run. The decision is SubIssueSequencer's.
 /// </summary>
 public sealed class SequenceSubIssuesJob(
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader) : IJob
 {
     public JobType Type => JobType.SequenceSubIssues;
@@ -55,7 +56,7 @@ public sealed class SequenceSubIssuesJob(
         var subIssues = new List<SubIssueRef>();
         foreach (var number in list)
         {
-            var subIssue = await gitBucketClient.GetIssueAsync(request.Repo, number, cancellationToken);
+            var subIssue = await codeHost.GetIssueAsync(request.Repo, number, cancellationToken);
 
             // The PRs of a sub-issue are in the repo of its component. Without a component on the sub-issue
             // (written before components existed) only a single code component leaves no doubt which repo that is.
@@ -69,10 +70,10 @@ public sealed class SequenceSubIssuesJob(
             subIssues.Add(new SubIssueRef(subIssue, component.Repo));
         }
 
-        var pullsByRepo = new Dictionary<string, IReadOnlyList<GbPull>>(StringComparer.OrdinalIgnoreCase);
+        var pullsByRepo = new Dictionary<string, IReadOnlyList<HostPull>>(StringComparer.OrdinalIgnoreCase);
         foreach (var repo in SubIssueRef.ReposOf(subIssues))
         {
-            pullsByRepo[repo] = await gitBucketClient.ListAllPullsAsync(repo, cancellationToken);
+            pullsByRepo[repo] = await codeHost.ListAllPullsAsync(repo, cancellationToken);
         }
 
         var input = new SequenceInput(parent.Number, subIssues, pullsByRepo)
@@ -94,16 +95,18 @@ public sealed class SequenceSubIssuesJob(
         // A merged sub-issue PR closes its sub-issue here, because GitBucket does not close an issue of another repo.
         foreach (var mergedSubIssue in merged)
         {
-            await CloseMergedSubIssueAsync(request.Repo, parent.Number, mergedSubIssue, cancellationToken);
             var closedNumber = mergedSubIssue.SubIssue.Issue.Number;
+            run.Step(JobSteps.Close, $"Close sub-issue #{closedNumber}");
+            await CloseMergedSubIssueAsync(request.Repo, parent.Number, mergedSubIssue, cancellationToken);
             run.Info($"closed sub-issue #{closedNumber} (PR #{mergedSubIssue.Pull.Number} merged)");
         }
 
         // A PR closed on purpose: stop watching that sub-issue until a human removes ai:failed.
         foreach (var abandonedSubIssue in abandoned)
         {
-            await StopAbandonedSubIssueAsync(request.Repo, abandonedSubIssue, cancellationToken);
             var abandonedNumber = abandonedSubIssue.SubIssue.Issue.Number;
+            run.Step(JobSteps.Comment, $"Stop sub-issue #{abandonedNumber}");
+            await StopAbandonedSubIssueAsync(request.Repo, abandonedSubIssue, cancellationToken);
             run.Info($"sub-issue #{abandonedNumber}: PR #{abandonedSubIssue.Pull.Number} closed without a merge");
         }
 
@@ -112,9 +115,10 @@ public sealed class SequenceSubIssuesJob(
         switch (step.Step)
         {
             case SequenceStep.StartNext:
+                run.Step(JobSteps.Comment, $"Start sub-issue #{step.Next!.Number}");
                 var labelChange = LabelChange.Adding(Labels.Implement);
-                await gitBucketClient.ApplyLabelsAsync(request.Repo, step.Next!.Number, labelChange, cancellationToken);
-                await gitBucketClient.AddCommentAsync(
+                await codeHost.ApplyLabelsAsync(request.Repo, step.Next!.Number, labelChange, cancellationToken);
+                await codeHost.AddCommentAsync(
                     request.Repo,
                     step.Next.Number,
                     $"#{step.Previous!.Number} is done (merged into `{Branches.Feature(parent.Number)}`). " +
@@ -124,13 +128,15 @@ public sealed class SequenceSubIssuesJob(
                 return JobOutcome.Ok($"{closedNote}started #{step.Next.Number}", copilotCalls: 0);
 
             case SequenceStep.OpenFinalPrs:
+                run.Step(JobSteps.PullRequest, "Open final PRs");
                 var opened = await OpenFinalPrsAsync(project, input, parent, cancellationToken);
                 return JobOutcome.Ok($"{closedNote}final PRs: {opened}", copilotCalls: 0);
 
             case SequenceStep.CloseParent:
                 // Close first, so a failed close leaves no comment behind to be posted again on the next poll.
-                await gitBucketClient.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
-                await gitBucketClient.AddCommentAsync(
+                run.Step(JobSteps.Close, "Close parent");
+                await codeHost.CloseIssueAsync(request.Repo, parent.Number, cancellationToken);
+                await codeHost.AddCommentAsync(
                     request.Repo,
                     parent.Number,
                     "All final PRs are merged. This issue is done, so I close it.",
@@ -163,7 +169,7 @@ public sealed class SequenceSubIssuesJob(
         var pullRef = JobSupport.PullRef(pull.Number, issuesRepo, subIssue.Repo);
 
         var comment = $"PR {pullRef} is merged into `{Branches.Feature(parent)}`. This sub-issue is done, so I close it.";
-        await gitBucketClient.CloseDoneAsync(issuesRepo, number, comment, cancellationToken);
+        await codeHost.CloseDoneAsync(issuesRepo, number, comment, cancellationToken);
     }
 
     /// <summary>
@@ -179,7 +185,7 @@ public sealed class SequenceSubIssuesJob(
         var number = subIssue.Issue.Number;
         var pullRef = JobSupport.PullRef(pull.Number, issuesRepo, subIssue.Repo);
 
-        await gitBucketClient.AddCommentAsync(
+        await codeHost.AddCommentAsync(
             issuesRepo,
             number,
             $"PR {pullRef} was closed without a merge, so I stop here. To build this sub-issue again, " +
@@ -187,7 +193,7 @@ public sealed class SequenceSubIssuesJob(
             cancellationToken);
 
         var change = new LabelChange(Add: [Labels.Failed], Remove: [Labels.Implementing]);
-        await gitBucketClient.ApplyLabelsAsync(issuesRepo, number, change, cancellationToken);
+        await codeHost.ApplyLabelsAsync(issuesRepo, number, change, cancellationToken);
     }
 
     /// <summary>
@@ -197,13 +203,13 @@ public sealed class SequenceSubIssuesJob(
     private async Task<string> OpenFinalPrsAsync(
         ProjectConfig project,
         SequenceInput input,
-        GbIssue parent,
+        HostIssue parent,
         CancellationToken cancellationToken)
     {
         var issuesRepo = project.IssuesRepo;
         var feature = Branches.Feature(parent.Number);
         var openedNow = new List<string>();
-        var finalPulls = new List<(string Repo, GbPull Pull)>();
+        var finalPulls = new List<(string Repo, HostPull Pull)>();
 
         foreach (var repo in input.Repos)
         {
@@ -226,21 +232,21 @@ public sealed class SequenceSubIssuesJob(
             var defaultBranches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (repo, _) in finalPulls)
             {
-                defaultBranches[repo] = await gitBucketClient.DefaultBranchAsync(repo, cancellationToken);
+                defaultBranches[repo] = await codeHost.DefaultBranchAsync(repo, cancellationToken);
             }
 
             var comment = FinalListComment(list, issuesRepo, defaultBranches);
-            await gitBucketClient.AddCommentAsync(issuesRepo, parent.Number, comment, cancellationToken);
+            await codeHost.AddCommentAsync(issuesRepo, parent.Number, comment, cancellationToken);
         }
 
         return openedNow.Count == 0 ? "listed" : string.Join(", ", openedNow);
     }
 
-    private async Task<GbPull> OpenFinalPullAsync(FinalPullInput input, CancellationToken cancellationToken)
+    private async Task<HostPull> OpenFinalPullAsync(FinalPullInput input, CancellationToken cancellationToken)
     {
         var (repo, parent, issuesRepo, subIssues, pulls) = input;
         var feature = Branches.Feature(parent.Number);
-        var defaultBranch = await gitBucketClient.DefaultBranchAsync(repo, cancellationToken);
+        var defaultBranch = await codeHost.DefaultBranchAsync(repo, cancellationToken);
 
         var body = new StringBuilder();
         body.AppendLine($"All sub-issues of #{parent.Number} are done.");
@@ -270,7 +276,7 @@ public sealed class SequenceSubIssuesJob(
         var bodyText = body.ToString();
         var newPull = new NewPull(title, feature, defaultBranch, bodyText);
 
-        return await gitBucketClient.CreatePullAsync(repo, newPull, cancellationToken);
+        return await codeHost.CreatePullAsync(repo, newPull, cancellationToken);
     }
 
     private static string FinalListComment(

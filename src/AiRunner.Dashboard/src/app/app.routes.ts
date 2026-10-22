@@ -39,6 +39,26 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/cost/cost').then((page) => page.Cost),
   },
   {
+    path: 'workspaces',
+    title: titled('Workspaces'),
+    loadComponent: () => import('./pages/workspaces/workspaces').then((page) => page.Workspaces),
+  },
+  {
+    path: 'agents',
+    title: titled('Agents'),
+    loadComponent: () => import('./pages/agents/agents').then((page) => page.Agents),
+  },
+  {
+    path: 'settings',
+    title: titled('Settings'),
+    loadComponent: () => import('./pages/settings/settings').then((page) => page.Settings),
+  },
+  {
+    path: 'setup',
+    title: titled('Setup'),
+    loadComponent: () => import('./pages/setup/setup').then((page) => page.Setup),
+  },
+  {
     path: '**',
     title: titled('Not found'),
     loadComponent: placeholder,

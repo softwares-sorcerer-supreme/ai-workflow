@@ -2,13 +2,17 @@ using System.Net;
 using System.Net.Http.Headers;
 using AiRunner.Infrastructure;
 using AiRunner.Tests.Fakes;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
-/// <summary>GitBucketClient.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.</summary>
+/// <summary>
+/// GitBucketCodeHost.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.
+/// </summary>
 public sealed class AttachmentDownloadTests : IDisposable
 {
     private const string Url = "http://gb/james/demo/_attached/abc123";
+    private const string Token = "t0ken";
 
     private readonly string _folder = Directory.CreateTempSubdirectory("ai-runner-download-").FullName;
 
@@ -40,7 +44,7 @@ public sealed class AttachmentDownloadTests : IDisposable
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
     }
 
-    private static (GitBucketClient Client, StubHttpHandler Handler) Create(
+    private static (GitBucketCodeHost Client, StubHttpHandler Handler) Create(
         Func<HttpRequestMessage, HttpResponseMessage> respond,
         string apiUrl = "http://gb/api/v3/")
     {
@@ -48,9 +52,10 @@ public sealed class AttachmentDownloadTests : IDisposable
         var apiHandler = new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var apiClient = new HttpClient(apiHandler) { BaseAddress = new Uri(apiUrl) };
         var downloadClient = new HttpClient(handler);
-        var web = new GitBucketWeb(new HttpClient(apiHandler), "");
+        var credentials = RunnerCredentials.Of(token: Token);
+        var web = new GitBucketWeb(new HttpClient(apiHandler), credentials);
 
-        return (new GitBucketClient(apiClient, downloadClient, web), handler);
+        return (new GitBucketCodeHost(apiClient, downloadClient, web, credentials, "http://gb"), handler);
     }
 
     private AttachmentDownload Download(long maxBytes = 1000, string url = Url) =>

@@ -2,6 +2,7 @@ using System.Text;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -15,7 +16,7 @@ public sealed record ImplementationRequest(
     ProjectConfig Project,
     ComponentConfig Target,
     string IssueRepo,
-    GbIssue Issue,
+    HostIssue Issue,
     PreparedWorkspace Workspace,
     string BaseBranch,
     string Branch,
@@ -39,7 +40,7 @@ public sealed record ImplementationRequest(
 /// </summary>
 public sealed class ImplementIssueJob(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IWorkspace workspace,
     IGitClient git,
@@ -97,7 +98,7 @@ public sealed class ImplementIssueJob(
         if (subIssue is not null)
         {
             // The parent's comments give the order of the sub-issues and the SPEC that every sub-issue shares.
-            var parentComments = await gitBucketClient.ListCommentsAsync(
+            var parentComments = await codeHost.ListCommentsAsync(
                 project.IssuesRepo, subIssue.Parent, cancellationToken);
             var waitingFor = await PreviousSubIssueNotDoneAsync(project, subIssue, parentComments, cancellationToken);
             if (waitingFor is not null)
@@ -119,7 +120,7 @@ public sealed class ImplementIssueJob(
         {
             var spec = JobSupport.LatestBlock(comments, Markers.Spec)
                 ?? throw new JobFailedException("No SPEC comment on this issue. Run the analysis until Status is ready.");
-            baseBranch = await gitBucketClient.DefaultBranchAsync(targetRepo, cancellationToken);
+            baseBranch = await codeHost.DefaultBranchAsync(targetRepo, cancellationToken);
             branch = Branches.Issue(issue.Number);
             plan = ContextBuilder.PlanFromSpec(issue, spec);
             criteriaPlan = plan;
@@ -131,13 +132,13 @@ public sealed class ImplementIssueJob(
         }
 
         // A PR from this branch is already open (e.g. an earlier run stopped right after opening it).
-        var openPulls = await gitBucketClient.ListPullsAsync(targetRepo, "open", cancellationToken);
+        var openPulls = await codeHost.ListPullsAsync(targetRepo, "open", cancellationToken);
         var openPull = openPulls.Find(branch, baseBranch);
         if (openPull is not null)
         {
             var startedChange = new LabelChange(Add: [Labels.Implementing], Remove: [Labels.Implement]);
-            await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, startedChange, cancellationToken);
-            await gitBucketClient.AddCommentAsync(
+            await codeHost.ApplyLabelsAsync(request.Repo, issue.Number, startedChange, cancellationToken);
+            await codeHost.AddCommentAsync(
                 request.Repo,
                 issue.Number,
                 $"PR #{openPull.Number} from `{branch}` is already open, so I did not start again. " +
@@ -153,12 +154,13 @@ public sealed class ImplementIssueJob(
             TargetRepo: targetRepo,
             StartPoint: baseRemote,
             NewBranch: branch,
-            ExtraFetch: [])
+            PullHead: null)
         {
             Writable = true,
             TargetComponent = target.Name,
             OthersAt = subIssue?.BaseBranch,
         };
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var clone = prepared.TargetClone;
 
@@ -188,8 +190,9 @@ public sealed class ImplementIssueJob(
         }
 
         // A sub-issue plan is its own body (the parent thread is not part of it), so only that body is scanned.
+        run.Step(JobSteps.Attachments, "Attachments");
         var issueBody = new AttachmentSource("the issue body", issue.Body);
-        IReadOnlyList<GbComment> attachmentComments = subIssue is null ? comments : [];
+        IReadOnlyList<HostComment> attachmentComments = subIssue is null ? comments : [];
         var attachmentRequest = AttachmentRequest.Of(prepared.Root, issueBody, attachmentComments);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
         plan += fetched.Section;
@@ -199,9 +202,10 @@ public sealed class ImplementIssueJob(
         await File.WriteAllTextAsync(planFile, plan, cancellationToken);
         run.Save("plan.md", plan);
 
+        run.Step(JobSteps.Comment, "Copilot started");
         var implementingChange = LabelChange.Adding(Labels.Implementing);
-        await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, implementingChange, cancellationToken);
-        await gitBucketClient.AddCommentAsync(
+        await codeHost.ApplyLabelsAsync(request.Repo, issue.Number, implementingChange, cancellationToken);
+        await codeHost.AddCommentAsync(
             request.Repo,
             issue.Number,
             $"Copilot started on branch `{branch}` (base `{baseBranch}`).",
@@ -227,7 +231,7 @@ public sealed class ImplementIssueJob(
         catch
         {
             // Without ai:implementing the planner can start again once a human removes ai:failed.
-            await gitBucketClient.RemoveLabelAsync(
+            await codeHost.RemoveLabelAsync(
                 request.Repo, issue.Number, Labels.Implementing, CancellationToken.None);
             throw;
         }
@@ -252,6 +256,10 @@ public sealed class ImplementIssueJob(
             DiffBase: diffBase)
         {
             Attachments = implementation.Attachments,
+            ModelContext = await codeHost.ReadAsync(
+                new ModelQuery(new IssueRef(issueRepo, issue.Number), Workflows.Implement, config.AllowedModels),
+                run,
+                cancellationToken),
         };
         var context = new AgentRunContext(project, target, prepared, run);
         var result = await session.RunAsync(task, context, cancellationToken);
@@ -281,7 +289,7 @@ public sealed class ImplementIssueJob(
                   $"`{baseBranch}`), or delete the branch to start over, then remove `{Labels.Failed}`."
                 : $"Please split the issue (write {settings.TriggerKeyword} and ask for a breakdown) " +
                   "or finish it by hand on that branch. To start over, delete the branch.";
-            await gitBucketClient.AddCommentAsync(
+            await codeHost.AddCommentAsync(
                 issueRepo,
                 issue.Number,
                 $"The change grew beyond \"simple\": {stats.Count} files and {lines} changed lines " +
@@ -293,7 +301,7 @@ public sealed class ImplementIssueJob(
             var tooBigChange = new LabelChange(
                 Add: isSubIssue ? [Labels.Failed] : [],
                 Remove: [Labels.Implement, Labels.Implementing]);
-            await gitBucketClient.ApplyLabelsAsync(issueRepo, issue.Number, tooBigChange, cancellationToken);
+            await codeHost.ApplyLabelsAsync(issueRepo, issue.Number, tooBigChange, cancellationToken);
 
             return new JobOutcome(
                 "too-big",
@@ -301,7 +309,8 @@ public sealed class ImplementIssueJob(
                 CopilotCalls: result.Rounds.Count);
         }
 
-        var openPulls = await gitBucketClient.ListPullsAsync(target.Repo, "open", cancellationToken);
+        run.Step(JobSteps.PullRequest, "Open PR");
+        var openPulls = await codeHost.ListPullsAsync(target.Repo, "open", cancellationToken);
         var pull = openPulls.Find(branch, baseBranch);
 
         // Only open a PR when none from this branch exists yet.
@@ -311,12 +320,13 @@ public sealed class ImplementIssueJob(
             var issueRef = new IssueRef(issueRepo, issue.Number);
             var pullBody = PullBody(issueRef, prBody, result);
             var newPull = new NewPull(pullTitle, branch, baseBranch, pullBody);
-            pull = await gitBucketClient.CreatePullAsync(target.Repo, newPull, cancellationToken);
+            pull = await codeHost.CreatePullAsync(target.Repo, newPull, cancellationToken);
         }
 
+        run.Step(JobSteps.Comment, "Report on the issue");
         var finishedChange = LabelChange.Removing(Labels.Implement);
-        await gitBucketClient.ApplyLabelsAsync(issueRepo, issue.Number, finishedChange, cancellationToken);
-        await gitBucketClient.AddCommentAsync(
+        await codeHost.ApplyLabelsAsync(issueRepo, issue.Number, finishedChange, cancellationToken);
+        await codeHost.AddCommentAsync(
             issueRepo,
             issue.Number,
             $"Copilot opened PR {JobSupport.PullRef(pull.Number, issueRepo, target.Repo)} from `{branch}` into `{baseBranch}`." +
@@ -349,7 +359,7 @@ public sealed class ImplementIssueJob(
     private async Task<int?> PreviousSubIssueNotDoneAsync(
         ProjectConfig project,
         SubIssueInfo subIssue,
-        IReadOnlyList<GbComment> parentComments,
+        IReadOnlyList<HostComment> parentComments,
         CancellationToken cancellationToken)
     {
         if (subIssue.Order <= 1)
@@ -367,7 +377,7 @@ public sealed class ImplementIssueJob(
                 $"this one says it is number {subIssue.Order}.");
         }
 
-        var previous = await gitBucketClient.GetIssueAsync(
+        var previous = await codeHost.GetIssueAsync(
             repoName, subIssueNumbers[subIssue.Order - 2], cancellationToken);
         if (!previous.IsOpen())
         {
@@ -376,7 +386,7 @@ public sealed class ImplementIssueJob(
 
         var previousInfo = JobSupport.Parse(() => SubIssueBody.Parse(previous.Body), "The previous sub-issue body");
         var previousRepo = project.TargetComponent(previousInfo?.Component).Repo;
-        var pulls = await gitBucketClient.ListPullsAsync(previousRepo, "closed", cancellationToken);
+        var pulls = await codeHost.ListPullsAsync(previousRepo, "closed", cancellationToken);
 
         var previousSlot = new SubIssueSlot(subIssue.Parent, subIssue.Order - 1);
         var isPreviousDone = SubIssueBody.IsDone(previous, previousSlot, pulls);
@@ -385,10 +395,10 @@ public sealed class ImplementIssueJob(
     }
 
     private async Task<JobOutcome> RejectAsync(
-        string repoName, GbIssue issue, string reason, CancellationToken cancellationToken)
+        string repoName, HostIssue issue, string reason, CancellationToken cancellationToken)
     {
-        await gitBucketClient.AddCommentAsync(repoName, issue.Number, $"I did not start: {reason}", cancellationToken);
-        await gitBucketClient.RemoveLabelAsync(repoName, issue.Number, Labels.Implement, cancellationToken);
+        await codeHost.AddCommentAsync(repoName, issue.Number, $"I did not start: {reason}", cancellationToken);
+        await codeHost.RemoveLabelAsync(repoName, issue.Number, Labels.Implement, cancellationToken);
         return new JobOutcome("rejected", reason, CopilotCalls: 0);
     }
 

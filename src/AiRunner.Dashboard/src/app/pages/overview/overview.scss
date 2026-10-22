@@ -11,6 +11,16 @@
   }
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+.spacer {
+  flex: 1;
+}
+
 .message {
   overflow-wrap: anywhere;
 }
@@ -26,4 +36,22 @@
 a.waiting-link {
   color: var(--mat-sys-primary);
   overflow-wrap: anywhere;
+}
+
+// Round and current step side by side, separated by a dot; they wrap on phones.
+.now {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1) var(--app-space-2);
+
+  span + span::before {
+    content: '7';
+    margin-right: var(--app-space-2);
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.steps-title {
+  margin: var(--app-space-4) 0 var(--app-space-2);
+  font: var(--mat-sys-title-small);
 }

@@ -12,10 +12,10 @@ public sealed record CheckFailure(string Command, string Result, string Output);
 /// <param name="Requests">Comments written since that reply.</param>
 /// <param name="Linked">The linked issue; its Spec is the plan the fix must not go against.</param>
 public sealed record ReviewFixPlanInput(
-    GbPull Pull,
+    HostPull Pull,
     string? Review,
     string? LastReply,
-    IEnumerable<GbComment> Requests,
+    IEnumerable<HostComment> Requests,
     int FixNumber,
     LinkedIssue Linked);
 
@@ -55,7 +55,7 @@ public static class ContextBuilder
     /// are written in full: an older one becomes a one-line note, because the newest analysis carries its open
     /// questions on (same numbers) and every agent turn pays for each copy.
     /// </summary>
-    public static string ForIssue(GbIssue issue, IEnumerable<GbComment> comments, int round)
+    public static string ForIssue(HostIssue issue, IEnumerable<HostComment> comments, int round)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"# Issue #{issue.Number}: {issue.Title}");
@@ -114,7 +114,7 @@ public static class ContextBuilder
     }
 
     /// <summary>context.md for the review agent: PR info plus the linked issue's analysis and SPEC.</summary>
-    public static string ForPull(GbPull pull, IReadOnlyList<string> changedFiles, LinkedIssue linked)
+    public static string ForPull(HostPull pull, IReadOnlyList<string> changedFiles, LinkedIssue linked)
     {
         var (linkedIssue, linkedAnalysis, linkedSpec) = linked;
         var builder = new StringBuilder();
@@ -188,7 +188,7 @@ public static class ContextBuilder
     }
 
     /// <summary>The people's comments of a PR (bot comments are left out), oldest first, as a section of context.md.</summary>
-    public static string HumanComments(IEnumerable<GbComment> comments, string heading)
+    public static string HumanComments(IEnumerable<HostComment> comments, string heading)
     {
         var builder = new StringBuilder();
         builder.AppendLine();
@@ -213,7 +213,7 @@ public static class ContextBuilder
     }
 
     /// <summary>plan.md for the implement agent of a normal issue: the SPEC block only.</summary>
-    public static string PlanFromSpec(GbIssue issue, string spec) =>
+    public static string PlanFromSpec(HostIssue issue, string spec) =>
         $"# Plan for issue #{issue.Number}: {issue.Title}\n\n{DataNote}\n\n{spec.Trim()}\n";
 
     /// <summary>
@@ -223,7 +223,7 @@ public static class ContextBuilder
     /// The parent thread is not part of it. With no parent number only the body is written: that is the text whose
     /// acceptance criteria the PR description is checked against (the parent's are not its own).
     /// </summary>
-    public static string PlanFromSubIssue(GbIssue issue, int? parent, string? parentSpec)
+    public static string PlanFromSubIssue(HostIssue issue, int? parent, string? parentSpec)
     {
         var body = Body(issue.Body);
         if (parentSpec is not null)

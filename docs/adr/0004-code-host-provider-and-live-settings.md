@@ -24,16 +24,21 @@ settings live (reviewable, and the database stays a cache): the runner writes it
 resolver accepts the new content, and keeps the previous file as a backup. The comments in `repos.yml` are not
 kept; their text becomes field help on the settings screen. A new config is swapped in between jobs: the poller
 reads it on its next poll and a running job finishes with the config it started with. A setting that cannot change
-in a running process (the dashboard port, `paths.state`) is saved and marked "restart needed". Secrets that live
-in `repos.yml` (`git_bucket.web_password`) can be set but are never sent to the browser. The token stays in user
-secrets or an environment variable and never goes through the dashboard; the settings screen only says whether it
-is set.
+in a running process (the dashboard port, `paths.state`) is saved and marked "restart needed".
+
+Secrets (the code-host token, the git password, the web password) can be entered on the dashboard too, so a new
+user only starts the runner and opens its setup page. With no token the runner starts in setup mode instead of
+stopping. A secret is checked against the code host before it is saved, saved in the user's .NET user secrets (the
+same file `dotnet user-secrets` writes; never `repos.yml`, which is committed), applied without a restart, and never
+sent back to the browser or written to a log. Encrypting it beyond what user secrets do is left out on purpose: the
+file sits in the user's profile, as it does today.
 
 Consequences:
 
 - No login for now. The dashboard stays on `127.0.0.1`. Every write endpoint gets a CSRF guard from the first one
   (a custom header plus an `Origin` check), because any web page the user opens can POST to `127.0.0.1`.
-- Editable `commands` and `allow_shell` mean that whoever reaches the dashboard can run commands on this laptop.
-  Before it is opened to teammates on the LAN, write endpoints need at least a shared token.
+- Editable `commands` and `allow_shell` mean that whoever reaches the dashboard can run commands on this laptop,
+  and editable secrets mean they can replace the token. Before it is opened to teammates on the LAN, write
+  endpoints need at least a shared token.
 - The provider and the live settings each get a spec before anything is built. `docs/specs/dashboard.md` keeps its
   read-only v1 scope.

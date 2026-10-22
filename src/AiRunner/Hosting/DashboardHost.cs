@@ -6,17 +6,25 @@ namespace AiRunner.Hosting;
 
 /// <summary>
 /// Serves the local dashboard from inside the runner (docs/adr/0001). Registered only in the polling loop with
-/// <c>dashboard.enabled: true</c>. The dashboard can never stop the real work: when the port is taken it logs one
-/// warning and steps aside while the poller and worker keep running.
+/// <c>dashboard.enabled: true</c>, or in setup mode (no token yet), where the Setup page is the way to start. The
+/// dashboard can never stop the real work: when the port is taken it logs one warning and steps aside while the
+/// poller and worker keep running.
 /// </summary>
 public sealed class DashboardHost(
-    RunnerConfig config,
+    RunnerConfigSource configSource,
+    IServiceScopeFactory scopes,
     RunnerStatus status,
-    ICopilotRunner copilot,
     TimeProvider time,
     IJobReader jobs,
     ISnapshotReader snapshot,
     ICostReader cost,
+    RunnerCommands commands,
+    IRunnerSetup setup,
+    IRunnerActions actions,
+    IRunnerWorkspaces workspaces,
+    IRunnerAgents agents,
+    IRunnerSettings settings,
+    RunnerIdentity identity,
     ILogger<DashboardHost> logger) : BackgroundService
 {
     /// <summary>Where build-dashboard.ps1 puts the built UI (copied next to the runner's binaries).</summary>
@@ -24,12 +32,20 @@ public sealed class DashboardHost(
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var port = config.Dashboard.Port;
-        var options = new DashboardAppOptions(config, status, time, WebRoot)
+        // The port needs a restart, so the live config always holds the startup one.
+        var port = configSource.Current.Dashboard.Port;
+        var options = new DashboardAppOptions(configSource, status, time, WebRoot)
         {
             Jobs = jobs,
             Snapshot = snapshot,
             Cost = cost,
+            Commands = commands,
+            Setup = setup,
+            Actions = actions,
+            Workspaces = workspaces,
+            Agents = agents,
+            Settings = settings,
+            Identity = identity,
         };
         var builder = DashboardApp.CreateBuilder(options);
         await using var app = DashboardApp.Build(builder, options);
@@ -69,6 +85,10 @@ public sealed class DashboardHost(
 
     private async Task ReadCopilotVersionAsync(CancellationToken cancellationToken)
     {
+        // The Copilot runner reads copilot.command from its scope's config.
+        using var scope = scopes.CreateScope();
+        var copilot = scope.ServiceProvider.GetRequiredService<ICopilotRunner>();
+
         try
         {
             var version = await copilot.GetVersionAsync(cancellationToken);

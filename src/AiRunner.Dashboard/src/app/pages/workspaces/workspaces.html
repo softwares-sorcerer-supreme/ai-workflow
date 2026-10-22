@@ -1,0 +1,255 @@
+<app-page-header
+  title="Workspaces"
+  subtitle="The clones the runner keeps for each project, and folders of work/ no project uses."
+/>
+
+@if (workspaces.value(); as data) {
+  <div class="app-stack">
+    @if (workspaces.error(); as message) {
+      <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+    }
+
+    @for (project of data.projects; track project.name; let index = $index) {
+      <section
+        class="app-card"
+        data-testid="project-card"
+        [attr.aria-labelledby]="'project-title-' + index"
+      >
+        <div class="card-head">
+          <h2 class="app-card-title" [id]="'project-title-' + index">{{ project.name }}</h2>
+          @if (project.isBusy) {
+            <app-status-chip
+              data-testid="project-busy"
+              label="Busy"
+              tone="progress"
+              icon="lock"
+              [title]="busyTooltip"
+            />
+          }
+        </div>
+
+        <app-data-table
+          [rows]="project.clones"
+          [columns]="cloneColumns"
+          [trackBy]="trackByFolder"
+          emptyTitle="No repositories"
+          emptyMessage="This project has no component in repos.yml."
+        >
+          <ng-template appCell="repo" let-clone>
+            <div class="app-mono" data-testid="clone-repo">{{ clone.repo }}</div>
+            <div class="app-muted small" data-testid="clone-components">
+              {{ clone.components.join(', ') }}
+            </div>
+          </ng-template>
+
+          <ng-template appCell="checkout" let-clone>
+            <span data-testid="clone-checkout">
+              @if (!clone.exists) {
+                <span class="app-muted">Not cloned yet</span>
+              } @else if (clone.branch) {
+                <span class="app-mono">{{ clone.branch }}</span>
+              } @else if (clone.detachedAt) {
+                detached at <span class="app-mono">{{ clone.detachedAt }}</span>
+              } @else {
+                <span class="app-muted">-</span>
+              }
+            </span>
+          </ng-template>
+
+          <ng-template appCell="head" let-clone>
+            @if (clone.headSha) {
+              <div class="head" data-testid="clone-head">
+                <span class="app-mono sha" [title]="clone.headSha">{{
+                  clone.headSha.slice(0, 7)
+                }}</span>
+                <span class="subject">{{ clone.headSubject }}</span>
+              </div>
+              <div class="app-muted small"><app-time [value]="clone.headAt" /></div>
+            } @else {
+              <span class="app-muted">-</span>
+            }
+          </ng-template>
+
+          <ng-template appCell="lastFetchAt" let-clone>
+            <span data-testid="clone-fetch">
+              @if (clone.lastFetchAt) {
+                <app-time [value]="clone.lastFetchAt" />
+              } @else if (clone.exists) {
+                <span class="app-muted">never</span>
+              } @else {
+                <span class="app-muted">-</span>
+              }
+            </span>
+          </ng-template>
+
+          <ng-template appCell="changes" let-clone>
+            @if (clone.changedPaths.length > 0) {
+              <span
+                class="changes"
+                tabindex="0"
+                data-testid="clone-changes"
+                matTooltipClass="app-pre-line"
+                [matTooltip]="changedList(clone)"
+              >
+                {{ clone.changedPaths.length }}
+              </span>
+            } @else {
+              <span class="app-muted" data-testid="clone-changes">0</span>
+            }
+          </ng-template>
+
+          <ng-template appCell="size" let-clone>
+            <span data-testid="clone-size">
+              @if (clone.sizeBytes === null) {
+                <span class="app-muted">calculating...</span>
+              } @else {
+                {{ clone.sizeBytes | bytes }}
+              }
+            </span>
+          </ng-template>
+
+          <ng-template appCell="actions" let-clone>
+            <div class="row-actions">
+              <button
+                mat-stroked-button
+                type="button"
+                data-testid="clone-fetch-button"
+                [disabled]="project.isBusy || cloneWrite.isBusy()"
+                [attr.aria-busy]="
+                  cloneWrite.isBusy() && busyCloneKey() === cloneKey('fetch', project, clone)
+                "
+                [attr.aria-label]="'Fetch ' + clone.repo"
+                (click)="fetch(project, clone)"
+              >
+                @if (cloneWrite.isBusy() && busyCloneKey() === cloneKey('fetch', project, clone)) {
+                  <mat-progress-spinner
+                    class="app-busy"
+                    mode="indeterminate"
+                    diameter="18"
+                    aria-hidden="true"
+                  />
+                } @else {
+                  <mat-icon aria-hidden="true">sync</mat-icon>
+                }
+                Fetch
+              </button>
+              <button
+                mat-stroked-button
+                type="button"
+                data-testid="clone-reclone-button"
+                [disabled]="project.isBusy || cloneWrite.isBusy()"
+                [attr.aria-busy]="
+                  cloneWrite.isBusy() && busyCloneKey() === cloneKey('reclone', project, clone)
+                "
+                [attr.aria-label]="'Re-clone ' + clone.repo"
+                (click)="reclone(project, clone)"
+              >
+                @if (
+                  cloneWrite.isBusy() && busyCloneKey() === cloneKey('reclone', project, clone)
+                ) {
+                  <mat-progress-spinner
+                    class="app-busy"
+                    mode="indeterminate"
+                    diameter="18"
+                    aria-hidden="true"
+                  />
+                } @else {
+                  <mat-icon aria-hidden="true">restart_alt</mat-icon>
+                }
+                Re-clone
+              </button>
+            </div>
+          </ng-template>
+        </app-data-table>
+
+        @for (clone of project.clones; track clone.folder) {
+          @for (warning of clone.warnings; track $index) {
+            <app-inline-note
+              class="warning"
+              data-testid="clone-warning"
+              [icon]="warningIcon(warning.code)"
+            >
+              <span class="app-mono">{{ clone.repo }}</span
+              >: {{ warning.message }}
+            </app-inline-note>
+          }
+        }
+      </section>
+    } @empty {
+      <section class="app-card">
+        <app-view-state
+          kind="empty"
+          icon="folder_off"
+          title="No projects"
+          message="repos.yml has no project yet. Add one and the runner lists its clones here."
+        />
+      </section>
+    }
+
+    <section class="app-card" aria-labelledby="orphans-title" data-testid="orphans-card">
+      <h2 id="orphans-title" class="app-card-title">Orphan folders</h2>
+      <p class="app-muted intro">
+        Folders under work/ that belong to no project of repos.yml, for example a project that was
+        renamed or removed. The runner never uses them.
+      </p>
+
+      @if (data.orphans.length > 0) {
+        <app-data-table [rows]="data.orphans" [columns]="orphanColumns" [trackBy]="trackByFolder">
+          <ng-template appCell="folder" let-orphan>
+            <span class="app-mono" data-testid="orphan-folder">{{ orphan.folder }}</span>
+          </ng-template>
+
+          <ng-template appCell="size" let-orphan>
+            <span data-testid="orphan-size">
+              @if (orphan.sizeBytes === null) {
+                <span class="app-muted">calculating...</span>
+              } @else {
+                {{ orphan.sizeBytes | bytes }}
+              }
+            </span>
+          </ng-template>
+
+          <ng-template appCell="actions" let-orphan>
+            <button
+              mat-stroked-button
+              type="button"
+              data-testid="orphan-delete-button"
+              [disabled]="orphanDelete.isBusy()"
+              [attr.aria-busy]="orphanDelete.isBusy() && busyOrphan() === orphan.folder"
+              [attr.aria-label]="'Delete ' + orphan.folder"
+              (click)="deleteOrphan(orphan)"
+            >
+              @if (orphanDelete.isBusy() && busyOrphan() === orphan.folder) {
+                <mat-progress-spinner
+                  class="app-busy"
+                  mode="indeterminate"
+                  diameter="18"
+                  aria-hidden="true"
+                />
+              } @else {
+                <mat-icon aria-hidden="true">delete</mat-icon>
+              }
+              Delete
+            </button>
+          </ng-template>
+        </app-data-table>
+      } @else {
+        <p class="empty-note app-muted" data-testid="orphans-empty">No orphan folders.</p>
+      }
+    </section>
+  </div>
+} @else if (workspaces.error()) {
+  <section class="app-card">
+    <app-view-state
+      kind="error"
+      title="Could not load the workspaces"
+      [message]="workspaces.error()"
+      [canRetry]="true"
+      (retry)="workspaces.reload()"
+    />
+  </section>
+} @else {
+  <section class="app-card">
+    <app-view-state kind="loading" />
+  </section>
+}

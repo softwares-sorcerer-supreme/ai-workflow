@@ -85,7 +85,7 @@ public static class Claims
     }
 
     /// <summary>The claim in a bot comment, or null when the comment is not a claim.</summary>
-    public static ClaimInfo? Read(GbComment comment)
+    public static ClaimInfo? Read(HostComment comment)
     {
         if (!BotComments.IsBot(comment) || comment.Body is null)
         {
@@ -123,7 +123,7 @@ public static class Claims
     }
 
     /// <summary>All claim comments, oldest first. The oldest one is THE claim comment of the item.</summary>
-    public static IReadOnlyList<ClaimInfo> All(IEnumerable<GbComment> comments) =>
+    public static IReadOnlyList<ClaimInfo> All(IEnumerable<HostComment> comments) =>
         comments
             .Select(Read)
             .OfType<ClaimInfo>()
@@ -131,7 +131,7 @@ public static class Claims
             .ToList();
 
     /// <summary>What a runner does before a job: write, edit, or back off.</summary>
-    public static ClaimDecision Decide(IReadOnlyList<GbComment> comments, string runnerName, DateTimeOffset now)
+    public static ClaimDecision Decide(IReadOnlyList<HostComment> comments, string runnerName, DateTimeOffset now)
     {
         var claims = All(comments);
         if (claims.Count == 0)
@@ -165,7 +165,7 @@ public static class Claims
     /// passed: a job is cancelled at its deadline, so the runner is gone. Progress comments such as "Copilot started"
     /// say nothing about that. An older claim without a deadline is stale when it is old and no bot comment follows it.
     /// </summary>
-    private static bool IsStale(ClaimInfo claim, IReadOnlyList<GbComment> comments, DateTimeOffset now)
+    private static bool IsStale(ClaimInfo claim, IReadOnlyList<HostComment> comments, DateTimeOffset now)
     {
         var earliest = claim.At + StaleAfter;
         if (claim.Until is { } until)
@@ -180,7 +180,7 @@ public static class Claims
     }
 
     /// <summary>After writing, the oldest claim comment is the claim. True when it is this runner's and still claimed.</summary>
-    public static bool IsHeldBy(IEnumerable<GbComment> comments, string runnerName)
+    public static bool IsHeldBy(IEnumerable<HostComment> comments, string runnerName)
     {
         var claims = All(comments);
         if (claims.Count == 0)
@@ -194,7 +194,7 @@ public static class Claims
     }
 
     /// <summary>The claim comment of this runner that is still claimed (to release it), or null.</summary>
-    public static ClaimInfo? HeldComment(IEnumerable<GbComment> comments, string runnerName)
+    public static ClaimInfo? HeldComment(IEnumerable<HostComment> comments, string runnerName)
     {
         var name = SafeName(runnerName);
 

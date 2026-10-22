@@ -4,12 +4,19 @@ import {
   JOB_STATUS_TONES,
   LANE_TONES,
   PULL_STATE_TONES,
+  STEP_STATE_TONES,
+  WORKSPACE_WARNING_ICONS,
   focusTone,
+  healthTone,
   issueMarkIcon,
   issueMarkTone,
   jobStatusTone,
   laneTone,
   pullStateTone,
+  stepStateIcon,
+  stepStateTone,
+  workspaceWarningIcon,
+  agentStateTone,
 } from './tone';
 
 describe('issueMarkTone and issueMarkIcon', () => {
@@ -106,5 +113,85 @@ describe('pullStateTone', () => {
 
   it('has a color for every pull state the API sends', () => {
     expect(Object.keys(PULL_STATE_TONES).sort()).toEqual(['closed', 'merged', 'open']);
+  });
+});
+
+describe('healthTone', () => {
+  it.each([
+    ['ok', 'success'],
+    ['starting', 'info'],
+    ['stale', 'warning'],
+    ['paused', 'warning'],
+    ['needs-setup', 'warning'],
+    ['error', 'danger'],
+  ])('shows %s as %s', (code, tone) => {
+    expect(healthTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown or missing state as neutral', () => {
+    expect(healthTone('something-new')).toBe('neutral');
+    expect(healthTone(undefined)).toBe('neutral');
+  });
+});
+
+describe('stepStateTone and stepStateIcon', () => {
+  it.each([
+    ['running', 'progress', 'progress_activity'],
+    ['ok', 'success', 'check_circle'],
+    ['failed', 'danger', 'error'],
+    ['interrupted', 'warning', 'cancel'],
+  ])('shows step state %s as %s with icon %s', (code, tone, icon) => {
+    expect(stepStateTone(code)).toBe(tone);
+    expect(stepStateIcon(code)).toBe(icon);
+  });
+
+  it('shows an unknown step state as neutral without an icon', () => {
+    expect(stepStateTone('skipped')).toBe('neutral');
+    expect(stepStateIcon('skipped')).toBeUndefined();
+  });
+
+  it('has a color for every step state the API sends', () => {
+    expect(Object.keys(STEP_STATE_TONES).sort()).toEqual(['failed', 'interrupted', 'ok', 'running']);
+  });
+});
+
+describe('workspaceWarningIcon', () => {
+  it.each([
+    ['agent-override', 'smart_toy'],
+    ['instructions-missing', 'description'],
+    ['has-changes', 'edit_document'],
+  ])('shows warning %s with icon %s', (code, icon) => {
+    expect(workspaceWarningIcon(code)).toBe(icon);
+  });
+
+  it('shows an unknown warning with the plain warning icon', () => {
+    expect(workspaceWarningIcon('something-new')).toBe('warning');
+  });
+
+  it('has an icon for every warning the API sends', () => {
+    expect(Object.keys(WORKSPACE_WARNING_ICONS).sort()).toEqual([
+      'agent-override',
+      'has-changes',
+      'instructions-missing',
+    ]);
+  });
+});
+
+describe('agentStateTone', () => {
+  it.each([
+    ['unchanged', 'neutral'],
+    ['modified', 'info'],
+    ['untracked', 'warning'],
+    ['unknown', 'neutral'],
+    ['in-sync', 'success'],
+    ['differs', 'warning'],
+    ['missing', 'warning'],
+    ['not-installed', 'neutral'],
+  ])('shows state %s in tone %s', (code, tone) => {
+    expect(agentStateTone(code)).toBe(tone);
+  });
+
+  it('shows an unknown state as neutral', () => {
+    expect(agentStateTone('something-new')).toBe('neutral');
   });
 });

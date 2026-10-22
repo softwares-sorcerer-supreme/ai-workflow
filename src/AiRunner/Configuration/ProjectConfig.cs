@@ -49,6 +49,12 @@ public sealed class ProjectConfig
     public bool HasRepo(string repo) =>
         Components.Any(component => string.Equals(component.Repo, repo, StringComparison.OrdinalIgnoreCase));
 
+    public bool HasCodeRepo(string repo) =>
+        CodeRepos.Contains(repo, StringComparer.OrdinalIgnoreCase);
+
+    public bool IsIssuesRepo(string repo) =>
+        string.Equals(IssuesRepo, repo, StringComparison.OrdinalIgnoreCase);
+
     public IEnumerable<ComponentConfig> CodeComponentsIn(string repo) =>
         CodeComponents.Where(component => string.Equals(component.Repo, repo, StringComparison.OrdinalIgnoreCase));
 
@@ -144,7 +150,7 @@ public sealed class ProjectSettings
     public string TriggerKeyword { get; set; } = "@ai";
 
     public List<string> Workflows { get; set; } = [.. AiRunner.Configuration.Workflows.All];
-    public Dictionary<string, string> Models { get; set; } = [];
+    public Dictionary<string, ModelSetting> Models { get; set; } = [];
     public LimitsConfig Limits { get; set; } = new();
     public ImplementConfig Implement { get; set; } = new();
     public ReviewConfig Review { get; set; } = new();
@@ -159,9 +165,8 @@ public sealed class ProjectSettings
 
     public bool IsEnabled(string workflow) => Workflows.Contains(workflow, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Model for a workflow, or null for the Copilot default.</summary>
-    public string? ModelFor(string workflow) =>
-        Models.TryGetValue(workflow, out var model) && !string.IsNullOrWhiteSpace(model) ? model : null;
+    /// <summary>The model setting of a workflow, or null when none is written (Copilot's default).</summary>
+    public ModelSetting? ModelSettingFor(string workflow) => Models.GetValueOrDefault(workflow);
 }
 
 /// <summary>
@@ -201,7 +206,17 @@ public sealed class CommandsConfig
     public IEnumerable<string> AllowedForAgent() => NonEmpty(Setup, Build, Test, Lint);
 
     /// <summary>Build, test and lint, run by the runner after the agent stops.</summary>
-    public IEnumerable<string> Verification() => NonEmpty(Build, Test, Lint);
+    public IEnumerable<string> Verification() => VerificationByKind().Select(entry => entry.Command);
+
+    /// <summary>Build, test and lint in that order, each with its kind ("build", "test", "lint").</summary>
+    public IEnumerable<(string Kind, string Command)> VerificationByKind()
+    {
+        var kinds = new (string Kind, string? Command)[] { ("build", Build), ("test", Test), ("lint", Lint) };
+
+        return kinds
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Command))
+            .Select(entry => (entry.Kind, entry.Command!.Trim()));
+    }
 
     private static IEnumerable<string> NonEmpty(params string?[] commands) =>
         commands

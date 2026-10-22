@@ -18,6 +18,30 @@ public sealed class JobRun(string directory, ILogger logger)
 
     public string Dir { get; } = directory;
 
+    /// <summary>
+    /// The model of the job's first Copilot run (null = Copilot's default); null reason = not recorded.
+    /// </summary>
+    public string? Model { get; private set; }
+
+    /// <summary>
+    /// Why <see cref="Model"/> was chosen ("issue override", "default", ...); the worker stores both.
+    /// </summary>
+    public string? ModelReason { get; private set; }
+
+    /// <summary>
+    /// Records the model of the first Copilot run; later runs (fix rounds) only appear in their round line.
+    /// </summary>
+    public void RecordModel(ModelChoice choice)
+    {
+        if (ModelReason is not null)
+        {
+            return;
+        }
+
+        Model = choice.Model;
+        ModelReason = choice.Reason;
+    }
+
     /// <summary>When JobWorker cancels the job (it sets this from the same timeout); jobs use it to avoid starting work they cannot finish.</summary>
     public DateTimeOffset Deadline { get; set; } = DateTimeOffset.MaxValue;
 
@@ -40,6 +64,17 @@ public sealed class JobRun(string directory, ILogger logger)
     public Action<int>? RoundChanged { get; set; }
 
     public void ReportRound(int round) => RoundChanged?.Invoke(round);
+
+    /// <summary>
+    /// Set by JobWorker; writes the step log of this run. Without it (tests, other modes) opening a step does nothing.
+    /// </summary>
+    public JobStepTracker? StepTracker { get; set; }
+
+    /// <summary>Opens a step (code from <see cref="JobSteps"/>) and closes the one before it as ok.</summary>
+    public void Step(string code, string label) => StepTracker?.Open(code, label);
+
+    /// <summary>Closes the open step with this outcome, e.g. a failed check; the next step opens as usual.</summary>
+    public void EndStep(string outcome, string? detail = null) => StepTracker?.End(outcome, detail);
 
     public void Save(string fileName, string content)
     {
@@ -121,9 +156,14 @@ public sealed class JobRun(string directory, ILogger logger)
     private string EnsureDir() => Directory.CreateDirectory(Dir).FullName;
 }
 
-public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
+public sealed class JobLog(RunnerConfigSource configSource, ILogger<JobLog> logger)
 {
-    private string Root => config.JobLogsFolder;
+    /// <summary>
+    /// The logs folder needs a restart; log_retention_days is read once, when the old logs are cleaned up.
+    /// </summary>
+    private RunnerConfig Config => configSource.Current;
+
+    private string Root => Config.JobLogsFolder;
 
     public JobRun Begin(JobRequest request)
     {
@@ -143,7 +183,7 @@ public sealed class JobLog(RunnerConfig config, ILogger<JobLog> logger)
             return;
         }
 
-        var limit = DateTime.Now.AddDays(-config.LogRetentionDays);
+        var limit = DateTime.Now.AddDays(-Config.LogRetentionDays);
         var oldFolders = Directory.EnumerateDirectories(Root)
             .Where(folder => Directory.GetCreationTime(folder) < limit);
 

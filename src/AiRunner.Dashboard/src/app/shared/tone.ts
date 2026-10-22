@@ -26,6 +26,10 @@ const HEALTH_TONES: Readonly<Record<string, Tone>> = {
   ok: 'success',
   starting: 'info',
   stale: 'warning',
+  // Paused from the dashboard: a person must resume it before a new job starts.
+  paused: 'warning',
+  // No GitBucket token yet: nothing is polled until a person saves one on the Setup screen.
+  'needs-setup': 'warning',
   error: 'danger',
 };
 
@@ -132,4 +136,101 @@ export function focusTone(code: string): Tone {
 /** The color of a pull request state code, neutral for an unknown one. */
 export function pullStateTone(code: string): Tone {
   return PULL_STATE_TONES[code] ?? 'neutral';
+}
+
+/**
+ * Color per job step state code (C# job steps): `running` the step the job is on now, `ok` finished, `failed` the
+ * step the job failed in, `interrupted` cut off (cancel, timeout or a runner stop).
+ */
+export const STEP_STATE_TONES: Readonly<Record<string, Tone>> = {
+  running: 'progress',
+  ok: 'success',
+  failed: 'danger',
+  interrupted: 'warning',
+};
+
+/** Icon per job step state code. */
+export const STEP_STATE_ICONS: Readonly<Record<string, string>> = {
+  running: 'progress_activity',
+  ok: 'check_circle',
+  failed: 'error',
+  interrupted: 'cancel',
+};
+
+/** The color of a job step state code, neutral for an unknown one. */
+export function stepStateTone(code: string): Tone {
+  return STEP_STATE_TONES[code] ?? 'neutral';
+}
+
+/** The icon of a job step state code, or undefined (the chip then shows its dot). */
+export function stepStateIcon(code: string): string | undefined {
+  return STEP_STATE_ICONS[code];
+}
+
+/**
+ * Icon per workspace warning code (C# `Core/WorkspaceChecks`): `agent-override` a repo's own copy of an agent the
+ * runner installs, `instructions-missing` a file named in `instructions` is not there, `has-changes` changes left in
+ * a clone between jobs. Every warning uses the `warning` tone; the icon only tells them apart.
+ */
+export const WORKSPACE_WARNING_ICONS: Readonly<Record<string, string>> = {
+  'agent-override': 'smart_toy',
+  'instructions-missing': 'description',
+  'has-changes': 'edit_document',
+};
+
+/** The icon of a workspace warning code, the plain warning icon for an unknown one. */
+export function workspaceWarningIcon(code: string): string {
+  return WORKSPACE_WARNING_ICONS[code] ?? 'warning';
+}
+
+/**
+ * Color per agent file state code (C# `Core/AgentStates`), git and sync states together (the codes do not overlap).
+ * Git: `unchanged` and `unknown` (not in a git repo) neutral, `modified` info (a local edit to commit), `untracked`
+ * warning (git does not know the file). Sync with `~/.copilot`: `in-sync` success, `differs` and `missing` warning
+ * (Copilot runs another version until a sync), `not-installed` (templates, never copied) neutral.
+ */
+export const AGENT_STATE_TONES: Readonly<Record<string, Tone>> = {
+  unchanged: 'neutral',
+  modified: 'info',
+  untracked: 'warning',
+  unknown: 'neutral',
+  'in-sync': 'success',
+  differs: 'warning',
+  missing: 'warning',
+  'not-installed': 'neutral',
+};
+
+/** The color of an agent file's git or sync state code, neutral for an unknown one. */
+export function agentStateTone(code: string): Tone {
+  return AGENT_STATE_TONES[code] ?? 'neutral';
+}
+
+/**
+ * Color per token source code (C# `CredentialSource`: `user-secrets`, `environment`, `none`). Only the style: the label
+ * and the "change it there" note come from the server. No token stops the runner, so `none` is a warning.
+ */
+const TOKEN_SOURCE_TONES: Readonly<Record<string, Tone>> = {
+  'user-secrets': 'success',
+  environment: 'info',
+  none: 'warning',
+};
+
+/**
+ * Color per web password source code (`user-secrets`, `repos-yml`, `none`). No web password only stops closing issues
+ * after a merge, so `none` is neutral.
+ */
+const WEB_PASSWORD_SOURCE_TONES: Readonly<Record<string, Tone>> = {
+  'user-secrets': 'success',
+  'repos-yml': 'info',
+  none: 'neutral',
+};
+
+/** The color of a token source code, neutral for an unknown one. */
+export function tokenSourceTone(code: string): Tone {
+  return TOKEN_SOURCE_TONES[code] ?? 'neutral';
+}
+
+/** The color of a web password source code, neutral for an unknown one. */
+export function webPasswordSourceTone(code: string): Tone {
+  return WEB_PASSWORD_SOURCE_TONES[code] ?? 'neutral';
 }

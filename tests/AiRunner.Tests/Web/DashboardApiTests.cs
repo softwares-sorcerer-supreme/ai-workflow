@@ -33,7 +33,7 @@ public sealed class DashboardApiTests : IAsyncDisposable
 
     private async Task<HttpClient> StartAsync()
     {
-        var options = new DashboardAppOptions(_config, _status, _time, _webRoot);
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, _webRoot);
         var builder = DashboardApp.CreateBuilder(options);
         builder.WebHost.UseTestServer();
         _app = DashboardApp.Build(builder, options);

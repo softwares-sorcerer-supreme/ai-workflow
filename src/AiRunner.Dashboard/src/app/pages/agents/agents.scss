@@ -1,0 +1,205 @@
+@use '../../shared/tones';
+
+.small {
+  font: var(--mat-sys-body-small);
+}
+
+// The Sync banner: a warning-toned box with the button on the right; the button wraps below the text at 360 px.
+.sync-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2) var(--app-space-3);
+  padding: var(--app-space-3) var(--app-space-4);
+  border-radius: var(--app-radius-small);
+  background: var(--banner-bg);
+  color: var(--banner-fg);
+  font: var(--mat-sys-body-medium);
+
+  > mat-icon {
+    flex: none;
+    color: var(--banner-dot);
+  }
+}
+
+@include tones.class-variants(banner);
+
+.sync-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+// The list beside the editor from 900 px; one column below.
+.layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: var(--app-space-4);
+  align-items: start;
+}
+
+@media (max-width: 899.98px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.files,
+.editor-card {
+  min-width: 0;
+}
+
+.group + .group {
+  margin-top: var(--app-space-4);
+}
+
+.group-title {
+  margin: 0 0 var(--app-space-2);
+  font: var(--mat-sys-label-large);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.group p {
+  margin: 0 0 var(--app-space-2);
+}
+
+.file-list,
+.extra-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  width: 100%;
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--app-radius-small);
+  background: none;
+  color: inherit;
+  font: var(--mat-sys-body-medium);
+  text-align: start;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+
+  &.selected {
+    border-left-color: var(--mat-sys-primary);
+    background: var(--mat-sys-surface-container-high);
+  }
+}
+
+.path {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+}
+
+.extra {
+  margin-top: var(--app-space-4);
+  padding-top: var(--app-space-3);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  p {
+    margin: 0 0 var(--app-space-1);
+  }
+}
+
+.editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2) var(--app-space-3);
+  margin-bottom: var(--app-space-3);
+
+  .app-card-title {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+app-inline-note {
+  margin-bottom: var(--app-space-3);
+}
+
+.conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-3);
+
+  app-inline-note {
+    flex: 1 1 240px;
+    margin: 0;
+  }
+}
+
+.editor {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 240px;
+  padding: var(--app-space-3);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--app-radius-small);
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-small);
+  font-family: var(--app-font-mono);
+  resize: vertical;
+  tab-size: 2;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -1px;
+  }
+
+  &[readonly] {
+    background: var(--mat-sys-surface-container);
+  }
+}
+
+.reasons {
+  margin-top: var(--app-space-3);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-small);
+  background: var(--app-tone-danger-bg);
+  color: var(--app-tone-danger-fg);
+  font: var(--mat-sys-body-small);
+
+  .reasons-title {
+    margin: 0;
+    font: var(--mat-sys-label-large);
+  }
+
+  ul {
+    margin: var(--app-space-1) 0 0;
+    padding-left: var(--app-space-5);
+  }
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-3);
+}

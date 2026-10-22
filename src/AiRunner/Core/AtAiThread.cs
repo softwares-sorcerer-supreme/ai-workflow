@@ -17,12 +17,12 @@ public sealed class AtAiThread
 {
     private const string UptoPrefix = "<!-- ai-runner:context-upto=";
 
-    private readonly IReadOnlyList<GbComment> _comments;
+    private readonly IReadOnlyList<HostComment> _comments;
     private readonly string _marker;
     private readonly string _keyword;
     private readonly long _replyCursor;
 
-    private AtAiThread(IReadOnlyList<GbComment> comments, ThreadKind kind, long localCursor)
+    private AtAiThread(IReadOnlyList<HostComment> comments, ThreadKind kind, long localCursor)
     {
         _comments = comments;
         _marker = kind.Marker;
@@ -40,11 +40,11 @@ public sealed class AtAiThread
     /// Newest @ai comment the local state says was handled (0 = none). Only <see cref="Trigger"/> and
     /// <see cref="AnsweredUpTo"/> read it.
     /// </param>
-    public static AtAiThread Of(IReadOnlyList<GbComment> comments, string marker, long localCursor) =>
+    public static AtAiThread Of(IReadOnlyList<HostComment> comments, string marker, long localCursor) =>
         new(comments, new ThreadKind(marker), localCursor);
 
     /// <summary>Same, for a project with its own trigger keyword.</summary>
-    public static AtAiThread Of(IReadOnlyList<GbComment> comments, ThreadKind kind, long localCursor) =>
+    public static AtAiThread Of(IReadOnlyList<HostComment> comments, ThreadKind kind, long localCursor) =>
         new(comments, kind, localCursor);
 
     /// <summary>Number of bot replies of this kind so far.</summary>
@@ -57,7 +57,7 @@ public sealed class AtAiThread
     public long AnsweredUpTo { get; }
 
     /// <summary>The newest human @ai comment after <see cref="AnsweredUpTo"/>, or null.</summary>
-    public GbComment? Trigger =>
+    public HostComment? Trigger =>
         _comments
             .Where(comment => comment.Id > AnsweredUpTo && BotComments.MentionsAi(comment, _keyword))
             .MaxBy(comment => comment.Id);
@@ -66,7 +66,7 @@ public sealed class AtAiThread
     /// Comments after the last reply, ignoring the local cursor on purpose: a failed job marks its @ai comment
     /// handled, but its requests were never applied and must reach the next one.
     /// </summary>
-    public IEnumerable<GbComment> RequestsSinceReply => _comments.Where(comment => comment.Id > _replyCursor);
+    public IEnumerable<HostComment> RequestsSinceReply => _comments.Where(comment => comment.Id > _replyCursor);
 
     /// <summary>The number of the next reply, and whether it is over the limit.</summary>
     public (int Number, bool LimitReached) Next(int limit) => (Done + 1, Done >= limit);
@@ -79,7 +79,7 @@ public sealed class AtAiThread
         Markers.Wrap(blockText, marker) + "\n" + $"{UptoPrefix}{readUpTo} -->";
 
     /// <summary>The read-up-to a reply recorded, or null (a reply from before the tag existed).</summary>
-    public static long? ReadUpToOf(GbComment reply)
+    public static long? ReadUpToOf(HostComment reply)
     {
         // The last tag: the runner appends it after the text it posts, which could contain a fake one.
         var tagPattern = Regex.Escape(UptoPrefix) + @"(\d+) -->";

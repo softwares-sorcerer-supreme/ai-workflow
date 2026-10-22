@@ -8,15 +8,15 @@ public sealed class ImplementIssueJobTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private ImplementIssueJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
+        new(_kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
     public void Dispose() => _kit.Dispose();
 
     private void SimpleIssueWithSpec()
     {
-        _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         var specComment = Markers.Wrap(Samples.Spec, Markers.Spec);
-        _kit.GitBucket.AddBotComment(12, specComment);
+        _kit.CodeHost.AddBotComment(12, specComment);
     }
 
     [Fact]
@@ -34,14 +34,14 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(["#12: Export CSV (Copilot)"], _kit.Git.Commits);
         Assert.Contains(("HEAD", "ai/issue-12"), _kit.Git.Pushes);
 
-        var pull = _kit.GitBucket.Pulls.Single();
+        var pull = _kit.CodeHost.Pulls.Single();
         Assert.Equal("Export CSV", pull.Title);
         Assert.Equal(("ai/issue-12", "main"), (pull.Head.Ref, pull.Base.Ref));
         Assert.Contains("Adds CSV export.", pull.Body);
         Assert.Contains("Issue: james/demo#12", pull.Body);
         Assert.DoesNotContain("Closes", pull.Body);
 
-        var labels = _kit.GitBucket.LabelsOf(12);
+        var labels = _kit.CodeHost.LabelsOf(12);
         Assert.Contains(Labels.Implementing, labels);
         Assert.DoesNotContain(Labels.Implement, labels);
         var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
@@ -67,7 +67,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
         await Job.RunAsync(implementRequest, _kit.Run, default);
 
-        var pull = _kit.GitBucket.Pulls.Single();
+        var pull = _kit.CodeHost.Pulls.Single();
         Assert.DoesNotContain("Closes", pull.Body);
         Assert.Contains("Refs #12", pull.Body);
         Assert.Contains("Issue: james/demo#12", pull.Body);
@@ -84,7 +84,7 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Equal("wip", outcome.Result);
 
-        var pull = _kit.GitBucket.Pulls.Single();
+        var pull = _kit.CodeHost.Pulls.Single();
         Assert.StartsWith("[WIP - checks failing]", pull.Title);
         Assert.StartsWith("**WIP", pull.Body!.Replace(BotComments.Marker, "").TrimStart());
     }
@@ -102,9 +102,9 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Equal("too-big", outcome.Result);
         Assert.Contains(("HEAD", "ai/issue-12"), _kit.Git.Pushes);
-        Assert.Empty(_kit.GitBucket.Pulls);
-        Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
-        Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(12));
+        Assert.Empty(_kit.CodeHost.Pulls);
+        Assert.DoesNotContain(Labels.Implementing, _kit.CodeHost.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Implement, _kit.CodeHost.LabelsOf(12));
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public sealed class ImplementIssueJobTests : IDisposable
     {
         var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
         var body = SubIssueBody.Build(new SubIssueDraft(12, task, 3, "contract"));
-        _kit.GitBucket.AddIssue(
+        _kit.CodeHost.AddIssue(
             21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
         _kit.Git.Staged = Enumerable.Range(0, 16)
             .Select(index => new DiffStat($"f{index}.cs", 5, 0))
@@ -121,10 +121,10 @@ public sealed class ImplementIssueJobTests : IDisposable
         var outcome = await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 21), _kit.Run, default);
 
         Assert.Equal("too-big", outcome.Result);
-        Assert.Contains(Labels.Failed, _kit.GitBucket.LabelsOf(21));
-        Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(21));
-        Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(21));
-        Assert.Contains("cannot be split again", _kit.GitBucket.CommentsOf(21).Last().Body);
+        Assert.Contains(Labels.Failed, _kit.CodeHost.LabelsOf(21));
+        Assert.DoesNotContain(Labels.Implement, _kit.CodeHost.LabelsOf(21));
+        Assert.DoesNotContain(Labels.Implementing, _kit.CodeHost.LabelsOf(21));
+        Assert.Contains("cannot be split again", _kit.CodeHost.CommentsOf(21).Last().Body);
     }
 
     [Fact]
@@ -137,19 +137,19 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         await Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default);
 
-        Assert.DoesNotContain(Labels.Failed, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Failed, _kit.CodeHost.LabelsOf(12));
     }
 
     [Fact]
     public async Task Not_simple_is_rejected()
     {
-        _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Complex, Labels.Implement);
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Complex, Labels.Implement);
 
         var implementRequest = _kit.Request(JobType.ImplementIssue, 12);
         var outcome = await Job.RunAsync(implementRequest, _kit.Run, default);
 
         Assert.Equal("rejected", outcome.Result);
-        Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Implement, _kit.CodeHost.LabelsOf(12));
         Assert.Empty(_kit.Copilot.Requests);
     }
 
@@ -176,7 +176,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         await Assert.ThrowsAsync<JobFailedException>(
             () => Job.RunAsync(_kit.Request(JobType.ImplementIssue, 12), _kit.Run, default));
 
-        Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Implementing, _kit.CodeHost.LabelsOf(12));
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Contains("saved on branch `ai/issue-12`", exception.Message);
         Assert.Contains(("HEAD", "ai/issue-12"), _kit.Git.Pushes);
-        Assert.Empty(_kit.GitBucket.Pulls);
+        Assert.Empty(_kit.CodeHost.Pulls);
         Assert.Empty(_kit.Processes.Commands);
     }
 
@@ -243,13 +243,13 @@ public sealed class ImplementIssueJobTests : IDisposable
     [Fact]
     public async Task Sub_issue_builds_on_the_feature_branch_after_the_previous_one_is_merged()
     {
-        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        _kit.CodeHost.AddIssue(12, "Export", null, "ai", Labels.Parent);
         var firstTask = new SubTask(1, "demo", "Entity", "Add entity", "Domain", [], false);
         var secondTask = new SubTask(2, "demo", "Command", "Add command", "App", [1], false);
         var firstTitle = SubIssueBody.Title(12, firstTask);
         var firstDraft = new SubIssueDraft(12, firstTask, 2, "Export");
         var firstBody = SubIssueBody.Build(firstDraft);
-        _kit.GitBucket.AddIssue(
+        _kit.CodeHost.AddIssue(
             20,
             firstTitle,
             firstBody,
@@ -259,14 +259,14 @@ public sealed class ImplementIssueJobTests : IDisposable
         var secondTitle = SubIssueBody.Title(12, secondTask);
         var secondDraft = new SubIssueDraft(12, secondTask, 2, "Export");
         var secondBody = SubIssueBody.Build(secondDraft);
-        _kit.GitBucket.AddIssue(
+        _kit.CodeHost.AddIssue(
             21,
             secondTitle,
             secondBody,
             "ai",
             Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
         var subIssueList = SubIssueBody.ListMarker([20, 21]);
-        _kit.GitBucket.AddBotComment(12, subIssueList);
+        _kit.CodeHost.AddBotComment(12, subIssueList);
         _kit.Git.Refs["origin/feat/issue-12"] = "saved01";
 
         // previous one not merged yet -> wait
@@ -274,8 +274,8 @@ public sealed class ImplementIssueJobTests : IDisposable
         var waiting = await Job.RunAsync(waitingRequest, _kit.Run, default);
         Assert.Equal("rejected", waiting.Result);
 
-        _kit.GitBucket.AddPull(50, "ai/issue-12-1", "feat/issue-12", merged: true, state: "closed");
-        await _kit.GitBucket.AddLabelsAsync(JobTestKit.Repo, 21, [Labels.Implement], default);
+        _kit.CodeHost.AddPull(50, "ai/issue-12-1", "feat/issue-12", merged: true, state: "closed");
+        await _kit.CodeHost.AddLabelsAsync(JobTestKit.Repo, 21, [Labels.Implement], default);
 
         var retryRequest = _kit.Request(JobType.ImplementIssue, 21);
         var outcome = await Job.RunAsync(retryRequest, _kit.Run, default);
@@ -283,7 +283,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal("ok", outcome.Result);
         Assert.Contains(("origin/feat/issue-12", "ai/issue-12-2"), _kit.Workspace.Prepared);
 
-        var pull = _kit.GitBucket.Pulls.Single(candidate => candidate.State == "open");
+        var pull = _kit.CodeHost.Pulls.Single(candidate => candidate.State == "open");
         Assert.Equal(("ai/issue-12-2", "feat/issue-12"), (pull.Head.Ref, pull.Base.Ref));
         var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
         Assert.Contains("Shared contract", File.ReadAllText(planFile));
@@ -292,15 +292,15 @@ public sealed class ImplementIssueJobTests : IDisposable
     /// <summary>Parent 12 with an optional SPEC comment, and its first sub-issue 21 ready to build.</summary>
     private void ParentWithSubIssue(string? parentSpec)
     {
-        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        _kit.CodeHost.AddIssue(12, "Export", null, "ai", Labels.Parent);
         if (parentSpec is not null)
         {
-            _kit.GitBucket.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
+            _kit.CodeHost.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
         }
 
         var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
         var body = SubIssueBody.Build(new SubIssueDraft(12, task, 2, "contract"));
-        _kit.GitBucket.AddIssue(
+        _kit.CodeHost.AddIssue(
             21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
     }
 
@@ -368,7 +368,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.True(File.Exists(diffFile));
         Assert.Equal(["#12: Export CSV (Copilot)"], _kit.Git.Commits);
 
-        var pull = _kit.GitBucket.Pulls.Single();
+        var pull = _kit.CodeHost.Pulls.Single();
         Assert.Equal("Export CSV", pull.Title);
         Assert.Contains("Round 1 (implement): `make build` passed, `make test` failed (exit 1)", pull.Body);
         Assert.Contains("Round 2 (fix): `make build` passed, `make test` passed", pull.Body);
@@ -396,7 +396,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
         Assert.Equal(2, _kit.Processes.Commands.Count);   // build and test of round 1 only
-        Assert.Contains("Round 2 (fix): `make build` passed, `make test` passed", _kit.GitBucket.Pulls.Single().Body);
+        Assert.Contains("Round 2 (fix): `make build` passed, `make test` passed", _kit.CodeHost.Pulls.Single().Body);
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal("wip", outcome.Result);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
         Assert.Equal(2, outcome.CopilotCalls);
-        Assert.StartsWith("[WIP - checks failing]", _kit.GitBucket.Pulls.Single().Title);
+        Assert.StartsWith("[WIP - checks failing]", _kit.CodeHost.Pulls.Single().Title);
     }
 
     [Fact]
@@ -429,7 +429,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(2, _kit.Copilot.Requests.Count);
         Assert.Contains(
             "no progress since round 1 (same failing checks), stopped",
-            _kit.GitBucket.Pulls.Single().Body);
+            _kit.CodeHost.Pulls.Single().Body);
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public sealed class ImplementIssueJobTests : IDisposable
 
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(3, _kit.Copilot.Requests.Count);
-        Assert.DoesNotContain("no progress", _kit.GitBucket.Pulls.Single().Body);
+        Assert.DoesNotContain("no progress", _kit.CodeHost.Pulls.Single().Body);
     }
 
     [Fact]
@@ -516,7 +516,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(2, _kit.Copilot.Requests.Count);
         var fixFile = Path.Combine(_kit.Workspace.Dir, "fix.md");
         Assert.Contains("PR_BODY.md is missing", File.ReadAllText(fixFile));
-        Assert.DoesNotContain("PR description problems", _kit.GitBucket.Pulls.Single().Body);
+        Assert.DoesNotContain("PR description problems", _kit.CodeHost.Pulls.Single().Body);
     }
 
     [Fact]
@@ -531,7 +531,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         // Checks pass, only the text is wrong: one fix round, not every round.
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(2, _kit.Copilot.Requests.Count);
-        var body = _kit.GitBucket.Pulls.Single().Body!;
+        var body = _kit.CodeHost.Pulls.Single().Body!;
         Assert.Contains("Adds CSV export.", body);
         Assert.Contains("### PR description problems", body);
         Assert.Contains("The heading `### What changed` is missing.", body);
@@ -557,7 +557,7 @@ public sealed class ImplementIssueJobTests : IDisposable
         Assert.Equal(2, _kit.Copilot.Requests.Count);   // maxFixRounds is 2, but a failed call ends the rounds
         Assert.Contains(("HEAD", "ai/issue-12"), _kit.Git.Pushes);
 
-        var pull = _kit.GitBucket.Pulls.Single();
+        var pull = _kit.CodeHost.Pulls.Single();
         Assert.StartsWith("[WIP - checks failing]", pull.Title);
         Assert.Contains("Round 2 (fix): Copilot failed (Copilot exited with code 2", pull.Body);
     }

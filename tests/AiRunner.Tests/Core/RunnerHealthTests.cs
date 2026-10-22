@@ -1,6 +1,6 @@
 namespace AiRunner.Tests.Core;
 
-/// <summary>The health rule: starting, stale, error, ok, first match wins.</summary>
+/// <summary>The health rule: starting, stale, error, paused, ok, first match wins.</summary>
 public class RunnerHealthTests
 {
     private static readonly DateTimeOffset Start = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
@@ -13,6 +13,18 @@ public class RunnerHealthTests
         var input = new HealthInput(now, Start, lastPollEnded, Interval, failingProjects);
 
         return RunnerHealth.Assess(input);
+    }
+
+    [Fact]
+    public void Setup_mode_wins_over_a_runner_that_never_polled()
+    {
+        var now = Start + TimeSpan.FromHours(1);
+        var input = new HealthInput(now, Start, null, Interval, 0, IsSetupNeeded: true);
+
+        var health = RunnerHealth.Assess(input);
+
+        Assert.Equal(RunnerHealth.NeedsSetup, health.Code);
+        Assert.Equal("needs-setup", health.Code);
     }
 
     [Fact]
@@ -117,5 +129,33 @@ public class RunnerHealthTests
         var health = Assess(TimeSpan.FromMinutes(10) + Interval * 3, TimeSpan.FromMinutes(10));
 
         Assert.Equal(RunnerHealth.Ok, health.Code);
+    }
+
+    private static HealthState AssessPaused(TimeSpan sinceStart, TimeSpan? pollEndedAfterStart, int failingProjects = 0)
+    {
+        var now = Start + sinceStart;
+        DateTimeOffset? lastPollEnded = pollEndedAfterStart is { } offset ? Start + offset : null;
+        var input = new HealthInput(now, Start, lastPollEnded, Interval, failingProjects, IsPaused: true);
+
+        return RunnerHealth.Assess(input);
+    }
+
+    [Fact]
+    public void A_paused_runner_with_good_polls_is_paused()
+    {
+        var health = AssessPaused(TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(4));
+
+        Assert.Equal(RunnerHealth.Paused, health.Code);
+        Assert.Equal("Paused: no new jobs", health.Label);
+    }
+
+    [Fact]
+    public void A_failing_or_stale_poll_is_louder_than_a_pause()
+    {
+        var failing = AssessPaused(TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(4), failingProjects: 1);
+        var stale = AssessPaused(TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(4));
+
+        Assert.Equal(RunnerHealth.Error, failing.Code);
+        Assert.Equal(RunnerHealth.Stale, stale.Code);
     }
 }

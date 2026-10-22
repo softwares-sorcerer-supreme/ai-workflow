@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -9,11 +10,11 @@ namespace AiRunner.Jobs;
 /// type is not the decision any more (duplicate or late job) returns NotNeeded.
 /// </summary>
 public sealed record IssueSnapshot(
-    ProjectConfig Project, GbIssue Issue, IReadOnlyList<GbComment> Comments, PlanDecision Decision);
+    ProjectConfig Project, HostIssue Issue, IReadOnlyList<HostComment> Comments, PlanDecision Decision);
 
 /// <summary>A PR as a job sees it when it starts; Comments is null when the decision did not need them.</summary>
 public sealed record PullSnapshot(
-    ProjectConfig Project, GbPull Pull, IReadOnlyList<GbComment>? Comments, PlanDecision Decision);
+    ProjectConfig Project, HostPull Pull, IReadOnlyList<HostComment>? Comments, PlanDecision Decision);
 
 /// <summary>The project and the repo (one of its code repos) a PR lives in.</summary>
 public sealed record PullLocation(ProjectConfig Project, string Repo);
@@ -24,7 +25,7 @@ public sealed record PullLocation(ProjectConfig Project, string Repo);
 /// </summary>
 public sealed class JobLoader(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     IStateStore stateStore,
     RunnerIdentity identity)
 {
@@ -32,8 +33,8 @@ public sealed class JobLoader(
     public async Task<IssueSnapshot> LoadIssueAsync(JobRequest request, CancellationToken cancellationToken)
     {
         var project = config.ProjectOf(request.Repo);
-        var issue = await gitBucketClient.GetIssueAsync(request.Repo, request.Number, cancellationToken);
-        var comments = await gitBucketClient.ListCommentsAsync(request.Repo, request.Number, cancellationToken);
+        var issue = await codeHost.GetIssueAsync(request.Repo, request.Number, cancellationToken);
+        var comments = await codeHost.ListCommentsAsync(request.Repo, request.Number, cancellationToken);
         var lastHandledComment = stateStore.GetLastHandledComment(request.Repo, issue.Number);
         var planInput = new IssuePlanInput(project, request.Repo, issue, comments, lastHandledComment);
         var decision = JobPlanner.PlanIssue(planInput);
@@ -45,7 +46,10 @@ public sealed class JobLoader(
     /// Plans a PR the way the poller and the PR jobs all do: comments are read only when the decision
     /// needs them (a review fix is possible), then the PR is planned again with them.
     /// </summary>
-    public async Task<PullSnapshot> PlanPullAsync(PullLocation location, GbPull pull, CancellationToken cancellationToken)
+    public async Task<PullSnapshot> PlanPullAsync(
+        PullLocation location,
+        HostPull pull,
+        CancellationToken cancellationToken)
     {
         var (project, repo) = location;
         var review = stateStore.GetReview(repo, pull.Number);
@@ -61,7 +65,7 @@ public sealed class JobLoader(
             return new PullSnapshot(project, pull, null, decision);
         }
 
-        var comments = await gitBucketClient.ListCommentsAsync(repo, pull.Number, cancellationToken);
+        var comments = await codeHost.ListCommentsAsync(repo, pull.Number, cancellationToken);
         var lastHandledComment = stateStore.GetLastHandledComment(repo, pull.Number);
         var planInputWithComments = planInput with
         {
@@ -77,7 +81,7 @@ public sealed class JobLoader(
     public async Task<PullSnapshot> LoadPullAsync(JobRequest request, CancellationToken cancellationToken)
     {
         var project = config.ProjectOf(request.Repo);
-        var pull = await gitBucketClient.GetPullAsync(request.Repo, request.Number, cancellationToken);
+        var pull = await codeHost.GetPullAsync(request.Repo, request.Number, cancellationToken);
 
         return await PlanPullAsync(new PullLocation(project, request.Repo), pull, cancellationToken);
     }

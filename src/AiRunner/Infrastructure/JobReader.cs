@@ -18,7 +18,9 @@ public sealed record JobRecord(
     string? LogDir,
     string? Result,
     string? Detail,
-    int? CopilotCalls = null);
+    int? CopilotCalls = null,
+    string? Model = null,
+    string? ModelReason = null);
 
 /// <summary>Filters and the page of a job history read. <c>Repos</c> null = every repo, empty = none.</summary>
 public sealed record JobQuery(
@@ -43,6 +45,9 @@ public interface IJobReader
     JobPage QueryHistory(JobQuery query);
 
     JobRecord? GetRecord(long id);
+
+    /// <summary>The steps of a job in the order they ran; empty for a job from before the step log.</summary>
+    IReadOnlyList<JobStepRecord> ListSteps(long jobId);
 
     /// <summary>Every job on one issue or PR, newest first: the timeline of the issue page.</summary>
     IReadOnlyList<JobRecord> ListForItem(string repo, int number);

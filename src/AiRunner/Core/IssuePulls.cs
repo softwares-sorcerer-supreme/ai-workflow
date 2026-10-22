@@ -13,7 +13,7 @@ public enum PullOutcome
 public static class IssuePulls
 {
     /// <summary>The PRs of a simple issue: head ai/issue-{n}, in any base.</summary>
-    public static IReadOnlyList<GbPull> OfIssue(int number, IEnumerable<GbPull> pulls)
+    public static IReadOnlyList<HostPull> OfIssue(int number, IEnumerable<HostPull> pulls)
     {
         var branch = Branches.Issue(number);
 
@@ -26,7 +26,7 @@ public static class IssuePulls
     /// Merged when any PR is merged, else open when any is still open, else closed without a merge when there is
     /// at least one, else none.
     /// </summary>
-    public static PullOutcome OutcomeOf(IReadOnlyCollection<GbPull> pulls)
+    public static PullOutcome OutcomeOf(IReadOnlyCollection<HostPull> pulls)
     {
         if (pulls.Any(pull => pull.IsMerged()))
         {

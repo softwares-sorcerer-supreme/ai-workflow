@@ -1,12 +1,13 @@
-using System.Net.Http.Headers;
 using AiRunner.Configuration;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 using AiRunner.Jobs;
 using AiRunner.Web;
 
 // Modes:
-//   (none)                     poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard)
+//   (none)                     poll every pollIntervalSeconds and run jobs until Ctrl+C (and serve the dashboard);
+//                              with no token yet: setup mode (only the dashboard, open /setup to save the token)
 //   --once                     poll once, run the queued jobs, exit
 //   --dry-run                  print what would be queued; run nothing (with --once: a single poll)
 //   --setup-labels             create the runner's labels in every repo of every project in repos.yml
@@ -23,13 +24,14 @@ if (mode.OpenApiPath is not null)
 }
 
 var configPath = mode.ConfigPath ?? FindConfig();
-var configFile = RunnerConfig.LoadFile(configPath);
-var config = configFile.Config;
-var fullConfigPath = Path.GetFullPath(configPath);
 
-// No args passed to the host on purpose: flags like "--once" are not config keys.
+// The live config (repos.yml is reloaded while the runner runs); here the startup one decides the mode.
+var configSource = RunnerConfigSource.Load(configPath);
+var config = configSource.Current;
+
+// No args passed to the host on purpose: flags like "--once" are not config keys. No AddUserSecrets either: the
+// secrets file is read (and written by the Setup page) through UserSecretsStore only.
 var builder = Host.CreateApplicationBuilder();
-builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
 {
@@ -37,78 +39,30 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "HH:mm:ss ";
 });
 
-var token = builder.Configuration["GitBucket:Token"]
-    ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN")
-    ?? (mode.CopilotTest ? "" : throw new InvalidOperationException(
-        "No GitBucket token. Run: dotnet user-secrets set GitBucket:Token <token> --project src/AiRunner"));
-var identity = new RunnerIdentity { GitSecret = builder.Configuration["GitBucket:GitPassword"] ?? token };
+// The secrets: user secrets first, then the environment (GitBucket__Token is the .NET name of the config key),
+// the web password last from repos.yml. With none, the loop waits in setup mode; every other mode stops.
+var environment = CredentialEnvironment.FromProcess();
+var secretsStore = UserSecretsStore.ForAssembly(typeof(Program).Assembly);
+var credentialSources = new CredentialSources(secretsStore, environment, configSource.StartupWebPassword);
+var credentialValues = credentialSources.Load();
+var credentials = new RunnerCredentials(credentialValues);
+var isSetupMode = !credentials.IsTokenSet && mode.CanStartInSetupMode;
+if (!credentials.IsTokenSet && !isSetupMode && mode.NeedsToken)
+{
+    throw new InvalidOperationException(RunMode.NoTokenMessage(config.Dashboard.Port));
+}
 
-// Configuration and Infrastructure: one instance each, every side effect behind an interface.
-builder.Services.AddSingleton(config);
-builder.Services.AddSingleton(identity);
+var identity = new RunnerIdentity();
 
-// Attachments are web routes, not /api/v3: a second client that never follows redirects (a redirect to the
-// login page is reported, and the token cannot be sent on to another host). Closing an issue is a web form too
-// (the API has no route for it): a third client with a session cookie, signed in with git_bucket.web_password.
-builder.Services.AddSingleton<IGitBucketClient>(_ => new GitBucketClient(
-    new HttpClient
-    {
-        BaseAddress = new Uri(config.GitBucket.BaseUrl.TrimEnd('/') + "/api/v3/"),
-        Timeout = TimeSpan.FromSeconds(30),
-        DefaultRequestHeaders =
-        {
-            Authorization = new AuthenticationHeaderValue("token", token),
-            Accept = { new MediaTypeWithQualityHeaderValue("application/json") },
-        },
-    },
-    new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
-    {
-        Timeout = TimeSpan.FromMinutes(2),
-        DefaultRequestHeaders = { Authorization = new AuthenticationHeaderValue("token", token) },
-    },
-    GitBucketWeb.Create(config.GitBucket.BaseUrl, configFile.WebPassword)));
-builder.Services.AddSingleton<IProcessRunner>(_ => new ProcessRunner());
-builder.Services.AddSingleton<ICopilotRunner, CopilotRunner>();
-builder.Services.AddSingleton<IGitClient, GitClient>();
-builder.Services.AddSingleton<IWorkspace, Workspace>();
-builder.Services.AddSingleton<SqliteStateStore>();
-builder.Services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-builder.Services.AddSingleton<ICostLog, CostLog>();
-builder.Services.AddSingleton<JobLog>();
-builder.Services.AddSingleton<AgentInstaller>();
-builder.Services.AddSingleton<AgentSession>();
-builder.Services.AddSingleton<AttachmentFetcher>();
-
-// Jobs: stateless, one per workflow.
-builder.Services.AddSingleton<IJob, AnalyzeIssueJob>();
-builder.Services.AddSingleton<IJob, BreakdownIssueJob>();
-builder.Services.AddSingleton<IJob, ImplementIssueJob>();
-builder.Services.AddSingleton<IJob, ReviewPullRequestJob>();
-builder.Services.AddSingleton<IJob, SequenceSubIssuesJob>();
-builder.Services.AddSingleton<IJob, FixReviewJob>();
-builder.Services.AddSingleton<IJob, FinishIssueJob>();
-builder.Services.AddSingleton<JobFactory>();
-builder.Services.AddSingleton<JobLoader>();
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<ClaimService>();
-
-// Hosting.
-builder.Services.AddSingleton<JobQueue>();
-builder.Services.AddSingleton<SnapshotRecorder>();
-builder.Services.AddSingleton<Poller>();
-builder.Services.AddSingleton<JobWorker>();
-builder.Services.AddSingleton<LabelSetup>();
-builder.Services.AddSingleton<CopilotSelfTest>();
-builder.Services.AddSingleton<AttachmentSelfTest>();
-builder.Services.AddSingleton<CloseSelfTest>();
-builder.Services.AddSingleton(serviceProvider => new RunnerStatus(
-    config.EffectiveRunnerName(),
-    fullConfigPath,
-    serviceProvider.GetRequiredService<TimeProvider>()));
+// Scope validation in every environment: a singleton holding the scoped config would never see a reload.
+builder.ConfigureContainer(new DefaultServiceProviderFactory(RunnerServices.ProviderOptions));
+var servicesInput = new RunnerServicesInput(
+    configSource,
+    credentials,
+    credentialSources,
+    identity,
+    CopilotHome.FromUserProfile());
+RunnerServices.Add(builder.Services, servicesInput);
 
 if (mode.IsPollingLoop)
 {
@@ -120,7 +74,7 @@ if (mode.IsPollingLoop)
     }
 }
 
-if (mode.ShouldStartDashboard(config.Dashboard))
+if (mode.ShouldStartDashboard(config.Dashboard, isSetupMode))
 {
     builder.Services.AddHostedService<DashboardHost>();
 }
@@ -131,7 +85,8 @@ var cancellationToken = CancellationToken.None;
 
 if (mode.CopilotTest)
 {
-    await services.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
+    using var copilotScope = services.CreateScope();
+    await copilotScope.ServiceProvider.GetRequiredService<CopilotSelfTest>().RunAsync(cancellationToken);
     return;
 }
 
@@ -147,18 +102,28 @@ if (mode.CloseTestIssue is { } closeTestIssue)
     return;
 }
 
-// Who are we on GitBucket? Needed for the scope guard and for git over HTTP.
-var currentUser = await services.GetRequiredService<IGitBucketClient>().GetCurrentUserAsync(cancellationToken);
-identity.Login = currentUser.Login;
-
 var logger = services.GetRequiredService<ILogger<Program>>();
+if (isSetupMode)
+{
+    // No code-host call: the poller and the worker wait until the Setup page saves a token (RunnerSetup sets the
+    // login).
+    var setupUrl = RunMode.SetupUrl(config.Dashboard.Port);
+    logger.LogWarning("No GitBucket token yet: open {SetupUrl}", setupUrl);
+}
+else
+{
+    // Who are we on the code host? Needed for the scope guard and for git over HTTP.
+    var currentUser = await services.GetRequiredService<ICodeHost>().GetCurrentUserAsync(cancellationToken);
+    identity.Login = currentUser.Login;
+}
+
 logger.LogInformation(
     "ai-runner as {Login} on {Url}, {Projects} project(s), {Repos} repo(s), config {Config}",
-    identity.Login,
-    config.GitBucket.BaseUrl,
+    isSetupMode ? "(setup mode)" : identity.Login,
+    config.CodeHost.BaseUrl,
     config.Projects.Count,
     config.AllRepos().Count(),
-    fullConfigPath);
+    configSource.Path);
 
 if (mode.SetupLabels)
 {
@@ -170,7 +135,8 @@ services.GetRequiredService<Poller>().DryRun = mode.DryRun;
 
 if (!mode.DryRun)
 {
-    services.GetRequiredService<AgentInstaller>().Install();
+    var copilotHome = services.GetRequiredService<CopilotHome>();
+    services.GetRequiredService<AgentInstaller>().Install(copilotHome.Path);
     services.GetRequiredService<JobLog>().Cleanup();
 }
 

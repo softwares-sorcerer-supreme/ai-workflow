@@ -2,12 +2,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 using AiRunner.Tests.Fakes;
 using AiRunner.Jobs;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
 /// <summary>
 /// Real git and real shell, against a local bare repo: baseUrl "file:///..." makes
-/// GitClient.RemoteUrl point at {root}/git/{owner}/{name}.git instead of GitBucket.
+/// GitBucketGitRemote.UrlOf point at {root}/git/{owner}/{name}.git instead of GitBucket.
 /// </summary>
 public sealed class GitWorkspaceTests : IDisposable
 {
@@ -16,6 +17,7 @@ public sealed class GitWorkspaceTests : IDisposable
     private readonly RunnerConfig _config;
     private readonly GitClient _gitClient;
     private readonly Workspace _workspace;
+    private readonly WorkspaceLocks _locks = new();
     private readonly ProjectConfig _project;
 
     public GitWorkspaceTests()
@@ -35,8 +37,18 @@ public sealed class GitWorkspaceTests : IDisposable
         var templateFile = Path.Combine(_root, "templates", "analysis.md");
         File.WriteAllText(templateFile, "template");
 
-        _gitClient = new GitClient(_config, new RunnerIdentity { Login = "bot", GitSecret = "x" }, _processRunner);
-        _workspace = new Workspace(_config, _gitClient, NullLogger<Workspace>.Instance);
+        var identity = new RunnerIdentity { Login = "bot" };
+        var remote = new GitBucketGitRemote(
+            RunnerConfigSource.Fixed(_config),
+            identity,
+            RunnerCredentials.Of(token: "x"));
+        _gitClient = new GitClient(RunnerConfigSource.Fixed(_config), remote, _processRunner);
+        _workspace = new Workspace(
+            RunnerConfigSource.Fixed(_config),
+            _gitClient,
+            remote,
+            _locks,
+            NullLogger<Workspace>.Instance);
 
         // origin: a bare repo with one commit on main
         var bare = Path.Combine(_root, "git", "o", "r.git");
@@ -54,9 +66,9 @@ public sealed class GitWorkspaceTests : IDisposable
     public void Dispose() => FileSystem.DeleteDirectory(_root);
 
     /// <summary>Prepares the project and returns the clone of o/r.</summary>
-    private async Task<string> PrepareAsync(string startPoint, string? newBranch, params string[] extraFetch)
+    private async Task<string> PrepareAsync(string startPoint, string? newBranch, int? pullHead = null)
     {
-        var request = new WorkspaceRequest(_project, "o/r", startPoint, newBranch, extraFetch);
+        var request = new WorkspaceRequest(_project, "o/r", startPoint, newBranch, pullHead);
         var prepared = await _workspace.PrepareAsync(request, default);
 
         return prepared.TargetClone;
@@ -64,7 +76,7 @@ public sealed class GitWorkspaceTests : IDisposable
 
     private async Task<PreparedWorkspace> PrepareProjectAsync(ProjectConfig project, string targetRepo)
     {
-        var request = new WorkspaceRequest(project, targetRepo, "origin/main", null, [])
+        var request = new WorkspaceRequest(project, targetRepo, "origin/main", null, null)
         {
             Writable = true,
         };
@@ -113,7 +125,7 @@ public sealed class GitWorkspaceTests : IDisposable
         Assert.Equal(["app.txt", "new.txt"], stats.Select(stat => stat.Path).Order());
         Assert.Equal(4, stats.Sum(stat => stat.Lines));
 
-        await _gitClient.CommitAsync(directory, "#1: test (Copilot)", default);
+        await _gitClient.CommitAsync(directory, "#1: test (Copilot)", new GitConfig(), default);
         await _gitClient.PushAsync(directory, "HEAD", "ai/issue-1", default);
         var head = await _gitClient.ResolveAsync(directory, "HEAD", default);
         Assert.Matches("^[0-9a-f]{40}$", head);
@@ -156,7 +168,7 @@ public sealed class GitWorkspaceTests : IDisposable
     [Fact]
     public async Task Feature_branch_is_pushed_from_a_remote_ref_and_missing_refs_fail_clearly()
     {
-        var directory = await PrepareAsync("origin/main", null, "+refs/pull/9/head:refs/remotes/pr/9");
+        var directory = await PrepareAsync("origin/main", null, pullHead: 9);
         await _gitClient.PushAsync(directory, "origin/main", "feat/issue-5", default);
         await _gitClient.CloneOrFetchAsync("o/r", directory, default);
         Assert.True(await _gitClient.RefExistsAsync(directory, "origin/feat/issue-5", default));
@@ -177,7 +189,7 @@ public sealed class GitWorkspaceTests : IDisposable
 
         await _gitClient.StageAllAsync(directory, default);
         var before = _gitClient.ConfigFingerprint(directory);
-        await _gitClient.CommitAsync(directory, "test", default);
+        await _gitClient.CommitAsync(directory, "test", new GitConfig(), default);
 
         Assert.False(File.Exists(marker));
         Assert.Equal(before, _gitClient.ConfigFingerprint(directory));
@@ -334,7 +346,7 @@ public sealed class GitWorkspaceTests : IDisposable
     {
         SeedRepo("o/s", ("lib.txt", "lib\n"));
         PushFeatureBranch();
-        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, null)
         {
             Writable = true,
             OthersAt = "feat/issue-12",
@@ -357,7 +369,7 @@ public sealed class GitWorkspaceTests : IDisposable
     public async Task The_other_repos_stay_at_the_default_branch_when_the_feature_branch_is_missing()
     {
         SeedRepo("o/s", ("lib.txt", "lib\n"));
-        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, [])
+        var request = new WorkspaceRequest(DuoProject(), "o/r", "origin/main", null, null)
         {
             Writable = true,
             OthersAt = "feat/issue-12",
@@ -624,7 +636,7 @@ public sealed class GitWorkspaceTests : IDisposable
             ],
         };
         project.Settings.NeverEdit = ["migrations/"];
-        var request = new WorkspaceRequest(project, "o/mono", "origin/main", "ai/issue-1", [])
+        var request = new WorkspaceRequest(project, "o/mono", "origin/main", "ai/issue-1", null)
         {
             Writable = true,
             TargetComponent = "api",

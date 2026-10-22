@@ -22,6 +22,11 @@ public sealed record CostRecord(
     /// </summary>
     public IReadOnlyList<UsagePart> Parts { get; init; } = [];
 
+    /// <summary>The model of the job's first Copilot run (null = Copilot's default, or an old row) and why.</summary>
+    public string? Model { get; init; }
+
+    public string? ModelReason { get; init; }
+
     /// <summary>The job ran Copilot (the count is unknown or above 0); a breakdown or routine job did not.</summary>
     public bool RanCopilot => CopilotCalls != 0;
 }
@@ -65,7 +70,15 @@ public sealed record CostRow(
     public CopilotUsage Usage { get; init; } = CopilotUsage.Zero;
 
     public int JobsWithoutUsage { get; init; }
+
+    /// <summary>
+    /// The models the group's jobs started with and why; rows from before model selection add nothing.
+    /// </summary>
+    public IReadOnlyList<ModelUse> Models { get; init; } = [];
 }
+
+/// <summary>How many jobs of a group used a model (null = Copilot's default) for a reason ("issue override").</summary>
+public sealed record ModelUse(string? Model, string Reason, int Jobs);
 
 /// <summary>
 /// The rows and their total. A grouping that splits a job (model) sets the last two: jobs that are in no row, and
@@ -196,6 +209,12 @@ public static class CostReport
             Usage = CopilotUsage.Sum(usages),
             // A job that ran no Copilot has nothing to miss.
             JobsWithoutUsage = records.Count(record => record.Usage is null && record.RanCopilot),
+            Models = records
+                .Where(record => record.ModelReason is not null)
+                .GroupBy(record => (record.Model, Reason: record.ModelReason!))
+                .Select(group => new ModelUse(group.Key.Model, group.Key.Reason, group.Count()))
+                .OrderByDescending(use => use.Jobs)
+                .ToList(),
         };
     }
 

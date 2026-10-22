@@ -24,7 +24,7 @@ public sealed class CostStorageTests : IDisposable
     {
         var config = new RunnerConfig { Paths = new PathsConfig { Logs = _folder } };
 
-        return new CostLog(config, store, NullLogger<CostLog>.Instance);
+        return new CostLog(RunnerConfigSource.Fixed(config), store, NullLogger<CostLog>.Instance);
     }
 
     [Fact]

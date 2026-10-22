@@ -1,5 +1,5 @@
-using System.Text;
 using AiRunner.Configuration;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Infrastructure;
 
@@ -44,7 +44,10 @@ public interface IGitClient
     /// <summary>git add -A, then the staged changes per file.</summary>
     Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken);
 
-    Task CommitAsync(string directory, string message, CancellationToken cancellationToken);
+    /// <summary>
+    /// Commits the staged changes as <paramref name="author"/>: the job's config, never changed mid-job.
+    /// </summary>
+    Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken);
 
     /// <summary>Push source (a ref or sha) to the branch on origin. Never forced.</summary>
     Task PushAsync(string directory, string source, string branch, CancellationToken cancellationToken);
@@ -71,19 +74,44 @@ public interface IGitClient
 
     /// <summary>Hash of .git/config, to notice when something in the work folder changed it.</summary>
     string ConfigFingerprint(string directory);
+
+    /// <summary>
+    /// What HEAD of a clone is, from local git only (no network): the commit and the branch it is on. Null when the
+    /// folder has no commit or is not a usable clone.
+    /// </summary>
+    Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken);
 }
+
+/// <summary>The commit a clone stands on.</summary>
+/// <param name="Branch">The local branch, or null when HEAD is detached.</param>
+/// <param name="DetachedAt">
+/// A remote branch at the same commit (e.g. "origin/main") when HEAD is detached, else null.
+/// </param>
+public sealed record CloneHead(
+    string Sha,
+    string Subject,
+    DateTimeOffset CommittedAt,
+    string? Branch,
+    string? DetachedAt);
 
 /// <summary>
 /// Runs git through IProcessRunner. Credentials and hardening go in GIT_CONFIG_* environment
 /// variables of each git call: the token is never written into .git/config and never shows in
 /// the process list. Hooks and fsmonitor are off, so nothing the agent writes into the clone
-/// (.git/hooks, a config entry) runs when the runner calls git.
+/// (.git/hooks, a config entry) runs when the runner calls git. The clone URL and the auth header
+/// come from the code host's <see cref="IGitRemote"/>.
 /// </summary>
-public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IProcessRunner processRunner) : IGitClient
+public sealed class GitClient(
+    RunnerConfigSource configSource,
+    IGitRemote remote,
+    IProcessRunner processRunner) : IGitClient
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
+    private RunnerConfig Config => configSource.Current;
 
-    private string RemoteUrl(string repo) => $"{config.GitBucket.BaseUrl.TrimEnd('/')}/git/{repo}.git";
+    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
 
     public async Task CloneOrFetchAsync(string repo, string directory, CancellationToken cancellationToken)
     {
@@ -102,7 +130,7 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
         var parentFolder = Path.GetDirectoryName(directory)!;
         Directory.CreateDirectory(parentFolder);
-        var remoteUrl = RemoteUrl(repo);
+        var remoteUrl = remote.UrlOf(repo);
         await GitAsync(
             parentFolder,
             cancellationToken,
@@ -238,14 +266,14 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         return ParseNumstat(text);
     }
 
-    public Task CommitAsync(string directory, string message, CancellationToken cancellationToken) =>
+    public Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken) =>
         GitAsync(
             directory,
             cancellationToken,
             "-c",
-            $"user.name={config.Git.UserName}",
+            $"user.name={author.UserName}",
             "-c",
-            $"user.email={config.Git.UserEmail}",
+            $"user.email={author.UserEmail}",
             "commit",
             "--no-verify",
             "-m",
@@ -373,6 +401,40 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         return Convert.ToHexString(hash);
     }
 
+    public async Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken)
+    {
+        // Unit separator between the fields: a subject may hold any printable character.
+        var log = await RunAsync(directory, cancellationToken, "log", "-1", "--format=%H%x1f%s%x1f%cI");
+        if (!log.Ok)
+        {
+            return null;
+        }
+
+        var fields = log.StdOut.Trim().Split('\u001f');
+        var isDate = DateTimeOffset.TryParse(
+            fields.ElementAtOrDefault(2),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var committedAt);
+        if (fields.Length < 3 || !isDate)
+        {
+            return null;
+        }
+
+        var symbolic = await RunAsync(directory, cancellationToken, "symbolic-ref", "--short", "-q", "HEAD");
+        if (symbolic.Ok)
+        {
+            return new CloneHead(fields[0], fields[1], committedAt, symbolic.StdOut.Trim(), null);
+        }
+
+        var remotes = await RunAsync(directory, cancellationToken, "branch", "-r", "--points-at", "HEAD");
+        var detachedAt = remotes.StdOut
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(line => !line.Contains("->", StringComparison.Ordinal));
+
+        return new CloneHead(fields[0], fields[1], committedAt, null, detachedAt);
+    }
+
     /// <summary>"12\t3\tpath" lines; binary files show "-" and count as 0 lines.</summary>
     private static IReadOnlyList<DiffStat> ParseNumstat(string text) =>
         text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -399,12 +461,11 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
 
     private Task<ProcessResult> RunAsync(string directory, CancellationToken cancellationToken, params string[] args)
     {
-        var credentialBytes = Encoding.UTF8.GetBytes($"{identity.Login}:{identity.GitSecret}");
-        var basicCredentials = Convert.ToBase64String(credentialBytes);
-        var workFolder = config.ResolvePath(config.Paths.Work);
+        var authorizationHeader = remote.AuthorizationHeader();
+        var workFolder = Config.ResolvePath(Config.Paths.Work);
         (string Key, string Value)[] settings =
         [
-            ("http.extraHeader", $"Authorization: Basic {basicCredentials}"),
+            ("http.extraHeader", authorizationHeader),
             ("credential.helper", ""),                                // never ask Windows Credential Manager
             ("core.hooksPath", Path.Combine(workFolder, ".no-hooks")), // does not exist
             ("core.fsmonitor", "false"),
@@ -415,6 +476,10 @@ public sealed class GitClient(RunnerConfig config, RunnerIdentity identity, IPro
         var environment = new Dictionary<string, string>
         {
             ["GIT_TERMINAL_PROMPT"] = "0",
+
+            // A read (diff, status) never refreshes the index, so it takes no index.lock: the Workspaces page reads a
+            // clone without the project lock, and a job may start on it in that moment.
+            ["GIT_OPTIONAL_LOCKS"] = "0",
             ["GIT_CONFIG_COUNT"] = settings.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 

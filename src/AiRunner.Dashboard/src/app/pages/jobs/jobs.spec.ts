@@ -70,6 +70,23 @@ describe('Jobs', () => {
     expect(cells).toEqual(['3', '-']);
   });
 
+  it('shows the model and its reason, the reason alone without a model, and "-" for an old job', async () => {
+    const { element } = await render(
+      page({
+        items: [
+          sampleJob({ model: 'claude-opus-5.5', modelReason: 'issue override' }),
+          sampleJob({ id: 8, model: null, modelReason: 'Copilot default' }),
+          sampleJob({ id: 9, model: null, modelReason: null }),
+        ],
+      }),
+    );
+
+    const cells = Array.from(element.querySelectorAll('td.mat-column-model')).map((cell) =>
+      cell.textContent?.trim(),
+    );
+    expect(cells).toEqual(['claude-opus-5.5 - issue override', 'Copilot default', '-']);
+  });
+
   it('asks the API again for page 1 with the chosen status', async () => {
     const { api, fixture, loader } = await render();
 

@@ -12,6 +12,7 @@ import { LogFileTextResponse } from '../../models/log-file-text-response';
 export interface GetJobFile$Params {
   id: number;
   name: string;
+  offset?: number;
 }
 
 export function getJobFile(http: HttpClient, rootUrl: string, params: GetJobFile$Params, context?: HttpContext): Observable<StrictHttpResponse<LogFileTextResponse>> {
@@ -19,6 +20,7 @@ export function getJobFile(http: HttpClient, rootUrl: string, params: GetJobFile
   if (params) {
     rb.path('id', params.id, {});
     rb.path('name', params.name, {});
+    rb.query('offset', params.offset, {});
   }
 
   return http.request(

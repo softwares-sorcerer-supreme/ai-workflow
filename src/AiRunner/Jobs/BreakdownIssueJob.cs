@@ -2,6 +2,7 @@ using System.Text;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -17,7 +18,7 @@ public sealed record SubIssueRequest(
 /// <summary>What the comment on the parent issue lists: the sub-issues with their components, and the repos that got a feature branch.</summary>
 public sealed record ParentCommentDraft(
     int Parent,
-    IReadOnlyList<(SubTask Task, GbIssue Issue)> SubIssues,
+    IReadOnlyList<(SubTask Task, HostIssue Issue)> SubIssues,
     IReadOnlyList<string> FeatureRepos);
 
 /// <summary>
@@ -26,7 +27,7 @@ public sealed record ParentCommentDraft(
 /// (components that share a repo share its branch). No Copilot run: the analysis already has it.
 /// </summary>
 public sealed class BreakdownIssueJob(
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IWorkspace workspace,
     IGitClient git) : IJob
@@ -53,9 +54,9 @@ public sealed class BreakdownIssueJob(
         var labelNames = issue.LabelNames();
         if (JobPlanner.WhyNotBreakdown(labelNames, project.Settings.TriggerKeyword) is { } rejectionReason)
         {
-            await gitBucketClient.AddCommentAsync(
+            await codeHost.AddCommentAsync(
                 request.Repo, issue.Number, $"I did not create sub-issues: {rejectionReason}", cancellationToken);
-            await gitBucketClient.RemoveLabelAsync(request.Repo, issue.Number, Labels.Breakdown, cancellationToken);
+            await codeHost.RemoveLabelAsync(request.Repo, issue.Number, Labels.Breakdown, cancellationToken);
             return new JobOutcome("rejected", rejectionReason, CopilotCalls: 0);
         }
 
@@ -91,15 +92,17 @@ public sealed class BreakdownIssueJob(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var firstRepo = featureRepos[0];
-        var firstDefaultBranch = await gitBucketClient.DefaultBranchAsync(firstRepo, cancellationToken);
+        var firstDefaultBranch = await codeHost.DefaultBranchAsync(firstRepo, cancellationToken);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: firstRepo,
             StartPoint: Branches.Remote(firstDefaultBranch),
             NewBranch: null,
-            ExtraFetch: []);
+            PullHead: null);
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
 
+        run.Step(JobSteps.Push, "Feature branches");
         foreach (var featureRepo in featureRepos)
         {
             var clone = prepared.CloneOf(featureRepo);
@@ -111,11 +114,12 @@ public sealed class BreakdownIssueJob(
 
         // Sub-issues, in order. Existing ones (from an earlier, interrupted run) are reused, closed ones too: a
         // person may have closed one in the meantime, and a second copy of it would be built twice.
-        var open = await gitBucketClient.ListOpenIssuesAsync(
+        run.Step(JobSteps.Comment, "Create sub-issues");
+        var open = await codeHost.ListOpenIssuesAsync(
             request.Repo, Labels.SubIssue, null, cancellationToken);
-        var closed = await gitBucketClient.ListClosedIssuesAsync(request.Repo, Labels.SubIssue, cancellationToken);
-        List<GbIssue> existing = [.. open, .. closed];
-        var created = new List<(SubTask Task, GbIssue Issue)>();
+        var closed = await codeHost.ListClosedIssuesAsync(request.Repo, Labels.SubIssue, cancellationToken);
+        List<HostIssue> existing = [.. open, .. closed];
+        var created = new List<(SubTask Task, HostIssue Issue)>();
         foreach (var task in breakdown.Tasks)
         {
             var title = SubIssueBody.Title(issue.Number, task);
@@ -136,26 +140,26 @@ public sealed class BreakdownIssueJob(
 
         var commentDraft = new ParentCommentDraft(issue.Number, created, featureRepos);
         var parentComment = ParentComment(commentDraft, project.Settings);
-        await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, parentComment, cancellationToken);
+        await codeHost.AddCommentAsync(request.Repo, issue.Number, parentComment, cancellationToken);
 
         var labelChange = new LabelChange(Add: [Labels.Parent], Remove: [Labels.Breakdown]);
-        await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
+        await codeHost.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
 
         return JobOutcome.Ok($"{created.Count} sub-issues", copilotCalls: 0);
     }
 
     private async Task<JobOutcome> RejectUnreadableAsync(
         ProjectConfig project,
-        GbIssue issue,
+        HostIssue issue,
         string problem,
         CancellationToken cancellationToken)
     {
         var reason = $"The proposed breakdown has the wrong format: {problem}. " +
                      $"Write {project.Settings.TriggerKeyword} to ask for a new analysis, " +
                      $"then add `{Labels.Breakdown}` again.";
-        await gitBucketClient.AddCommentAsync(
+        await codeHost.AddCommentAsync(
             project.IssuesRepo, issue.Number, $"I did not create sub-issues: {reason}", cancellationToken);
-        await gitBucketClient.RemoveLabelAsync(project.IssuesRepo, issue.Number, Labels.Breakdown, cancellationToken);
+        await codeHost.RemoveLabelAsync(project.IssuesRepo, issue.Number, Labels.Breakdown, cancellationToken);
 
         return new JobOutcome("rejected", reason, CopilotCalls: 0);
     }
@@ -167,7 +171,7 @@ public sealed class BreakdownIssueJob(
         int parent,
         CancellationToken cancellationToken)
     {
-        var defaultBranch = await gitBucketClient.DefaultBranchAsync(repo, cancellationToken);
+        var defaultBranch = await codeHost.DefaultBranchAsync(repo, cancellationToken);
         var defaultRemote = Branches.Remote(defaultBranch);
         var feature = Branches.Feature(parent);
         var featureRemote = Branches.Remote(feature);
@@ -183,7 +187,7 @@ public sealed class BreakdownIssueJob(
         return true;
     }
 
-    private async Task<GbIssue> CreateSubIssueAsync(SubIssueRequest request, CancellationToken cancellationToken)
+    private async Task<HostIssue> CreateSubIssueAsync(SubIssueRequest request, CancellationToken cancellationToken)
     {
         var (project, issuesRepo, parent, task, breakdown, title) = request;
         var settings = project.Settings;
@@ -200,11 +204,14 @@ public sealed class BreakdownIssueJob(
         var draft = new SubIssueDraft(parent, task, breakdown.Tasks.Count, breakdown.SharedContract);
         var body = SubIssueBody.Build(draft);
         var newIssue = new NewIssue(title, body, labels);
-        var subIssue = await gitBucketClient.CreateIssueAsync(issuesRepo, newIssue, cancellationToken);
+        var subIssue = await codeHost.CreateIssueAsync(issuesRepo, newIssue, cancellationToken);
 
-        // Some GitBucket versions ignore labels on create; add the missing ones.
-        var labelChange = new LabelChange(Add: labels, Remove: []);
-        await gitBucketClient.ApplyLabelsAsync(issuesRepo, subIssue.Number, labelChange, cancellationToken);
+        // A host that may drop the labels of a new issue gets them once more.
+        if (!codeHost.Capabilities.KeepsLabelsOnCreate)
+        {
+            var labelChange = new LabelChange(Add: labels, Remove: []);
+            await codeHost.ApplyLabelsAsync(issuesRepo, subIssue.Number, labelChange, cancellationToken);
+        }
 
         return subIssue;
     }

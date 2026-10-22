@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -10,7 +11,7 @@ namespace AiRunner.Jobs;
 /// </summary>
 public sealed class AnalyzeIssueJob(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IWorkspace workspace,
     ICopilotRunner copilot,
@@ -53,17 +54,19 @@ public sealed class AnalyzeIssueJob(
                 "and update the issue text; the bot will not ask more questions here.");
         }
 
-        var defaultBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
+        var defaultBranch = await codeHost.DefaultBranchAsync(request.Repo, cancellationToken);
         var startPoint = Branches.Remote(defaultBranch);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: request.Repo,
             StartPoint: startPoint,
             NewBranch: null,
-            ExtraFetch: []);
+            PullHead: null);
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
 
+        run.Step(JobSteps.Attachments, "Attachments");
         var issueBody = new AttachmentSource("the issue body", issue.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, issueBody, comments);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
@@ -73,8 +76,14 @@ public sealed class AnalyzeIssueJob(
         await File.WriteAllTextAsync(contextFile, context, cancellationToken);
         run.Save("context.md", context);
 
-        var model = settings.ModelFor(Workflows.Analyze);
+        var issueRef = new IssueRef(request.Repo, issue.Number);
+        var modelQuery = new ModelQuery(issueRef, Workflows.Analyze, config.AllowedModels);
+        var modelContext = await codeHost.ReadAsync(modelQuery, run, cancellationToken);
+        var modelChoice = modelContext.Choose(settings.ModelSettingFor(Workflows.Analyze), isFixRound: false);
+        run.RecordModel(modelChoice);
+        var model = modelChoice.Model;
         var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);
+        run.Step(JobSteps.Copilot, $"Copilot round {round}");
         var output = await copilot.RunCopilotAsync(
             new CopilotRequest(directory, Prompt, Agent, model, timeout)
             {
@@ -107,14 +116,15 @@ public sealed class AnalyzeIssueJob(
                 "The SPEC");
         }
 
+        run.Step(JobSteps.Comment, "Post analysis");
         var reply = thread.Reply(analysis);
-        await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, reply, cancellationToken);
+        await codeHost.AddCommentAsync(request.Repo, issue.Number, reply, cancellationToken);
         var labelChange = new LabelChange(Add: parsed.LabelsToAdd, Remove: parsed.LabelsToRemove);
-        await gitBucketClient.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
+        await codeHost.ApplyLabelsAsync(request.Repo, issue.Number, labelChange, cancellationToken);
         if (spec is not null)
         {
             var specComment = Markers.Wrap(spec, Markers.Spec);
-            await gitBucketClient.AddCommentAsync(request.Repo, issue.Number, specComment, cancellationToken);
+            await codeHost.AddCommentAsync(request.Repo, issue.Number, specComment, cancellationToken);
         }
 
         stateStore.SetLastHandledComment(request.Repo, issue.Number, thread.ReadUpTo);

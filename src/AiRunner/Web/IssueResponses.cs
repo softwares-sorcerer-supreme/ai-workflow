@@ -9,6 +9,26 @@ public sealed record CodeLabelResponse(string Code, string Label)
     public static CodeLabelResponse From(CodeLabel value) => new(value.Code, value.Label);
 }
 
+/// <summary>
+/// One action the user can take now (<see cref="IssueActions"/>): the code to send, the button text, and whether the
+/// user types a text for it. The UI shows exactly the actions it gets.
+/// </summary>
+public sealed record ActionResponse(string Code, string Label, bool NeedsText)
+{
+    /// <summary>
+    /// The user picks a workflow and a model for this action; <c>GET /api/model-options</c> lists them.
+    /// </summary>
+    public bool NeedsModel { get; init; }
+
+    public static ActionResponse From(IssueAction action) =>
+        new(action.Code, action.Label, action.NeedsText) { NeedsModel = action.NeedsModel };
+
+    public static List<ActionResponse> ListOf(IEnumerable<IssueAction> actions) =>
+        actions
+            .Select(From)
+            .ToList();
+}
+
 /// <summary>A lane or a focus with the number of issues in it, for the summary above the list.</summary>
 public sealed record CountResponse(string Code, string Label, int Count);
 
@@ -34,6 +54,7 @@ public sealed record IssueRowResponse(
     IReadOnlyList<CodeLabelResponse> Flags,
     CodeLabelResponse? Badge,
     CodeLabelResponse? Waiting,
+    IReadOnlyList<ActionResponse> Actions,
     SubIssueCountResponse? Progress,
     IReadOnlyList<PullResponse> Pulls,
     string? Component,
@@ -171,6 +192,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             .ToList();
         var badge = stage.Badge is { } value ? CodeLabelResponse.From(value) : null;
         var waiting = entry.Waiting is { } action ? CodeLabelResponse.From(action) : null;
+        var actions = ActionResponse.ListOf(entry.Actions);
         var progress = ProgressOf(entry);
         var pulls = board.PullsOf(entry);
         var stateLabel = SnapshotRules.StateLabel(issue.State);
@@ -188,6 +210,7 @@ public sealed class IssueReader(RunnerConfig config, IssueBoardReader boardReade
             flags,
             badge,
             waiting,
+            actions,
             progress,
             pulls,
             component,

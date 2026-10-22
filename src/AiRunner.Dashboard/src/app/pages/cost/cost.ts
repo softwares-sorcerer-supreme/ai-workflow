@@ -8,6 +8,7 @@ import { getCost } from '../../api/fn/cost/get-cost';
 import { CostRowResponse } from '../../api/models/cost-row-response';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
+import { modelUsesText } from '../../shared/model-text';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
 import { DurationPipe } from '../../shared/time/duration.pipe';
@@ -18,6 +19,8 @@ import { COST_GROUPINGS, DEFAULT_COST_GROUPING } from './cost-filters';
 /** A table line: a group from the API, or the API's total as the last line. */
 interface CostLine extends CostRowResponse {
   isTotal: boolean;
+  /** The row's models as one line ("claude-opus-5.5 (issue override) x2"); empty when the API sends none. */
+  modelsText: string;
 }
 
 /**
@@ -79,10 +82,21 @@ export class Cost {
       return [];
     }
 
-    const rows = answer.rows.map((row) => ({ ...row, isTotal: false }));
+    const rows = answer.rows.map((row) => ({
+      ...row,
+      isTotal: false,
+      modelsText: modelUsesText(row.models),
+    }));
 
     // The key only keeps the total's track id apart from a group that happens to be called "total".
-    return [...rows, { ...answer.total, key: '\u0000total', isTotal: true }];
+    const total = {
+      ...answer.total,
+      key: '\u0000total',
+      isTotal: true,
+      modelsText: modelUsesText(answer.total.models),
+    };
+
+    return [...rows, total];
   });
 
   protected readonly columns: readonly DataColumn[] = [

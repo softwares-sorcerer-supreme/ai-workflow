@@ -68,7 +68,12 @@ public class ParameterCountTests
         method.IsSpecialName ||
         method.Name.Contains('<') ||
         method.IsDefined(typeof(CompilerGeneratedAttribute)) ||
+        IsLibraryInterfaceMember(method) ||
         method.Name is "Deconstruct" or "PrintMembers" or "Equals" or "GetHashCode" or "ToString";
+
+    /// <summary>YamlDotNet fixes the signature of <c>IYamlTypeConverter.WriteYaml</c> (4 parameters).</summary>
+    private static bool IsLibraryInterfaceMember(MethodInfo method) =>
+        method.DeclaringType!.GetInterfaces().Contains(typeof(YamlDotNet.Serialization.IYamlTypeConverter));
 
     private static int CountParameters(MethodInfo method)
     {

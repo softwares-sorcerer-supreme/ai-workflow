@@ -1,0 +1,174 @@
+@let definition = field().definition;
+
+<div class="head">
+  <span class="key app-mono" [id]="field().id + '-label'">{{ field().label }}</span>
+  @if (definition.isRestartNeeded) {
+    <app-status-chip
+      data-testid="restart-chip"
+      label="Restart needed"
+      tone="neutral"
+      icon="restart_alt"
+      title="Saved at once, applied at the next start of the runner."
+    />
+  }
+</div>
+
+@switch (kind()) {
+  @case ('secret') {
+    <div class="secret" data-testid="secret">
+      <app-status-chip
+        [label]="isSecretSet() ? 'Set in repos.yml' : 'Not set in repos.yml'"
+        [tone]="isSecretSet() ? 'success' : 'neutral'"
+        icon="lock"
+      />
+      <a [routerLink]="setupPath">Set passwords and the token on the Setup screen</a>
+    </div>
+  }
+  @case ('select') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="control">
+      <mat-select
+        data-testid="field-select"
+        [attr.aria-labelledby]="field().id + '-label'"
+        [placeholder]="placeholder()"
+        [value]="value()"
+        (selectionChange)="valueChange.emit($event.value)"
+      >
+        @for (option of definition.allowedValues ?? []; track option) {
+          <mat-option [value]="option">{{ option }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  }
+  @case ('text') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="control">
+      <input
+        matInput
+        type="text"
+        spellcheck="false"
+        data-testid="field-input"
+        [attr.aria-labelledby]="field().id + '-label'"
+        [placeholder]="placeholder()"
+        [value]="textValue()"
+        (input)="onText($event)"
+      />
+    </mat-form-field>
+  }
+  @case ('number') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="control number">
+      <input
+        matInput
+        type="text"
+        inputmode="numeric"
+        data-testid="field-input"
+        [attr.aria-labelledby]="field().id + '-label'"
+        [placeholder]="placeholder()"
+        [value]="textValue()"
+        (input)="onNumber($event)"
+      />
+    </mat-form-field>
+  }
+  @case ('toggle') {
+    <mat-slide-toggle
+      data-testid="field-toggle"
+      [attr.aria-labelledby]="field().id + '-label'"
+      [checked]="checked()"
+      (change)="valueChange.emit($event.checked)"
+    >
+      {{ checked() ? 'On' : 'Off' }}
+    </mat-slide-toggle>
+  }
+  @case ('multi-select') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="control">
+      <mat-select
+        multiple
+        data-testid="field-select"
+        [attr.aria-labelledby]="field().id + '-label'"
+        [placeholder]="placeholder()"
+        [value]="listValue()"
+        (selectionChange)="valueChange.emit($event.value)"
+      >
+        @for (option of definition.allowedValues ?? []; track option) {
+          <mat-option [value]="option">{{ option }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  }
+  @case ('lines') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="control">
+      <textarea
+        matInput
+        rows="3"
+        spellcheck="false"
+        class="app-mono"
+        data-testid="field-lines"
+        [attr.aria-labelledby]="field().id + '-label'"
+        [placeholder]="placeholder()"
+        [value]="linesValue()"
+        (change)="onLines($event)"
+      ></textarea>
+      <mat-hint>One entry per line.</mat-hint>
+    </mat-form-field>
+  }
+  @case ('map') {
+    <div class="map" role="group" data-testid="field-map" [attr.aria-labelledby]="field().id + '-label'">
+      @for (row of rows(); track $index) {
+        <div class="map-row" data-testid="map-row">
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="map-name">
+            <mat-label>Name</mat-label>
+            <input
+              matInput
+              type="text"
+              spellcheck="false"
+              data-testid="map-name"
+              [value]="row.name"
+              (change)="setRowName($index, $event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="map-value">
+            <mat-label>Value</mat-label>
+            <input
+              matInput
+              type="text"
+              spellcheck="false"
+              data-testid="map-value"
+              [value]="row.value"
+              (change)="setRowValue($index, $event)"
+            />
+          </mat-form-field>
+          <button
+            mat-icon-button
+            type="button"
+            data-testid="map-remove"
+            [attr.aria-label]="'Remove ' + (row.name || 'this entry')"
+            (click)="removeRow($index)"
+          >
+            <mat-icon aria-hidden="true">delete</mat-icon>
+          </button>
+        </div>
+      } @empty {
+        <p class="app-muted map-empty">No entries.</p>
+      }
+      <button mat-stroked-button type="button" class="map-add" data-testid="map-add" (click)="addRow()">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        Add entry
+      </button>
+    </div>
+  }
+  @default {
+    <pre class="app-mono raw" data-testid="field-raw">{{ rawJson() }}</pre>
+    <p class="app-muted small">This kind of value is edited in repos.yml by hand.</p>
+  }
+}
+
+<p class="help app-muted">{{ definition.help }}</p>
+
+@if (note(); as text) {
+  <p class="note" data-testid="field-note">{{ text }}</p>
+}
+
+@if (isWritten() && kind() !== 'secret' && kind() !== 'unknown') {
+  <button mat-button type="button" class="reset" data-testid="field-reset" (click)="reset()">
+    <mat-icon aria-hidden="true">undo</mat-icon>
+    {{ resetLabel() }}
+  </button>
+}

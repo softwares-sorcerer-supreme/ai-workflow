@@ -4,6 +4,8 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Api } from '../../api/api';
 import { getIssue } from '../../api/fn/issues/get-issue';
+import { runIssueAction } from '../../api/fn/issues/run-issue-action';
+import { runPullAction } from '../../api/fn/pulls/run-pull-action';
 import { IssueDetailResponse } from '../../api/models/issue-detail-response';
 import { FakeApi, fixedClock, sampleIssue, sampleJob, samplePull, settle } from '../../shared/testing';
 import { IssueDetail } from './issue-detail';
@@ -20,7 +22,10 @@ const SIMPLE: IssueDetailResponse = {
     component: 'api',
   },
   subIssues: [],
-  timeline: [sampleJob({ id: 7 }), sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null })],
+  timeline: [
+    sampleJob({ id: 7, model: 'claude-opus-5.5', modelReason: 'complex issue' }),
+    sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null }),
+  ],
 };
 
 const PARENT: IssueDetailResponse = {
@@ -55,7 +60,7 @@ describe('IssueDetail', () => {
     await harness.navigateByUrl('/issues/team/shop/42', IssueDetail);
     await settle(harness.fixture);
 
-    return { api, element: harness.routeNativeElement as HTMLElement };
+    return { api, element: harness.routeNativeElement as HTMLElement, fixture: harness.fixture };
   }
 
   it('asks the API for the issue of the route', async () => {
@@ -97,6 +102,10 @@ describe('IssueDetail', () => {
     expect(timeline[1].querySelector('a')).toBeNull();
     expect(timeline[0].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('2');
     expect(timeline[1].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('-');
+    expect(timeline[0].querySelector('.mat-column-model')?.textContent?.trim()).toBe(
+      'claude-opus-5.5 - complex issue',
+    );
+    expect(timeline[1].querySelector('.mat-column-model')?.textContent?.trim()).toBe('-');
   });
 
   it('shows sub-issues with a link to their detail page, stage and PR', async () => {
@@ -127,5 +136,64 @@ describe('IssueDetail', () => {
 
     expect(element.textContent).toContain('Could not load this issue');
     expect(element.textContent).toContain('Try again');
+  });
+
+  it('shows the actions of the issue in the header and of each PR in its row, and reloads after one ran', async () => {
+    const withActions: IssueDetailResponse = {
+      ...SIMPLE,
+      issue: {
+        ...SIMPLE.issue,
+        actions: [
+          { code: 'retry', label: 'Retry', needsText: false },
+          { code: 'implement', label: 'Implement', needsText: false },
+        ],
+        pulls: [samplePull({ actions: [{ code: 'review-full', label: 'Full review', needsText: false }] })],
+      },
+    };
+    const { api, element, fixture } = await render(() => withActions);
+    api.answer(runIssueAction, () => ({ message: 'Removed ai:failed from #42.' }));
+    api.answer(runPullAction, () => ({ message: 'A full review is asked for.' }));
+
+    const header = element.querySelector('[data-testid="issue-actions"]') as HTMLElement;
+    const headerButtons = Array.from(header.querySelectorAll<HTMLButtonElement>('button'));
+    expect(headerButtons.map((button) => button.textContent?.trim())).toEqual(['Retry', 'Implement']);
+
+    const pullButton = element.querySelector<HTMLButtonElement>(
+      '[aria-labelledby="pulls-title"] app-action-buttons button',
+    ) as HTMLButtonElement;
+    expect(pullButton.textContent?.trim()).toBe('Full review');
+
+    const detailCallsBefore = api.callsOf(getIssue).length;
+    headerButtons[0].click();
+    await settle(fixture);
+    pullButton.click();
+    await settle(fixture);
+
+    expect(api.callsOf(runIssueAction)).toEqual([
+      { owner: 'team', repo: 'shop', number: 42, code: 'retry', body: { text: null } },
+    ]);
+    expect(api.callsOf(runPullAction)).toEqual([
+      { owner: 'team', repo: 'shop', number: 50, code: 'review-full', body: { text: null } },
+    ]);
+    expect(api.callsOf(getIssue).length).toBeGreaterThan(detailCallsBefore);
+  });
+
+  it('shows the waiting text and the actions of each sub-issue in its row', async () => {
+    const withActions: IssueDetailResponse = {
+      ...PARENT,
+      subIssues: [
+        {
+          ...PARENT.subIssues[0],
+          waiting: { code: 'start-next-sub-issue', label: 'Start the next sub-issue' },
+          actions: [{ code: 'start-next-sub-issue', label: 'Start next sub-issue', needsText: false }],
+        },
+      ],
+    };
+    const { element } = await render(() => withActions);
+
+    const row = element.querySelector('[aria-labelledby="sub-issues-title"] tr.mat-mdc-row') as HTMLElement;
+    const next = row.querySelector('.next') as HTMLElement;
+    expect(next.textContent).toContain('Start the next sub-issue');
+    expect(next.querySelector('app-action-buttons button')?.textContent?.trim()).toBe('Start next sub-issue');
   });
 });

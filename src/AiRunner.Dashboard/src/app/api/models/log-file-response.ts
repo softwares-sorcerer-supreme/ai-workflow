@@ -3,6 +3,7 @@
 
 export interface LogFileResponse {
   format: string;
+  isLive: boolean;
   name: string;
   sizeBytes: number;
 }

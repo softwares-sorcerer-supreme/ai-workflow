@@ -3,6 +3,7 @@ using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -23,21 +24,38 @@ public sealed record JobFailure(IJob Job, JobRequest Request, string Message, st
 /// Runs one job at a time, so cost is predictable. Every job gets the same treatment, driven
 /// by its JobInfo: a log folder, a timeout, a cost row, and on failure a short comment (plus
 /// ai:failed on issues). A job that found nothing to do leaves no trace.
+/// Each job runs in its own DI scope: the config it resolves first is its snapshot to the end, whatever a save or a
+/// hand edit of repos.yml applies meanwhile (<see cref="RunnerServices"/>).
 /// </summary>
 public sealed class JobWorker(
-    RunnerConfig config,
+    IServiceScopeFactory scopes,
     JobQueue queue,
-    JobFactory factory,
     JobLog jobLog,
     ICostLog costLog,
     IStateStore stateStore,
-    IGitBucketClient gitBucketClient,
-    ClaimService claims,
+    IJobStepLog stepLog,
+    ICodeHost codeHost,
+    RunnerCredentials credentials,
     RunnerStatus status,
+    RunnerCommands commands,
+    WorkspaceLocks workspaceLocks,
     ILogger<JobWorker> logger) : BackgroundService
 {
+    /// <summary>The failure message of a job cancelled from the dashboard.</summary>
+    public const string CancelledMessage = "Cancelled from the dashboard.";
+
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
+        // Setup mode: recovering reports on the code host, so it waits for a token like everything else.
+        try
+        {
+            await credentials.WaitForTokenAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         await RecoverAsync();
 
         while (!cancellationToken.IsCancellationRequested)
@@ -46,20 +64,41 @@ public sealed class JobWorker(
             try
             {
                 job = await queue.DequeueAsync(cancellationToken);
+
+                // After the dequeue: an idle worker waits in DequeueAsync when the pause comes. The held job stays
+                // pending; a stale payload is harmless, because every job re-plans on fresh data.
+                await commands.WaitWhilePausedAsync(cancellationToken);
+
+                // Setup mode: a job left pending by an earlier run must not reach the code host without a token.
+                await credentials.WaitForTokenAsync(cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 break;
             }
 
+            // The job holds the slot to its end: an agent sync waits for it and never changes ~/.copilot/ under a run.
+            IDisposable jobSlot;
             try
             {
-                await RunOneAsync(job, cancellationToken);
+                jobSlot = await commands.HoldJobSlotAsync(cancellationToken);
             }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                // Never let one job stop the worker (and with it the whole host).
-                logger.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, exception);
+                break;
+            }
+
+            using (jobSlot)
+            {
+                try
+                {
+                    await RunOneAsync(job, cancellationToken);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Never let one job stop the worker (and with it the whole host).
+                    logger.LogError("{Request}: unexpected error in the worker: {Error}", job.Request, exception);
+                }
             }
         }
     }
@@ -78,19 +117,35 @@ public sealed class JobWorker(
     private async Task RunOneAsync(StoredJob stored, CancellationToken cancellationToken)
     {
         var request = stored.Request;
-        var job = factory.Get(request.Type);
+
+        // First the config: it pins this job's snapshot for everything the scope resolves after it.
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var job = services
+            .GetRequiredService<JobFactory>()
+            .Get(request.Type);
+        var claims = services.GetRequiredService<ClaimService>();
 
         stateStore.SetJobStatus(stored.Id, JobStatus.Running);
         var run = jobLog.Begin(request);
         var logFolder = Path.GetFileName(run.Dir);
         stateStore.SetJobLogDir(stored.Id, logFolder);
         run.RoundChanged = status.JobRound;
+        run.StepTracker = new JobStepTracker(stored.Id, stepLog, TimeProvider.System, logger)
+        {
+            Opened = status.JobStep,
+        };
         var stopwatch = Stopwatch.StartNew();
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var timeout = job.Info.Timeout;
         run.Deadline = DateTimeOffset.UtcNow + timeout;
         timeoutSource.CancelAfter(timeout);
+
+        // The dashboard may cancel from here until the run is over (claim and job), through the timeout source.
+        commands.RunStarted(stored.Id, timeoutSource);
+        var isCancelled = false;
 
         // Claims (claim_enabled): a normal job claims its issue or PR up front, a routine one just before its first
         // write (JobRun.ClaimAsync). Whatever was claimed is released when the job ends.
@@ -107,7 +162,11 @@ public sealed class JobWorker(
         // Both kinds of job claim through here, so the dashboard learns of every claim that went through.
         async Task<bool> TryClaimAsync(CancellationToken token)
         {
+            run.Step(JobSteps.Claim, "Claim");
             var isClaimed = await claims.TryClaimAsync(target, token);
+
+            // Closed here, so a failure later in the job is not blamed on the claim.
+            run.EndStep(JobSteps.Ok);
             if (isClaimed)
             {
                 status.ClaimHeld();
@@ -118,31 +177,42 @@ public sealed class JobWorker(
 
         try
         {
-            if (claims.IsEnabled(request.Repo))
+            JobOutcome outcome;
+            try
             {
-                if (job.Info.Routine)
+                if (claims.IsEnabled(request.Repo))
                 {
-                    run.Claimer = async token =>
+                    if (job.Info.Routine)
                     {
-                        isClaimHeld = isClaimHeld || await TryClaimAsync(token);
+                        run.Claimer = async token =>
+                        {
+                            isClaimHeld = isClaimHeld || await TryClaimAsync(token);
 
-                        return isClaimHeld;
-                    };
-                }
-                else
-                {
-                    isClaimHeld = await TryClaimAsync(timeoutSource.Token);
-                    if (!isClaimHeld)
+                            return isClaimHeld;
+                        };
+                    }
+                    else
                     {
-                        logger.LogDebug("{Request}: claimed by another runner", request);
-                        stateStore.DeleteJob(stored.Id);
-                        FileSystem.DeleteDirectory(run.Dir);
-                        return;
+                        isClaimHeld = await TryClaimAsync(timeoutSource.Token);
+                        if (!isClaimHeld)
+                        {
+                            logger.LogDebug("{Request}: claimed by another runner", request);
+                            stateStore.DeleteJob(stored.Id);
+                            FileSystem.DeleteDirectory(run.Dir);
+                            return;
+                        }
                     }
                 }
+
+                outcome = await job.RunAsync(request, run, timeoutSource.Token);
+            }
+            finally
+            {
+                isCancelled = commands.RunEnded(stored.Id);
             }
 
-            var outcome = await job.RunAsync(request, run, timeoutSource.Token);
+            run.EndStep(JobSteps.Ok);
+
             if (outcome.Quiet)
             {
                 // e.g. sequencing checks every poll: nothing worth keeping (Record keeps a cost row only if Copilot
@@ -170,6 +240,9 @@ public sealed class JobWorker(
             var message = exception switch
             {
                 JobFailedException => exception.Message,
+                // A cancel from the dashboard cancels the same source, so it takes the timeout path.
+                OperationCanceledException when timeoutSource.IsCancellationRequested && isCancelled =>
+                    CancelledMessage,
                 OperationCanceledException when timeoutSource.IsCancellationRequested =>
                     $"The job did not finish within {job.Info.Timeout.TotalMinutes:F0} minutes.",
                 OperationCanceledException => "A call to GitBucket timed out (VPN or server down?).",
@@ -177,6 +250,7 @@ public sealed class JobWorker(
             };
 
             logger.LogError("{Request} failed: {Message}", request, message);
+            run.EndStep(JobSteps.Failed, message);
 
             try
             {
@@ -197,21 +271,23 @@ public sealed class JobWorker(
             Record(failedJob);
 
             var failure = new JobFailure(job, request, message, logFolder);
-            await ReportFailureAsync(failure);
+            await ReportFailureAsync(failure, config);
         }
         finally
         {
             // On shutdown the claim stays: this runner takes it back at once on the next start (same name).
             if (isClaimHeld && !cancellationToken.IsCancellationRequested)
             {
-                await ReleaseClaimAsync(target);
+                await ReleaseClaimAsync(claims, target);
             }
 
+            // The project lock of Workspace.PrepareAsync ends with the job, whatever the outcome.
+            workspaceLocks.ReleaseJobHolds();
             status.WorkerIdle();
         }
     }
 
-    private async Task ReleaseClaimAsync(ClaimTarget target)
+    private async Task ReleaseClaimAsync(ClaimService claims, ClaimTarget target)
     {
         try
         {
@@ -226,6 +302,10 @@ public sealed class JobWorker(
 
     private async Task RecoverAsync()
     {
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var factory = services.GetRequiredService<JobFactory>();
         var cutoff = DateTimeOffset.UtcNow.AddDays(-config.LogRetentionDays);
         stateStore.PruneJobs(cutoff);
 
@@ -237,12 +317,12 @@ public sealed class JobWorker(
                 stored.Request,
                 "The runner was stopped twice while this job was running.",
                 LogFolder: null);
-            await ReportFailureAsync(failure);
+            await ReportFailureAsync(failure, config);
         }
     }
 
     /// <summary>Short comment on the issue or PR. Issues also get ai:failed, so nothing retries until a human looks.</summary>
-    private async Task ReportFailureAsync(JobFailure failure)
+    private async Task ReportFailureAsync(JobFailure failure, RunnerConfig config)
     {
         var (job, request, message, logFolder) = failure;
         var where = logFolder is null ? "" : $" (`{Path.Combine(config.Paths.Logs, "jobs", logFolder)}`)";
@@ -257,11 +337,11 @@ public sealed class JobWorker(
         try
         {
             job.OnFailed(request);
-            await gitBucketClient.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
+            await codeHost.AddCommentAsync(request.Repo, request.Number, text, CancellationToken.None);
 
             if (!job.Info.OnPullRequest)
             {
-                await gitBucketClient.AddLabelsAsync(
+                await codeHost.AddLabelsAsync(
                     request.Repo,
                     request.Number,
                     [Labels.Failed],
@@ -299,10 +379,19 @@ public sealed class JobWorker(
             outcome.Result,
             outcome.Detail,
             outcome.CopilotCalls,
-            usage);
+            usage)
+        {
+            Model = finished.Run.Model,
+            ModelReason = finished.Run.ModelReason,
+        };
         costLog.Record(entry);
 
-        var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);
+        var jobResult = new JobResult(
+            outcome.Result,
+            outcome.Detail,
+            outcome.CopilotCalls,
+            finished.Run.Model,
+            finished.Run.ModelReason);
 
         try
         {

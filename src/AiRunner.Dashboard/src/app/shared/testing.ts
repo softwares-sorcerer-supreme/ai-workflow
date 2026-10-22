@@ -1,8 +1,12 @@
 import { WritableSignal, signal } from '@angular/core';
+import { CloneResponse } from '../api/models/clone-response';
 import { HealthResponse } from '../api/models/health-response';
 import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
+import { JobStepResponse } from '../api/models/job-step-response';
 import { PullResponse } from '../api/models/pull-response';
+import { SettingDefinition } from '../api/models/setting-definition';
+import { SetupResponse } from '../api/models/setup-response';
 import { PollResource } from './poll-resource';
 import { Clock } from './time/clock';
 
@@ -105,6 +109,7 @@ export function sampleJob(overrides: Partial<JobResponse> = {}): JobResponse {
     detail: '2 rounds',
     error: null,
     hasLog: true,
+    isRunning: false,
     copilotCalls: 2,
     ...overrides,
   };
@@ -133,6 +138,7 @@ export function sampleIssue(overrides: Partial<IssueRowResponse> = {}): IssueRow
     closedAt: null,
     parent: null,
     subIssues: [],
+    actions: [],
     ...overrides,
   };
 }
@@ -149,6 +155,7 @@ export function samplePull(overrides: Partial<PullResponse> = {}): PullResponse 
     baseRef: 'main',
     htmlUrl: 'http://gitbucket.local/team/shop/pull/50',
     updatedAt: '2026-01-01T11:40:00Z',
+    actions: [],
     ...overrides,
   };
 }
@@ -166,9 +173,78 @@ export function sampleHealth(overrides: Partial<HealthResponse> = {}): HealthRes
     lastPollStartedAt: '2026-01-01T11:59:00Z',
     lastPollEndedAt: '2026-01-01T11:59:30Z',
     isPolling: false,
+    isPaused: false,
+    isSetupNeeded: false,
+    hasAgentDrift: false,
+    agentDriftLabel: null,
+    configError: null,
+    configErrorLabel: null,
     worker: { state: 'idle', stateLabel: 'Idle', since: null },
     errorsLabel: 'No poll errors',
     errors: [],
     ...overrides,
   };
+}
+
+/** A runner with a token from the user secrets and no web password; override fields per test. */
+export function sampleSetup(overrides: Partial<SetupResponse> = {}): SetupResponse {
+  return {
+    baseUrl: 'http://gitbucket.local',
+    isTokenSet: true,
+    tokenSource: 'user-secrets',
+    tokenSourceLabel: 'User secrets',
+    tokenNote: null,
+    login: 'ai-bot',
+    canRemoveToken: true,
+    isWebPasswordSet: false,
+    webPasswordSource: 'none',
+    webPasswordSourceLabel: 'Not set',
+    webPasswordNote: null,
+    canRemoveWebPassword: false,
+    secretsFile: '/home/dev/.microsoft/usersecrets/ai-runner/secrets.json',
+    ...overrides,
+  };
+}
+
+/** A finished step; override fields per test. */
+export function sampleStep(overrides: Partial<JobStepResponse> = {}): JobStepResponse {
+  return {
+    seq: 1,
+    code: 'prepare',
+    label: 'Prepare workspace',
+    startedAt: '2026-01-01T11:01:00Z',
+    endedAt: '2026-01-01T11:01:12Z',
+    durationSeconds: 12,
+    state: 'ok',
+    stateLabel: 'Done',
+    detail: null,
+    ...overrides,
+  };
+}
+
+/** A clone on branch main, fetched, without changes or warnings, size known; override fields per test. */
+export function sampleClone(overrides: Partial<CloneResponse> = {}): CloneResponse {
+  return {
+    repo: 'team/shop',
+    folder: 'shop',
+    exists: true,
+    components: ['api', 'web'],
+    headSha: '0123456789abcdef0123456789abcdef01234567',
+    headSubject: 'Export orders as CSV',
+    headAt: '2026-01-01T10:00:00Z',
+    branch: 'main',
+    detachedAt: null,
+    lastFetchAt: '2026-01-01T11:50:00Z',
+    changedPaths: [],
+    sizeBytes: 2 * 1024 * 1024,
+    warnings: [],
+    ...overrides,
+  };
+}
+
+/** A settings schema entry; the label follows the API's rule (`Built-in default` with a default, else `Not set.`). */
+export function sampleDefinition(overrides: Partial<SettingDefinition> = {}): SettingDefinition {
+  const defaultLabel = overrides.default === undefined ? 'Not set.' : 'Built-in default';
+
+  return { path: '', key: '', scope: 'global', type: 'string', help: '', defaultLabel, ...overrides };
 }

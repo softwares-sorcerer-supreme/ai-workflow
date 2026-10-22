@@ -10,11 +10,12 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { map } from 'rxjs';
 import { HealthStrip } from './layout/health-strip/health-strip';
 import { NAV_ITEMS } from './layout/nav-items';
+import { SetupBanner } from './layout/setup-banner/setup-banner';
 
 /** Below this width the menu slides over the page instead of standing beside it. */
 export const NARROW_QUERY = '(max-width: 899.98px)';
 
-/** The app shell: toolbar, health strip, side menu and the routed page. */
+/** The app shell: toolbar, health strip, side menu, the setup banner and the routed page. */
 @Component({
   selector: 'app-root',
   imports: [
@@ -27,6 +28,7 @@ export const NARROW_QUERY = '(max-width: 899.98px)';
     RouterLinkActive,
     RouterOutlet,
     HealthStrip,
+    SetupBanner,
   ],
   templateUrl: './app.html',
   styleUrl: './app.scss',

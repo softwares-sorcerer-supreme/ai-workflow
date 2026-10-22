@@ -82,6 +82,67 @@ describe('HealthStrip', () => {
     expect(element.classList).toContain('tone-danger');
   });
 
+  it('links the state to the Setup screen while the runner has no token', async () => {
+    resource = fakePollResource(
+      sampleHealth({ state: 'needs-setup', stateLabel: 'Needs setup: no GitBucket token', isSetupNeeded: true }),
+    );
+
+    const fixture = await render();
+    const element = fixture.nativeElement as HTMLElement;
+    const state = element.querySelector('[data-testid="health-state"]');
+
+    expect(state?.tagName).toBe('A');
+    expect(state?.getAttribute('href')).toBe('/setup');
+    expect(state?.textContent?.trim()).toBe('Needs setup: no GitBucket token');
+    expect(element.classList).toContain('tone-warning');
+  });
+
+  it('shows the state as plain text when no setup is needed', async () => {
+    resource = fakePollResource(sampleHealth());
+
+    const fixture = await render();
+    const state = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-state"]');
+
+    expect(state?.tagName).toBe('STRONG');
+  });
+
+  it('links the agent drift label to the Agents screen when the agents are out of sync', async () => {
+    resource = fakePollResource(sampleHealth({ hasAgentDrift: true, agentDriftLabel: 'Agents out of sync' }));
+
+    const fixture = await render();
+    const drift = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-agent-drift"]');
+
+    expect(drift?.tagName).toBe('A');
+    expect(drift?.getAttribute('href')).toBe('/agents');
+    expect(drift?.textContent).toContain('Agents out of sync');
+  });
+
+  it('shows no agent drift chip while the agents are in sync', async () => {
+    resource = fakePollResource(sampleHealth());
+
+    const fixture = await render();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-agent-drift"]')).toBeNull();
+  });
+
+  it('links a broken repos.yml to the Settings screen, and shows nothing while the file is fine', async () => {
+    resource = fakePollResource(
+      sampleHealth({ configError: 'line 4: unknown key "polll"', configErrorLabel: 'repos.yml has errors' }),
+    );
+
+    const fixture = await render();
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-config-error"]');
+
+    expect(chip?.tagName).toBe('A');
+    expect(chip?.getAttribute('href')).toBe('/settings');
+    expect(chip?.textContent).toContain('repos.yml has errors');
+
+    resource.value.set(sampleHealth());
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="health-config-error"]')).toBeNull();
+  });
+
   it('uses a neutral tone for a state code it does not know', async () => {
     resource = fakePollResource(sampleHealth({ state: 'something-new', stateLabel: 'Something new' }));
 

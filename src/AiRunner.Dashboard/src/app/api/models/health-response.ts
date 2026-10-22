@@ -4,11 +4,17 @@
 import { PollErrorResponse } from '../models/poll-error-response';
 import { WorkerHealth } from '../models/worker-health';
 export interface HealthResponse {
+  agentDriftLabel: (string | null);
+  configError: (string | null);
+  configErrorLabel: (string | null);
   configPath: string;
   copilotVersion: string;
   errors: Array<PollErrorResponse>;
   errorsLabel: string;
+  hasAgentDrift: boolean;
+  isPaused: boolean;
   isPolling: boolean;
+  isSetupNeeded: boolean;
   lastPollEndedAt: (string | null);
   lastPollStartedAt: (string | null);
   pollIntervalSeconds: number;

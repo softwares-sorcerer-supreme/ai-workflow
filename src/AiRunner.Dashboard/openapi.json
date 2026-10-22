@@ -203,6 +203,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -432,10 +440,1252 @@
           }
         }
       }
+    },
+    "/api/setup": {
+      "get": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Where the token and the web password come from, the login and the secrets file; no secret.",
+        "operationId": "getSetup",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Every clone under work/ per project with its warnings, and the folders no project owns.",
+        "operationId": "getWorkspaces",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "The shared agents, skills and templates with their git state and sync state.",
+        "operationId": "getAgents",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/file": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "One file: its text, its hash and the diff against git HEAD.",
+        "operationId": "getAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFileDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Save an existing agent or skill file. 409 when it changed since it was read, 400 when it breaks the rules.",
+        "operationId": "saveAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/schema": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Every key of repos.yml: path, scope, type, allowed values, help, default, restart, secret.",
+        "operationId": "getSettingsSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSchemaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "repos.yml as JSON (no secret), its hash, and the merged settings of each project.",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Check, back up, write and apply repos.yml; 409 when it changed since it was read.",
+        "operationId": "saveSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-options": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "The workflows and models the set-model action offers.",
+        "operationId": "getModelOptions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelOptionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runner/poll": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Poll now; a poll that is running finishes first.",
+        "operationId": "pollNow",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runner/pause": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Take no new job until resumed; polls go on and the running job finishes.",
+        "operationId": "pauseRunner",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runner/resume": {
+      "post": {
+        "tags": [
+          "Runner"
+        ],
+        "summary": "Take jobs again after a pause.",
+        "operationId": "resumeRunner",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Cancel the running job; it fails like a timeout. A pending job cannot be cancelled.",
+        "operationId": "cancelJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/token": {
+      "put": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Check the token against the code host, save it in user secrets and use it now.",
+        "operationId": "saveToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Remove the token from user secrets; a token from the environment cannot be removed here.",
+        "operationId": "removeToken",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/web-password": {
+      "put": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Check the web password with a sign-in, save it in user secrets and use it now.",
+        "operationId": "saveWebPassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Remove the web password from user secrets; one in repos.yml cannot be removed here.",
+        "operationId": "removeWebPassword",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/issues/{owner}/{repo}/{number}/actions/{code}": {
+      "post": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "Run an action on an issue (a label or a comment on the code host); the planner picks it up.",
+        "operationId": "runIssueAction",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActionRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pulls/{owner}/{repo}/{number}/actions/{code}": {
+      "post": {
+        "tags": [
+          "Pulls"
+        ],
+        "summary": "Run an action on a PR (full review, fix); the planner picks it up.",
+        "operationId": "runPullAction",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActionRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{project}/{repo}/fetch": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "git fetch of one clone. 409 while a job uses the project.",
+        "operationId": "fetchWorkspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{project}/{repo}/reclone": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete one clone; the next job clones it again. 409 while a job uses the project.",
+        "operationId": "recloneWorkspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/orphans/{folder}": {
+      "delete": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Delete a folder of work/ that belongs to no project (a plain folder name only).",
+        "operationId": "deleteOrphanWorkspace",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/revert": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Restore one file from git HEAD.",
+        "operationId": "revertAgentFile",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/sync": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Copy the shared agents and skills to ~/.copilot between jobs (right after the running job).",
+        "operationId": "syncAgents",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActionRequest": {
+        "required": [
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workflow": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ActionResponse": {
+        "required": [
+          "code",
+          "label",
+          "needsText"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "needsText": {
+            "type": "boolean"
+          },
+          "needsModel": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AgentFileDetailResponse": {
+        "required": [
+          "file",
+          "text",
+          "hash",
+          "diff"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/AgentFileResponse"
+          },
+          "text": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentFileResponse": {
+        "required": [
+          "path",
+          "kind",
+          "gitState",
+          "gitStateLabel",
+          "syncState",
+          "syncStateLabel",
+          "isEditable",
+          "canRevert"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "gitState": {
+            "type": "string"
+          },
+          "gitStateLabel": {
+            "type": "string"
+          },
+          "syncState": {
+            "type": "string"
+          },
+          "syncStateLabel": {
+            "type": "string"
+          },
+          "isEditable": {
+            "type": "boolean"
+          },
+          "canRevert": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AgentsResponse": {
+        "required": [
+          "files",
+          "extra",
+          "isOutOfSync",
+          "templatesNote"
+        ],
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentFileResponse"
+            }
+          },
+          "extra": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isOutOfSync": {
+            "type": "boolean"
+          },
+          "templatesNote": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentValidationError": {
+        "required": [
+          "message",
+          "reasons"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AnalysisSummaryResponse": {
         "required": [
           "status",
@@ -469,6 +1719,98 @@
           }
         }
       },
+      "CloneResponse": {
+        "required": [
+          "repo",
+          "folder",
+          "exists",
+          "components",
+          "headSha",
+          "headSubject",
+          "headAt",
+          "branch",
+          "detachedAt",
+          "lastFetchAt",
+          "changedPaths",
+          "sizeBytes",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headSha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headSubject": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "branch": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "detachedAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastFetchAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "changedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizeBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WarningResponse"
+            }
+          }
+        }
+      },
       "CodeLabelResponse": {
         "required": [
           "code",
@@ -480,6 +1822,17 @@
             "type": "string"
           },
           "label": {
+            "type": "string"
+          }
+        }
+      },
+      "CommandResponse": {
+        "required": [
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
             "type": "string"
           }
         }
@@ -593,6 +1946,12 @@
           "jobsWithoutUsage": {
             "type": "integer",
             "format": "int32"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelUse"
+            }
           }
         }
       },
@@ -616,6 +1975,25 @@
           }
         }
       },
+      "EffectiveValue": {
+        "required": [
+          "key",
+          "effective",
+          "inherited"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/SourcedValue"
+          },
+          "inherited": {
+            "$ref": "#/components/schemas/SourcedValue"
+          }
+        }
+      },
       "HealthResponse": {
         "required": [
           "state",
@@ -628,6 +2006,12 @@
           "lastPollStartedAt",
           "lastPollEndedAt",
           "isPolling",
+          "isPaused",
+          "isSetupNeeded",
+          "hasAgentDrift",
+          "agentDriftLabel",
+          "configError",
+          "configErrorLabel",
           "worker",
           "errorsLabel",
           "errors"
@@ -673,6 +2057,33 @@
           },
           "isPolling": {
             "type": "boolean"
+          },
+          "isPaused": {
+            "type": "boolean"
+          },
+          "isSetupNeeded": {
+            "type": "boolean"
+          },
+          "hasAgentDrift": {
+            "type": "boolean"
+          },
+          "agentDriftLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "configError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "configErrorLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "worker": {
             "$ref": "#/components/schemas/WorkerHealth"
@@ -792,6 +2203,7 @@
           "flags",
           "badge",
           "waiting",
+          "actions",
           "progress",
           "pulls",
           "component",
@@ -856,6 +2268,12 @@
                 "$ref": "#/components/schemas/CodeLabelResponse"
               }
             ]
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionResponse"
+            }
           },
           "progress": {
             "oneOf": [
@@ -929,7 +2347,8 @@
           "detail",
           "error",
           "hasLog",
-          "copilotCalls"
+          "copilotCalls",
+          "isRunning"
         ],
         "type": "object",
         "properties": {
@@ -1014,6 +2433,30 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "isRunning": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "modelReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "steps": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/JobStepResponse"
+            }
           }
         }
       },
@@ -1051,11 +2494,72 @@
           }
         }
       },
+      "JobStepResponse": {
+        "required": [
+          "seq",
+          "code",
+          "label",
+          "startedAt",
+          "endedAt",
+          "durationSeconds",
+          "state",
+          "stateLabel",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stateLabel": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "JsonNode": { },
+      "JsonObject": {
+        "type": "object"
+      },
       "LogFileResponse": {
         "required": [
           "name",
           "format",
-          "sizeBytes"
+          "sizeBytes",
+          "isLive"
         ],
         "type": "object",
         "properties": {
@@ -1068,6 +2572,9 @@
           "sizeBytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "isLive": {
+            "type": "boolean"
           }
         }
       },
@@ -1097,7 +2604,9 @@
           "sizeBytes",
           "text",
           "isTruncated",
-          "truncatedNote"
+          "truncatedNote",
+          "offset",
+          "nextOffset"
         ],
         "type": "object",
         "properties": {
@@ -1122,6 +2631,77 @@
               "null",
               "string"
             ]
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nextOffset": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ModelOptionsResponse": {
+        "required": [
+          "workflows",
+          "allowedModels"
+        ],
+        "type": "object",
+        "properties": {
+          "workflows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "allowedModels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ModelUse": {
+        "required": [
+          "model",
+          "reason",
+          "jobs"
+        ],
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "jobs": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrphanResponse": {
+        "required": [
+          "folder",
+          "sizeBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -1185,6 +2765,24 @@
           }
         }
       },
+      "ProjectEffective": {
+        "required": [
+          "project",
+          "values"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveValue"
+            }
+          }
+        }
+      },
       "ProjectOptionResponse": {
         "required": [
           "name",
@@ -1203,6 +2801,28 @@
           }
         }
       },
+      "ProjectWorkspaceResponse": {
+        "required": [
+          "name",
+          "isBusy",
+          "clones"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "isBusy": {
+            "type": "boolean"
+          },
+          "clones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloneResponse"
+            }
+          }
+        }
+      },
       "PullResponse": {
         "required": [
           "repo",
@@ -1213,7 +2833,8 @@
           "headRef",
           "baseRef",
           "htmlUrl",
-          "updatedAt"
+          "updatedAt",
+          "actions"
         ],
         "type": "object",
         "properties": {
@@ -1248,6 +2869,12 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionResponse"
+            }
           }
         }
       },
@@ -1262,7 +2889,9 @@
           "startedAt",
           "elapsedSeconds",
           "round",
-          "roundLabel"
+          "roundLabel",
+          "currentStep",
+          "steps"
         ],
         "type": "object",
         "properties": {
@@ -1309,6 +2938,298 @@
               "null",
               "string"
             ]
+          },
+          "currentStep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeLabelResponse"
+              }
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobStepResponse"
+            }
+          }
+        }
+      },
+      "SaveAgentRequest": {
+        "required": [
+          "text",
+          "baseHash"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "baseHash": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingDefinition": {
+        "required": [
+          "path",
+          "key",
+          "scope",
+          "type",
+          "help"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "allowedValues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "defaultLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isRestartNeeded": {
+            "type": "boolean"
+          },
+          "isSecret": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SettingsChangeResponse": {
+        "required": [
+          "message",
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsResponse"
+          }
+        }
+      },
+      "SettingsRequest": {
+        "required": [
+          "file",
+          "baseHash"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "baseHash": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingsResponse": {
+        "required": [
+          "file",
+          "hash",
+          "version",
+          "path",
+          "error",
+          "hasComments",
+          "restartNeeded",
+          "effective"
+        ],
+        "type": "object",
+        "properties": {
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "hash": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasComments": {
+            "type": "boolean"
+          },
+          "restartNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "effective": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectEffective"
+            }
+          }
+        }
+      },
+      "SettingsSchemaResponse": {
+        "required": [
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingDefinition"
+            }
+          }
+        }
+      },
+      "SetupChangeResponse": {
+        "required": [
+          "message",
+          "setup"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupResponse"
+          }
+        }
+      },
+      "SetupResponse": {
+        "required": [
+          "isTokenSet",
+          "tokenSource",
+          "tokenSourceLabel",
+          "tokenNote",
+          "login",
+          "baseUrl",
+          "isWebPasswordSet",
+          "webPasswordSource",
+          "webPasswordSourceLabel",
+          "webPasswordNote",
+          "secretsFile",
+          "canRemoveToken",
+          "canRemoveWebPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "isTokenSet": {
+            "type": "boolean"
+          },
+          "tokenSource": {
+            "type": "string"
+          },
+          "tokenSourceLabel": {
+            "type": "string"
+          },
+          "tokenNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "login": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "isWebPasswordSet": {
+            "type": "boolean"
+          },
+          "webPasswordSource": {
+            "type": "string"
+          },
+          "webPasswordSourceLabel": {
+            "type": "string"
+          },
+          "webPasswordNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secretsFile": {
+            "type": "string"
+          },
+          "canRemoveToken": {
+            "type": "boolean"
+          },
+          "canRemoveWebPassword": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SourcedValue": {
+        "required": [
+          "value",
+          "source",
+          "sourceLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
           }
         }
       },
@@ -1326,6 +3247,17 @@
           "total": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "TokenRequest": {
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       },
@@ -1380,6 +3312,32 @@
           }
         }
       },
+      "WarningResponse": {
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "WebPasswordRequest": {
+        "required": [
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
       "WorkerHealth": {
         "required": [
           "state",
@@ -1402,6 +3360,27 @@
             "format": "date-time"
           }
         }
+      },
+      "WorkspacesResponse": {
+        "required": [
+          "projects",
+          "orphans"
+        ],
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceResponse"
+            }
+          },
+          "orphans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrphanResponse"
+            }
+          }
+        }
       }
     }
   },
@@ -1420,6 +3399,24 @@
     },
     {
       "name": "Cost"
+    },
+    {
+      "name": "Setup"
+    },
+    {
+      "name": "Workspaces"
+    },
+    {
+      "name": "Agents"
+    },
+    {
+      "name": "Settings"
+    },
+    {
+      "name": "Runner"
+    },
+    {
+      "name": "Pulls"
     }
   ]
 }

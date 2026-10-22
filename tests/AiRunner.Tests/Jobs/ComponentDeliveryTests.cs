@@ -2,6 +2,7 @@ using AiRunner.Infrastructure;
 using AiRunner.Jobs;
 using AiRunner.Tests.Fakes;
 using static AiRunner.Tests.Fakes.DeliveryLayouts;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Jobs;
 
@@ -20,9 +21,9 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create(layout));
         var (first, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         AddAnalysis(kit, 12, "simple", second.Name);
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
 
         var outcome = await ImplementJob(kit).RunAsync(kit.Request(JobType.ImplementIssue, 12), kit.Run, default);
 
@@ -35,17 +36,19 @@ public sealed class ComponentDeliveryTests
 
         // Branch and PR are in the repo of the component; nothing is pushed or opened anywhere else.
         Assert.All(kit.Git.PushLog, push => Assert.Equal(CloneOf(kit, second), push.Directory));
-        Assert.Equal([second.Repo], kit.GitBucket.ReposOf("create-pull"));
+        Assert.Equal([second.Repo], kit.CodeHost.ReposOf("create-pull"));
         Assert.Equal(first.Repo == second.Repo, kit.Git.PushLog.All(push => push.Directory == CloneOf(kit, first)));
 
-        var pull = kit.GitBucket.Pulls.Single();
+        var pull = kit.CodeHost.Pulls.Single();
         Assert.Contains($"Issue: {kit.Project.IssuesRepo}#12", pull.Body);
         Assert.DoesNotContain("Closes", pull.Body);
 
         // The issue, its label and its comments stay in the issues repo.
-        Assert.Empty(kit.GitBucket.ReposOf("create-issue"));
-        Assert.Contains(kit.Project.IssuesRepo, kit.GitBucket.ReposOf("comment"));
-        Assert.DoesNotContain(second.Repo == kit.Project.IssuesRepo ? "-" : second.Repo, kit.GitBucket.ReposOf("comment"));
+        Assert.Empty(kit.CodeHost.ReposOf("create-issue"));
+        Assert.Contains(kit.Project.IssuesRepo, kit.CodeHost.ReposOf("comment"));
+        Assert.DoesNotContain(
+            second.Repo == kit.Project.IssuesRepo ? "-" : second.Repo,
+            kit.CodeHost.ReposOf("comment"));
     }
 
     [Theory]
@@ -54,7 +57,7 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(
+        kit.CodeHost.AddIssue(
             21, "#12.1 Task", SubIssueBodyFor(12, 1, second.Name), "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
 
         var outcome = await ImplementJob(kit).RunAsync(kit.Request(JobType.ImplementIssue, 21), kit.Run, default);
@@ -63,9 +66,9 @@ public sealed class ComponentDeliveryTests
         var workspaceRequest = kit.Workspace.Requests.Single();
         Assert.Equal((second.Repo, second.Name), (workspaceRequest.TargetRepo, workspaceRequest.TargetComponent));
         Assert.Equal(("origin/feat/issue-12", "ai/issue-12-1"), (workspaceRequest.StartPoint, workspaceRequest.NewBranch));
-        Assert.Equal([second.Repo], kit.GitBucket.ReposOf("create-pull"));
+        Assert.Equal([second.Repo], kit.CodeHost.ReposOf("create-pull"));
 
-        var pull = kit.GitBucket.Pulls.Single();
+        var pull = kit.CodeHost.Pulls.Single();
         Assert.Equal(("ai/issue-12-1", "feat/issue-12"), (pull.Head.Ref, pull.Base.Ref));
         Assert.Contains($"Issue: {kit.Project.IssuesRepo}#21", pull.Body);
     }
@@ -76,15 +79,15 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create(layout));
         var (first, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(20, "#12.1", SubIssueBodyFor(12, 1, first.Name), "ai", Labels.SubIssue, Labels.Simple);
-        kit.GitBucket.AddIssue(
+        kit.CodeHost.AddIssue(20, "#12.1", SubIssueBodyFor(12, 1, first.Name), "ai", Labels.SubIssue, Labels.Simple);
+        kit.CodeHost.AddIssue(
             21, "#12.2", SubIssueBodyFor(12, 2, second.Name), "ai", Labels.SubIssue, Labels.Ready, Labels.Simple, Labels.Implement);
-        kit.GitBucket.AddBotComment(12, SubIssueBody.ListMarker([20, 21]));
-        kit.GitBucket.AddIssue(12, "Parent", null, "ai", Labels.Parent);
+        kit.CodeHost.AddBotComment(12, SubIssueBody.ListMarker([20, 21]));
+        kit.CodeHost.AddIssue(12, "Parent", null, "ai", Labels.Parent);
 
         // Merged in the repo of the second component only: that is not where the first sub-issue's PR belongs.
         // In the monorepo both components share the repo, so there the PR is in the right place anyway.
-        kit.GitBucket.AddPull(
+        kit.CodeHost.AddPull(
             50, "ai/issue-12-1", "feat/issue-12", merged: true, state: "closed", repo: second.Repo);
         var outcome = await ImplementJob(kit).RunAsync(kit.Request(JobType.ImplementIssue, 21), kit.Run, default);
 
@@ -95,11 +98,11 @@ public sealed class ComponentDeliveryTests
         }
 
         Assert.Equal("rejected", outcome.Result);
-        Assert.Contains("is not merged yet", kit.GitBucket.CommentsOf(21).Last().Body);
+        Assert.Contains("is not merged yet", kit.CodeHost.CommentsOf(21).Last().Body);
 
-        kit.GitBucket.AddPull(
+        kit.CodeHost.AddPull(
             50, "ai/issue-12-1", "feat/issue-12", merged: true, state: "closed", repo: first.Repo);
-        await kit.GitBucket.AddLabelsAsync(kit.Project.IssuesRepo, 21, [Labels.Implement], default);
+        await kit.CodeHost.AddLabelsAsync(kit.Project.IssuesRepo, 21, [Labels.Implement], default);
         var again = await ImplementJob(kit).RunAsync(kit.Request(JobType.ImplementIssue, 21), kit.Run, default);
 
         Assert.Equal("ok", again.Result);
@@ -112,9 +115,9 @@ public sealed class ComponentDeliveryTests
             settings => settings.NeverEdit = ["Jenkinsfile", "migrations/"],
             Create("monorepo"));
         var (web, api) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         AddAnalysis(kit, 12, "simple", api.Name);
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
         var clone = CloneOf(kit, api);
         string[] changes =
         [
@@ -135,7 +138,7 @@ public sealed class ComponentDeliveryTests
             kit.Git.Restored.Select(restored => restored.Path));
         Assert.Equal([FileIn(api, "src/Export.cs")], kit.Git.Changed[clone]);
 
-        var body = kit.GitBucket.Pulls.Single().Body!;
+        var body = kit.CodeHost.Pulls.Single().Body!;
         Assert.Contains("Changes undone by ai-runner", body);
         Assert.Contains(FileIn(web, "src/Page.ts"), body);
         Assert.Contains("matches never_edit", body);
@@ -148,9 +151,9 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create("monorepo"));
         var (web, api) = Pair(kit.Project);
         api.Commands.Build = "build-it";
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         AddAnalysis(kit, 12, "simple", api.Name);
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
         var clone = CloneOf(kit, api);
         kit.Git.Changed[clone] = [FileIn(api, "src/Export.cs")];
 
@@ -165,7 +168,7 @@ public sealed class ComponentDeliveryTests
         Assert.NotEmpty(kit.Git.Restored);
         Assert.All(kit.Git.Restored, restored => Assert.Equal((clone, FileIn(web, "package-lock.json")), restored));
         Assert.Equal([FileIn(api, "src/Export.cs")], kit.Git.Changed[clone]);
-        Assert.Contains(FileIn(web, "package-lock.json"), kit.GitBucket.Pulls.Single().Body!);
+        Assert.Contains(FileIn(web, "package-lock.json"), kit.CodeHost.Pulls.Single().Body!);
     }
 
     [Fact]
@@ -173,16 +176,16 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create("separate-issues-repo"));
         var (backend, frontend) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         AddAnalysis(kit, 12, "simple", backend.Name);
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(backend.Name), Markers.Spec));
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(backend.Name), Markers.Spec));
         kit.Git.Changed[CloneOf(kit, frontend)] = ["src/api-client.ts"];
         kit.Git.Changed[CloneOf(kit, backend)] = ["src/Export.cs"];
 
         await ImplementJob(kit).RunAsync(kit.Request(JobType.ImplementIssue, 12), kit.Run, default);
 
         Assert.Equal([(CloneOf(kit, frontend), "src/api-client.ts")], kit.Git.Restored);
-        Assert.Contains(frontend.Repo, kit.GitBucket.Pulls.Single().Body!);
+        Assert.Contains(frontend.Repo, kit.CodeHost.Pulls.Single().Body!);
         Assert.All(kit.Git.PushLog, push => Assert.Equal(CloneOf(kit, backend), push.Directory));
     }
 
@@ -191,9 +194,9 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create("monorepo"));
         var (web, api) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         AddAnalysis(kit, 12, "simple", api.Name);
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(api.Name), Markers.Spec));
         kit.Git.Changed[CloneOf(kit, api)] = [FileIn(web, "src/Page.ts"), FileIn(api, "src/Export.cs")];
         kit.Processes.ExitCodeSequence["make test"] = new Queue<int>([1, 0]);
 
@@ -210,7 +213,7 @@ public sealed class ComponentDeliveryTests
 
     private static void ArrangeParent(JobTestKit kit, string[] components)
     {
-        kit.GitBucket.AddIssue(12, "Export", "body", "ai", Labels.Parent);
+        kit.CodeHost.AddIssue(12, "Export", "body", "ai", Labels.Parent);
         List<int> numbers = [];
         for (var index = 0; index < components.Length; index++)
         {
@@ -222,14 +225,18 @@ public sealed class ComponentDeliveryTests
                 labels.Add(Labels.Implementing);
             }
 
-            kit.GitBucket.AddIssue(number, $"#12.{index + 1}", SubIssueBodyFor(12, index + 1, components[index]), [.. labels]);
+            kit.CodeHost.AddIssue(
+                number,
+                $"#12.{index + 1}",
+                SubIssueBodyFor(12, index + 1, components[index]),
+                [.. labels]);
         }
 
-        kit.GitBucket.AddBotComment(12, SubIssueBody.ListMarker(numbers));
+        kit.CodeHost.AddBotComment(12, SubIssueBody.ListMarker(numbers));
     }
 
     private static void Merge(JobTestKit kit, int number, int order, ComponentConfig component) =>
-        kit.GitBucket.AddPull(
+        kit.CodeHost.AddPull(
             number, $"ai/issue-12-{order}", "feat/issue-12", merged: true, state: "closed", title: $"#2{order - 1}: task", repo: component.Repo);
 
     [Theory]
@@ -242,18 +249,20 @@ public sealed class ComponentDeliveryTests
         ArrangeParent(kit, [first.Name, second.Name, first.Name]);
         Merge(kit, 50, 1, first);
 
-        var outcome = await new SequenceSubIssuesJob(kit.GitBucket, kit.Loader)
+        var outcome = await new SequenceSubIssuesJob(kit.CodeHost, kit.Loader)
             .RunAsync(kit.Request(JobType.SequenceSubIssues, 12), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.False(kit.GitBucket.Issues[20].IsOpen());
-        Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(20));
-        Assert.Contains("is merged into `feat/issue-12`", kit.GitBucket.CommentsOf(20).Last().Body);
-        Assert.Contains(JobSupport.PullRef(50, kit.Project.IssuesRepo, first.Repo), kit.GitBucket.CommentsOf(20).Last().Body);
-        Assert.Equal([kit.Project.IssuesRepo], kit.GitBucket.ReposOf("close-issue"));
+        Assert.False(kit.CodeHost.Issues[20].IsOpen());
+        Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(20));
+        Assert.Contains("is merged into `feat/issue-12`", kit.CodeHost.CommentsOf(20).Last().Body);
+        Assert.Contains(
+            JobSupport.PullRef(50, kit.Project.IssuesRepo, first.Repo),
+            kit.CodeHost.CommentsOf(20).Last().Body);
+        Assert.Equal([kit.Project.IssuesRepo], kit.CodeHost.ReposOf("close-issue"));
 
-        Assert.Contains(Labels.Implement, kit.GitBucket.LabelsOf(21));
-        Assert.True(kit.GitBucket.Issues[21].IsOpen());
+        Assert.Contains(Labels.Implement, kit.CodeHost.LabelsOf(21));
+        Assert.True(kit.CodeHost.Issues[21].IsOpen());
     }
 
     [Theory]
@@ -264,26 +273,26 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create(layout));
         var (first, second) = Pair(kit.Project);
         ArrangeParent(kit, [first.Name, second.Name, first.Name]);
-        kit.GitBucket.AddPull(50, "ai/issue-12-1", "feat/issue-12", state: "closed", repo: first.Repo);
-        var job = new SequenceSubIssuesJob(kit.GitBucket, kit.Loader);
+        kit.CodeHost.AddPull(50, "ai/issue-12-1", "feat/issue-12", state: "closed", repo: first.Repo);
+        var job = new SequenceSubIssuesJob(kit.CodeHost, kit.Loader);
         var request = kit.Request(JobType.SequenceSubIssues, 12);
 
         var outcome = await job.RunAsync(request, kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.True(kit.GitBucket.Issues[20].IsOpen());
-        Assert.Contains(Labels.Failed, kit.GitBucket.LabelsOf(20));
-        Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(20));
-        Assert.Contains("closed without a merge", kit.GitBucket.CommentsOf(20).Last().Body);
-        Assert.DoesNotContain(Labels.Implement, kit.GitBucket.LabelsOf(21));
+        Assert.True(kit.CodeHost.Issues[20].IsOpen());
+        Assert.Contains(Labels.Failed, kit.CodeHost.LabelsOf(20));
+        Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(20));
+        Assert.Contains("closed without a merge", kit.CodeHost.CommentsOf(20).Last().Body);
+        Assert.DoesNotContain(Labels.Implement, kit.CodeHost.LabelsOf(21));
 
         // The next poll finds nothing new: no second comment, no restart.
-        var commentCount = kit.GitBucket.CommentsOf(20).Count;
+        var commentCount = kit.CodeHost.CommentsOf(20).Count;
         var again = await job.RunAsync(request, kit.Run, default);
 
         Assert.True(again.Quiet);
-        Assert.Equal(commentCount, kit.GitBucket.CommentsOf(20).Count);
-        Assert.DoesNotContain(Labels.Implement, kit.GitBucket.LabelsOf(20));
+        Assert.Equal(commentCount, kit.CodeHost.CommentsOf(20).Count);
+        Assert.DoesNotContain(Labels.Implement, kit.CodeHost.LabelsOf(20));
     }
 
     [Theory]
@@ -297,47 +306,50 @@ public sealed class ComponentDeliveryTests
         Merge(kit, 50, 1, first);
         Merge(kit, 51, 2, second);
         Merge(kit, 52, 3, first);
-        var job = new SequenceSubIssuesJob(kit.GitBucket, kit.Loader);
+        var job = new SequenceSubIssuesJob(kit.CodeHost, kit.Loader);
         var request = kit.Request(JobType.SequenceSubIssues, 12);
         var repos = new[] { first.Repo, second.Repo }.Distinct().Order().ToList();
 
         // 1. Every sub-issue is closed, and each repo with sub-issues gets one final PR.
         await job.RunAsync(request, kit.Run, default);
 
-        Assert.All([20, 21, 22], number => Assert.False(kit.GitBucket.Issues[number].IsOpen()));
-        var finalPulls = kit.GitBucket.Pulls.Where(pull => pull.Head.Ref == "feat/issue-12").ToList();
+        Assert.All([20, 21, 22], number => Assert.False(kit.CodeHost.Issues[number].IsOpen()));
+        var finalPulls = kit.CodeHost.Pulls.Where(pull => pull.Head.Ref == "feat/issue-12").ToList();
         Assert.Equal(repos.Count, finalPulls.Count);
-        Assert.Equal(repos, kit.GitBucket.ReposOf("create-pull").Order());
+        Assert.Equal(repos, kit.CodeHost.ReposOf("create-pull").Order());
         Assert.All(finalPulls, pull => Assert.Equal("main", pull.Base.Ref));
         Assert.All(finalPulls, pull => Assert.Contains($"Issue: {kit.Project.IssuesRepo}#12", pull.Body));
         Assert.All(finalPulls, pull => Assert.DoesNotContain("Closes", pull.Body));
 
         // One parent comment lists all the final PRs.
-        var listComments = kit.GitBucket.CommentsOf(12).Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker)).ToList();
+        var listComments = kit.CodeHost
+            .CommentsOf(12)
+            .Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker))
+            .ToList();
         var list = Assert.Single(listComments).Body!;
         Assert.All(finalPulls, pull => Assert.Contains($"#{pull.Number}", list));
 
         // 2. Nothing more happens while the final PRs are open.
         var waiting = await job.RunAsync(request, kit.Run, default);
         Assert.True(waiting.Quiet);
-        Assert.Equal(repos.Count, kit.GitBucket.Pulls.Count(pull => pull.Head.Ref == "feat/issue-12"));
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
+        Assert.Equal(repos.Count, kit.CodeHost.Pulls.Count(pull => pull.Head.Ref == "feat/issue-12"));
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
 
         // 3. One final PR merged is not enough (when there are two); all of them close the parent.
         for (var index = 0; index < finalPulls.Count; index++)
         {
             var pull = finalPulls[index];
-            var repo = kit.GitBucket.PullRepos[pull.Number];
-            kit.GitBucket.AddPull(pull.Number, pull.Head.Ref, pull.Base.Ref, merged: true, state: "closed", repo: repo);
+            var repo = kit.CodeHost.PullRepos[pull.Number];
+            kit.CodeHost.AddPull(pull.Number, pull.Head.Ref, pull.Base.Ref, merged: true, state: "closed", repo: repo);
 
             var outcome = await job.RunAsync(request, kit.Run, default);
 
             var isLast = index == finalPulls.Count - 1;
             Assert.Equal(!isLast, outcome.Quiet);
-            Assert.Equal(!isLast, kit.GitBucket.Issues[12].IsOpen());
+            Assert.Equal(!isLast, kit.CodeHost.Issues[12].IsOpen());
         }
 
-        Assert.Contains("All final PRs are merged", kit.GitBucket.CommentsOf(12).Last().Body);
+        Assert.Contains("All final PRs are merged", kit.CodeHost.CommentsOf(12).Last().Body);
     }
 
     [Theory]
@@ -350,28 +362,28 @@ public sealed class ComponentDeliveryTests
         Merge(kit, 50, 1, first);
         Merge(kit, 51, 2, second);
         Merge(kit, 52, 3, first);
-        var job = new SequenceSubIssuesJob(kit.GitBucket, kit.Loader);
+        var job = new SequenceSubIssuesJob(kit.CodeHost, kit.Loader);
         var request = kit.Request(JobType.SequenceSubIssues, 12);
         await job.RunAsync(request, kit.Run, default);
-        var finalPull = kit.GitBucket.Pulls.First(pull => pull.Head.Ref == "feat/issue-12");
-        var repo = kit.GitBucket.PullRepos[finalPull.Number];
-        var finalCount = kit.GitBucket.Pulls.Count(pull => pull.Head.Ref == "feat/issue-12");
+        var finalPull = kit.CodeHost.Pulls.First(pull => pull.Head.Ref == "feat/issue-12");
+        var repo = kit.CodeHost.PullRepos[finalPull.Number];
+        var finalCount = kit.CodeHost.Pulls.Count(pull => pull.Head.Ref == "feat/issue-12");
 
         // Someone closes a final PR without merging it.
-        kit.GitBucket.AddPull(finalPull.Number, finalPull.Head.Ref, finalPull.Base.Ref, state: "closed", repo: repo);
+        kit.CodeHost.AddPull(finalPull.Number, finalPull.Head.Ref, finalPull.Base.Ref, state: "closed", repo: repo);
         var outcome = await job.RunAsync(request, kit.Run, default);
 
         Assert.False(outcome.Quiet);
-        var open = kit.GitBucket.Pulls.Where(pull => pull.Head.Ref == "feat/issue-12" && pull.IsOpen()).ToList();
+        var open = kit.CodeHost.Pulls.Where(pull => pull.Head.Ref == "feat/issue-12" && pull.IsOpen()).ToList();
         Assert.Equal(finalCount, open.Count);
         Assert.DoesNotContain(open, pull => pull.Number == finalPull.Number);
-        var lists = kit.GitBucket.CommentsOf(12).Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker));
+        var lists = kit.CodeHost.CommentsOf(12).Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker));
         Assert.Equal(2, lists.Count());
     }
 
     // ---- finishing a simple issue ----
 
-    private static FinishIssueJob FinishJob(JobTestKit kit) => new(kit.GitBucket, kit.Loader);
+    private static FinishIssueJob FinishJob(JobTestKit kit) => new(kit.CodeHost, kit.Loader);
 
     [Theory]
     [MemberData(nameof(Names), MemberType = typeof(DeliveryLayouts))]
@@ -380,16 +392,18 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, second);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
 
         var outcome = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
         Assert.Equal(0, outcome.CopilotCalls);
-        Assert.False(kit.GitBucket.Issues[12].IsOpen());
-        Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(12));
-        Assert.Contains(JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo), kit.GitBucket.CommentsOf(12).Last().Body);
-        Assert.Equal([kit.Project.IssuesRepo], kit.GitBucket.ReposOf("close-issue"));
+        Assert.False(kit.CodeHost.Issues[12].IsOpen());
+        Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(12));
+        Assert.Contains(
+            JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo),
+            kit.CodeHost.CommentsOf(12).Last().Body);
+        Assert.Equal([kit.Project.IssuesRepo], kit.CodeHost.ReposOf("close-issue"));
     }
 
     [Theory]
@@ -399,16 +413,16 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, second);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
-        var commentsBefore = kit.GitBucket.CommentsOf(12).Count();
-        kit.GitBucket.CloseError = "sign-in refused";
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: second.Repo);
+        var commentsBefore = kit.CodeHost.CommentsOf(12).Count();
+        kit.CodeHost.CloseError = "sign-in refused";
 
-        await Assert.ThrowsAsync<GitBucketException>(
+        await Assert.ThrowsAsync<CodeHostException>(
             () => FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default));
 
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
-        Assert.Contains(Labels.Implementing, kit.GitBucket.LabelsOf(12));
-        Assert.Equal(commentsBefore, kit.GitBucket.CommentsOf(12).Count());
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
+        Assert.Contains(Labels.Implementing, kit.CodeHost.LabelsOf(12));
+        Assert.Equal(commentsBefore, kit.CodeHost.CommentsOf(12).Count());
     }
 
     [Theory]
@@ -420,14 +434,14 @@ public sealed class ComponentDeliveryTests
         ArrangeSimpleIssue(kit, second);
 
         var withoutPull = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", repo: second.Repo);
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", repo: second.Repo);
         var withOpenPull = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
 
         Assert.True(withoutPull.Quiet);
         Assert.True(withOpenPull.Quiet);
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
-        Assert.Contains(Labels.Implementing, kit.GitBucket.LabelsOf(12));
-        Assert.Single(kit.GitBucket.CommentsOf(12));   // only the analysis
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
+        Assert.Contains(Labels.Implementing, kit.CodeHost.LabelsOf(12));
+        Assert.Single(kit.CodeHost.CommentsOf(12));   // only the analysis
     }
 
     [Theory]
@@ -437,14 +451,14 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, second);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", state: "closed", repo: second.Repo);
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", state: "closed", repo: second.Repo);
 
         var outcome = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
-        Assert.DoesNotContain(Labels.Implementing, kit.GitBucket.LabelsOf(12));
-        Assert.Contains("closed without a merge", kit.GitBucket.CommentsOf(12).Last().Body);
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
+        Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(12));
+        Assert.Contains("closed without a merge", kit.CodeHost.CommentsOf(12).Last().Body);
     }
 
     [Fact]
@@ -453,13 +467,13 @@ public sealed class ComponentDeliveryTests
         using var kit = new JobTestKit(project: Create("separate-issues-repo"));
         var (backend, frontend) = Pair(kit.Project);
         ArrangeSimpleIssue(kit, backend);
-        kit.GitBucket.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: frontend.Repo);
+        kit.CodeHost.AddPull(30, "ai/issue-12", "main", merged: true, state: "closed", repo: frontend.Repo);
 
         var outcome = await FinishJob(kit).RunAsync(kit.Request(JobType.FinishIssue, 12), kit.Run, default);
 
         Assert.True(outcome.Quiet);
-        Assert.True(kit.GitBucket.Issues[12].IsOpen());
-        Assert.Equal([backend.Repo], kit.GitBucket.ReposOf("pulls"));
+        Assert.True(kit.CodeHost.Issues[12].IsOpen());
+        Assert.Equal([backend.Repo], kit.CodeHost.ReposOf("pulls"));
     }
 
     // ---- review ----
@@ -470,9 +484,9 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create(layout));
         var (_, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export", null, "ai");
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
-        kit.GitBucket.AddPull(
+        kit.CodeHost.AddIssue(12, "Export", null, "ai");
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
+        kit.CodeHost.AddPull(
             30, "ai/issue-12", "main", sha: "sha1", body: $"Adds export.\n\nIssue: {kit.Project.IssuesRepo}#12", labels: "ai", repo: second.Repo);
         kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
         var request = new JobRequest(JobType.ReviewPullRequest, second.Repo, 30, "sha1");
@@ -482,7 +496,7 @@ public sealed class ComponentDeliveryTests
         Assert.Equal("ok", outcome.Result);
 
         // The SPEC is read from the issue's own repo.
-        Assert.Contains(kit.Project.IssuesRepo, kit.GitBucket.ReposOf("comments-read"));
+        Assert.Contains(kit.Project.IssuesRepo, kit.CodeHost.ReposOf("comments-read"));
         var context = File.ReadAllText(Path.Combine(kit.Workspace.Dir, "context.md"));
         Assert.Contains($"Linked issue {kit.Project.IssuesRepo}#12", context);
         Assert.Contains("SPEC - issue #12", context);
@@ -496,9 +510,9 @@ public sealed class ComponentDeliveryTests
 
     // ---- review fix ----
 
-    private static GbComment ArrangeFixPull(JobTestKit kit, ComponentConfig pullComponent, string? linkLine)
+    private static HostComment ArrangeFixPull(JobTestKit kit, ComponentConfig pullComponent, string? linkLine)
     {
-        kit.GitBucket.AddPull(
+        kit.CodeHost.AddPull(
             30,
             "ai/issue-12",
             "main",
@@ -507,12 +521,12 @@ public sealed class ComponentDeliveryTests
             labels: "ai",
             repo: pullComponent.Repo);
         kit.Git.Refs["origin/ai/issue-12"] = "sha1";
-        kit.GitBucket.AddBotComment(30, Markers.Wrap(Samples.Review(), Markers.Review));
+        kit.CodeHost.AddBotComment(30, Markers.Wrap(Samples.Review(), Markers.Review));
 
-        return kit.GitBucket.AddHumanComment(30, "@ai 1: fix, 2: skip");
+        return kit.CodeHost.AddHumanComment(30, "@ai 1: fix, 2: skip");
     }
 
-    private static Task<JobOutcome> RunFix(JobTestKit kit, ComponentConfig pullComponent, GbComment trigger)
+    private static Task<JobOutcome> RunFix(JobTestKit kit, ComponentConfig pullComponent, HostComment trigger)
     {
         var request = new JobRequest(JobType.FixReview, pullComponent.Repo, 30, trigger.Id.ToString());
 
@@ -525,8 +539,8 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create(layout));
         var (first, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export", null, "ai");
-        kit.GitBucket.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
+        kit.CodeHost.AddIssue(12, "Export", null, "ai");
+        kit.CodeHost.AddBotComment(12, Markers.Wrap(Samples.SpecFor(second.Name), Markers.Spec));
         AddAnalysis(kit, 12, "simple", second.Name);
         var trigger = ArrangeFixPull(kit, second, $"Issue: {kit.Project.IssuesRepo}#12");
 
@@ -552,7 +566,7 @@ public sealed class ComponentDeliveryTests
         Assert.Equal((second.Repo, second.Name), (workspaceRequest.TargetRepo, workspaceRequest.TargetComponent));
         Assert.Equal([(firstClone, other)], kit.Git.Restored);
         Assert.Equal([kept], kit.Git.Changed[secondClone]);
-        Assert.Contains("Changes undone by ai-runner", kit.GitBucket.CommentsOf(30).Last().Body);
+        Assert.Contains("Changes undone by ai-runner", kit.CodeHost.CommentsOf(30).Last().Body);
     }
 
     [Fact]
@@ -560,7 +574,7 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create("monorepo"));
         var (web, api) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(
+        kit.CodeHost.AddIssue(
             21, "#12.1", SubIssueBodyFor(12, 1, web.Name), "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
         var trigger = ArrangeFixPull(kit, web, $"Issue: {kit.Project.IssuesRepo}#21");
         kit.Git.Changed[CloneOf(kit, web)] = [FileIn(web, "a.ts"), FileIn(api, "b.cs")];
@@ -576,7 +590,7 @@ public sealed class ComponentDeliveryTests
     {
         using var kit = new JobTestKit(project: Create("multi-repo"));
         var (first, second) = Pair(kit.Project);
-        kit.GitBucket.AddIssue(12, "Export", null, "ai");
+        kit.CodeHost.AddIssue(12, "Export", null, "ai");
         AddAnalysis(kit, 12, "simple", second.Name);
         var trigger = ArrangeFixPull(kit, first, $"Issue: {kit.Project.IssuesRepo}#12");
 
@@ -601,7 +615,7 @@ public sealed class ComponentDeliveryTests
 
         // A component without any check command refuses the fix, because its changes could not be checked.
         api.Commands = new CommandsConfig();
-        var secondTrigger = kit.GitBucket.AddHumanComment(30, "@ai again");
+        var secondTrigger = kit.CodeHost.AddHumanComment(30, "@ai again");
         kit.Copilot.Requests.Clear();
         var refused = await RunFix(kit, web, secondTrigger);
 

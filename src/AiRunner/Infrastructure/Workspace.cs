@@ -1,5 +1,6 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
+using AiRunner.Infrastructure.CodeHost;
 using Microsoft.Extensions.Logging;
 
 namespace AiRunner.Infrastructure;
@@ -9,13 +10,16 @@ namespace AiRunner.Infrastructure;
 /// <param name="TargetRepo">The repo the job works on; it is checked out at <paramref name="StartPoint"/>.</param>
 /// <param name="StartPoint">The commit to check out in the target repo, e.g. "origin/main" or a sha.</param>
 /// <param name="NewBranch">Check out as this branch when given, else detached.</param>
-/// <param name="ExtraFetch">Refspecs fetched first in the target repo when the server has them (e.g. a PR head); a failure there is ignored.</param>
+/// <param name="PullHead">
+/// A PR whose head commit is fetched first into the target repo (the code host's PR head ref), so a commit that is
+/// only on that PR can be checked out. A host without the ref is ignored.
+/// </param>
 public sealed record WorkspaceRequest(
     ProjectConfig Project,
     string TargetRepo,
     string StartPoint,
     string? NewBranch,
-    IReadOnlyList<string> ExtraFetch)
+    int? PullHead)
 {
     /// <summary>The agent may change the target code (implement, review fix). False = components.md shows everything read-only.</summary>
     public bool Writable { get; init; }
@@ -65,8 +69,18 @@ public interface IWorkspace
 /// so "git add -A" never commits one the agent wrote there by mistake. AGENTS.md in the root is a runner file too,
 /// but it is not excluded in the clones: a repo may have an AGENTS.md of its own that the agent may legitimately edit.
 /// </summary>
-public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger<Workspace> logger) : IWorkspace
+public sealed class Workspace(
+    RunnerConfigSource configSource,
+    IGitClient gitClient,
+    IGitRemote remote,
+    WorkspaceLocks locks,
+    ILogger<Workspace> logger) : IWorkspace
 {
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
+    private RunnerConfig Config => configSource.Current;
+
     private const string RunnerFolder = ".ai-workflow";
     private const string TemplatesFolder = ".ai-workflow/templates";
 
@@ -79,19 +93,9 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
     /// <summary>Runner files in the project folder that must not go to the exclude list of a clone.</summary>
     private static readonly string[] RootOnlyFiles = [InstructionsDoc.FileName];
 
-    private string RootOf(ProjectConfig project)
-    {
-        var workFolder = config.ResolvePath(config.Paths.Work);
+    private string RootOf(ProjectConfig project) => WorkspacePaths.RootOf(Config, project);
 
-        return Path.Combine(workFolder, project.Name);
-    }
-
-    private string CloneFolderOf(ProjectConfig project, string repo)
-    {
-        var root = RootOf(project);
-
-        return Path.Combine(root, ProjectConfig.FolderOf(repo));
-    }
+    private string CloneFolderOf(ProjectConfig project, string repo) => WorkspacePaths.CloneOf(Config, project, repo);
 
     public void Discard(ProjectConfig project, string repo)
     {
@@ -106,6 +110,10 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
     public async Task<PreparedWorkspace> PrepareAsync(WorkspaceRequest request, CancellationToken cancellationToken)
     {
         var project = request.Project;
+
+        // Held until the worker ends the job; a fetch or re-clone from the dashboard waits outside meanwhile.
+        await locks.HoldForJobAsync(project.Name, cancellationToken);
+
         var root = RootOf(project);
         Directory.CreateDirectory(root);
         DeleteStaleRunnerFiles(root);
@@ -134,7 +142,7 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
             clones[repo] = directory;
         }
 
-        var sharedTemplates = config.ResolvePath("templates");
+        var sharedTemplates = Config.ResolvePath("templates");
         var templatesFolder = Path.Combine(root, TemplatesFolder);
         CopyDirectory(sharedTemplates, templatesFolder);
 
@@ -254,15 +262,16 @@ public sealed class Workspace(RunnerConfig config, IGitClient gitClient, ILogger
         string directory,
         CancellationToken cancellationToken)
     {
-        foreach (var refspec in request.ExtraFetch)
+        if (request.PullHead is { } pullNumber)
         {
+            var refspec = remote.PullHeadRefspec(pullNumber);
             try
             {
                 await gitClient.FetchAsync(directory, refspec, cancellationToken);
             }
             catch (InvalidOperationException)
             {
-                // Not every GitBucket version has refs/pull/*.
+                // A host may not have the ref (not every GitBucket version has refs/pull/*).
             }
         }
 

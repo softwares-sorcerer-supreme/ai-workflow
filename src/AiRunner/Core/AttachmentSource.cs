@@ -5,7 +5,7 @@ namespace AiRunner.Core;
 public sealed record AttachmentSource(string Label, string? Text)
 {
     /// <summary>The body first, then one source per human comment; bot comments are skipped, the runner wrote them itself.</summary>
-    public static IReadOnlyList<AttachmentSource> Of(AttachmentSource body, IEnumerable<GbComment> comments)
+    public static IReadOnlyList<AttachmentSource> Of(AttachmentSource body, IEnumerable<HostComment> comments)
     {
         var commentSources = BotComments.Humans(comments)
             .Select(comment => new AttachmentSource($"comment {comment.Id} by {comment.User.Login}", comment.Body));

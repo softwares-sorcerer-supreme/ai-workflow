@@ -3,7 +3,8 @@ using System.Text;
 namespace AiRunner.Core;
 
 /// <summary>
-/// This GitBucket returns HTTP 500 when a comment has any non-ASCII character.
+/// This GitBucket returns HTTP 500 when a comment has any non-ASCII character. Pure text work, so it lives in
+/// Core; only the GitBucket provider (Infrastructure/CodeHost) calls it, on every text it sends.
 /// Clean() keeps the text readable: common symbols become ASCII, Vietnamese loses
 /// its accents ("tieng Viet"), emoji and anything else are dropped.
 /// </summary>

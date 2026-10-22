@@ -2,6 +2,7 @@ using System.Text;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -52,7 +53,7 @@ public static class JobSupport
     /// The component a simple issue is built in: the one its analysis names. An analysis from before components
     /// existed names none, and then only a project with exactly one code component leaves no doubt.
     /// </summary>
-    public static ComponentConfig TargetOfIssue(this ProjectConfig project, IEnumerable<GbComment> comments)
+    public static ComponentConfig TargetOfIssue(this ProjectConfig project, IEnumerable<HostComment> comments)
     {
         var analysis = LatestBlock(comments, Markers.Analysis);
         var codeNames = project.CodeComponentNames;
@@ -125,37 +126,37 @@ public static class JobSupport
     /// again first: labels change during a job, and a stale copy would skip a removal.
     /// </summary>
     public static async Task ApplyLabelsAsync(
-        this IGitBucketClient gitBucketClient,
+        this ICodeHost codeHost,
         string repo,
         int number,
         LabelChange change,
         CancellationToken cancellationToken)
     {
-        var issue = await gitBucketClient.GetIssueAsync(repo, number, cancellationToken);
+        var issue = await codeHost.GetIssueAsync(repo, number, cancellationToken);
         var current = issue.LabelNames();
         var missing = change.Add.Where(labelName => !current.Contains(labelName)).Distinct();
-        await gitBucketClient.AddLabelsAsync(repo, number, missing, cancellationToken);
+        await codeHost.AddLabelsAsync(repo, number, missing, cancellationToken);
 
         foreach (var label in change.Remove.Where(current.Contains).Distinct())
         {
-            await gitBucketClient.RemoveLabelAsync(repo, number, label, cancellationToken);
+            await codeHost.RemoveLabelAsync(repo, number, label, cancellationToken);
         }
     }
 
     public static async Task<string> DefaultBranchAsync(
-        this IGitBucketClient gitBucketClient, string repo, CancellationToken cancellationToken) =>
-        (await gitBucketClient.GetRepoAsync(repo, cancellationToken)).DefaultBranch
+        this ICodeHost codeHost, string repo, CancellationToken cancellationToken) =>
+        (await codeHost.GetRepoAsync(repo, cancellationToken)).DefaultBranch
         ?? throw new JobFailedException($"GitBucket did not return the default branch of {repo}");
 
     /// <summary>Open and closed PRs of a repo (merged ones are closed), to look a PR up by its branch.</summary>
-    public static async Task<List<GbPull>> ListAllPullsAsync(
-        this IGitBucketClient gitBucketClient,
+    public static async Task<List<HostPull>> ListAllPullsAsync(
+        this ICodeHost codeHost,
         string repo,
         CancellationToken cancellationToken)
     {
-        var open = await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken);
-        var closed = await gitBucketClient.ListPullsAsync(repo, "closed", cancellationToken);
-        List<GbPull> pulls = [.. open, .. closed];
+        var open = await codeHost.ListPullsAsync(repo, "open", cancellationToken);
+        var closed = await codeHost.ListPullsAsync(repo, "closed", cancellationToken);
+        List<HostPull> pulls = [.. open, .. closed];
 
         return pulls;
     }
@@ -168,15 +169,15 @@ public static class JobSupport
     /// looks at it again). That is the smaller harm: the goal, a closed issue, is reached, and nothing repeats.
     /// </summary>
     public static async Task CloseDoneAsync(
-        this IGitBucketClient gitBucketClient,
+        this ICodeHost codeHost,
         string repo,
         int number,
         string comment,
         CancellationToken cancellationToken)
     {
-        await gitBucketClient.CloseIssueAsync(repo, number, cancellationToken);
-        await gitBucketClient.RemoveLabelAsync(repo, number, Labels.Implementing, cancellationToken);
-        await gitBucketClient.AddCommentAsync(repo, number, comment, cancellationToken);
+        await codeHost.CloseIssueAsync(repo, number, cancellationToken);
+        await codeHost.RemoveLabelAsync(repo, number, Labels.Implementing, cancellationToken);
+        await codeHost.AddCommentAsync(repo, number, comment, cancellationToken);
     }
 
     /// <summary>
@@ -186,7 +187,7 @@ public static class JobSupport
     /// issue is logged, not fatal: the PR can still be handled without it.
     /// </summary>
     public static async Task<LinkedIssue> LinkedIssueAsync(
-        this IGitBucketClient gitBucketClient,
+        this ICodeHost codeHost,
         PullLink link,
         JobRun run,
         CancellationToken cancellationToken)
@@ -201,7 +202,7 @@ public static class JobSupport
         var (repo, number) = linked;
         try
         {
-            var comments = await gitBucketClient.ListCommentsAsync(repo, number, cancellationToken);
+            var comments = await codeHost.ListCommentsAsync(repo, number, cancellationToken);
             var analysis = LatestBlock(comments, Markers.Analysis);
             var spec = LatestBlock(comments, Markers.Spec);
             var codeNames = project.CodeComponentNames;
@@ -210,13 +211,13 @@ public static class JobSupport
             int? parentNumber = null;
             if (spec is null)
             {
-                var issue = await gitBucketClient.GetIssueAsync(repo, number, cancellationToken);
+                var issue = await codeHost.GetIssueAsync(repo, number, cancellationToken);
                 if (issue.HasLabel(Labels.SubIssue))
                 {
                     var subIssueInfo = SubIssueInfoOf(issue);
                     var parentSpec = subIssueInfo is null
                         ? null
-                        : await ParentSpecAsync(gitBucketClient, (repo, subIssueInfo.Parent), run, cancellationToken);
+                        : await ParentSpecAsync(codeHost, (repo, subIssueInfo.Parent), run, cancellationToken);
                     parentNumber = subIssueInfo?.Parent;
                     spec = ContextBuilder.PlanFromSubIssue(issue, parentNumber, parentSpec);
                     components = subIssueInfo?.Component is { } component ? [component] : [];
@@ -230,7 +231,7 @@ public static class JobSupport
                 ParentNumber = parentNumber,
             };
         }
-        catch (GitBucketException exception)
+        catch (CodeHostException exception)
         {
             run.Info($"linked issue {linked} not readable: {exception.Message}");
             return new LinkedIssue(number, null, null)
@@ -241,7 +242,7 @@ public static class JobSupport
     }
 
     /// <summary>The parsed header of a sub-issue body, or null when it is broken.</summary>
-    private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
+    public static SubIssueInfo? SubIssueInfoOf(HostIssue issue)
     {
         try
         {
@@ -256,18 +257,18 @@ public static class JobSupport
 
     /// <summary>The SPEC of the parent issue, or null when it has none or cannot be read (not fatal).</summary>
     private static async Task<string?> ParentSpecAsync(
-        IGitBucketClient gitBucketClient,
+        ICodeHost codeHost,
         (string Repo, int Number) parent,
         JobRun run,
         CancellationToken cancellationToken)
     {
         try
         {
-            var comments = await gitBucketClient.ListCommentsAsync(parent.Repo, parent.Number, cancellationToken);
+            var comments = await codeHost.ListCommentsAsync(parent.Repo, parent.Number, cancellationToken);
 
             return LatestBlock(comments, Markers.Spec);
         }
-        catch (GitBucketException exception)
+        catch (CodeHostException exception)
         {
             run.Info($"parent issue {parent.Repo}#{parent.Number} not readable: {exception.Message}");
 
@@ -276,7 +277,7 @@ public static class JobSupport
     }
 
     /// <summary>The block inside the newest bot comment of that kind (ANALYSIS, SPEC, REVIEW), or null.</summary>
-    public static string? LatestBlock(IEnumerable<GbComment> comments, string marker) =>
+    public static string? LatestBlock(IEnumerable<HostComment> comments, string marker) =>
         BotComments.Latest(comments, marker) is { } comment ? Markers.Extract(comment.Body!, marker) : null;
 
     /// <summary>
@@ -288,7 +289,8 @@ public static class JobSupport
     {
         // JobWorker adds up every *-usage.json of the run folder for the cost row, failed runs included.
         var usageFile = run.PathFor($"{logName}{JobRun.UsageFileSuffix}");
-        var requestWithUsage = request with { UsageFile = usageFile };
+        var liveFile = run.PathFor($"{logName}{LogFileRules.LiveFileSuffix}");
+        var requestWithUsage = request with { UsageFile = usageFile, LiveFile = liveFile };
         var result = await copilot.RunAsync(requestWithUsage, cancellationToken);
         run.Save($"{logName}-stdout.txt", result.StdOut);
         run.Save($"{logName}-stderr.txt", result.StdErr);
@@ -338,4 +340,4 @@ public static class JobSupport
 }
 
 /// <summary>A PR and where it is: the project and the repo (one of its code repos) the PR lives in.</summary>
-public sealed record PullLink(ProjectConfig Project, string PullRepo, GbPull Pull);
+public sealed record PullLink(ProjectConfig Project, string PullRepo, HostPull Pull);

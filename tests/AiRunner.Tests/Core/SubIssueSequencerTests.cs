@@ -5,42 +5,42 @@ public class SubIssueSequencerTests
     private const string Backend = "org/backend";
     private const string Frontend = "org/frontend";
 
-    private static GbIssue Sub(int number, params string[] labels) => Samples.Issue(number, labels);
+    private static HostIssue Sub(int number, params string[] labels) => Samples.Issue(number, labels);
 
-    private static GbPull Merged(int number, string head, string @base = "feat/issue-12") =>
+    private static HostPull Merged(int number, string head, string @base = "feat/issue-12") =>
         new(
             number,
             "t",
-            new GbRef(head, "s"),
-            new GbRef(@base, "b"),
+            new HostRef(head, "s"),
+            new HostRef(@base, "b"),
             DateTimeOffset.UtcNow,
             State: "closed",
             Merged: true);
 
-    private static GbPull FinalPull(int number, bool isMerged) =>
+    private static HostPull FinalPull(int number, bool isMerged) =>
         new(
             number,
             "final",
-            new GbRef("feat/issue-12", "s"),
-            new GbRef("main", "b"),
+            new HostRef("feat/issue-12", "s"),
+            new HostRef("main", "b"),
             DateTimeOffset.UtcNow,
             State: isMerged ? "closed" : "open",
             Merged: isMerged);
 
-    private static readonly GbIssue[] Subs =
+    private static readonly HostIssue[] Subs =
         [Sub(20, Labels.Simple, Labels.Implementing), Sub(21, Labels.Simple), Sub(22)];
 
     /// <summary>All sub-issues in one repo, the PRs of that repo.</summary>
-    private static SequenceInput OneRepo(IReadOnlyList<GbIssue> subIssues, params GbPull[] pulls) =>
+    private static SequenceInput OneRepo(IReadOnlyList<HostIssue> subIssues, params HostPull[] pulls) =>
         Input(subIssues.Select(subIssue => new SubIssueRef(subIssue, Backend)).ToList(), (Backend, pulls));
 
     private static SequenceInput Input(
         IReadOnlyList<SubIssueRef> subIssues,
-        params (string Repo, GbPull[] Pulls)[] pullsByRepo)
+        params (string Repo, HostPull[] Pulls)[] pullsByRepo)
     {
         var pulls = pullsByRepo.ToDictionary(
             entry => entry.Repo,
-            entry => (IReadOnlyList<GbPull>)entry.Pulls,
+            entry => (IReadOnlyList<HostPull>)entry.Pulls,
             StringComparer.OrdinalIgnoreCase);
 
         return new SequenceInput(12, subIssues, pulls);
@@ -71,7 +71,7 @@ public class SubIssueSequencerTests
     [Fact]
     public void In_progress_sub_issue_is_not_started_twice()
     {
-        GbIssue[] subIssues = [Sub(20), Sub(21, Labels.Simple, Labels.Implement), Sub(22)];
+        HostIssue[] subIssues = [Sub(20), Sub(21, Labels.Simple, Labels.Implement), Sub(22)];
         var mergedPull = Merged(50, "ai/issue-12-1");
         var decision = SubIssueSequencer.Decide(OneRepo(subIssues, mergedPull));
 
@@ -82,18 +82,18 @@ public class SubIssueSequencerTests
     [Fact]
     public void A_failed_sub_issue_is_not_started_again()
     {
-        GbIssue[] subIssues = [Sub(20), Sub(21, Labels.Simple, Labels.Failed), Sub(22)];
+        HostIssue[] subIssues = [Sub(20), Sub(21, Labels.Simple, Labels.Failed), Sub(22)];
         var decision = SubIssueSequencer.Decide(OneRepo(subIssues, Merged(50, "ai/issue-12-1")));
 
         Assert.Equal(SequenceStep.Wait, decision.Step);
     }
 
-    private static GbPull Pull(int number, string head, string state) =>
+    private static HostPull Pull(int number, string head, string state) =>
         new(
             number,
             "t",
-            new GbRef(head, "s"),
-            new GbRef("feat/issue-12", "b"),
+            new HostRef(head, "s"),
+            new HostRef("feat/issue-12", "b"),
             DateTimeOffset.UtcNow,
             State: state,
             Merged: false);
@@ -123,7 +123,7 @@ public class SubIssueSequencerTests
     [Fact]
     public void A_sub_issue_without_ai_implementing_is_not_abandoned()
     {
-        GbIssue[] subIssues = [Sub(20, Labels.Simple), Sub(21, Labels.Simple), Sub(22)];
+        HostIssue[] subIssues = [Sub(20, Labels.Simple), Sub(21, Labels.Simple), Sub(22)];
 
         Assert.Empty(SubIssueSequencer.ClosedWithoutMerge(OneRepo(subIssues, Pull(50, "ai/issue-12-1", "closed"))));
     }
@@ -136,7 +136,7 @@ public class SubIssueSequencerTests
 
         Assert.Contains("developer", waiting.Reason);
 
-        GbIssue[] closedThird = [Subs[0], Subs[1], Subs[2] with { State = "closed" }];
+        HostIssue[] closedThird = [Subs[0], Subs[1], Subs[2] with { State = "closed" }];
         Assert.Equal(SequenceStep.OpenFinalPrs, SubIssueSequencer.Decide(OneRepo(closedThird, pulls)).Step);
     }
 

@@ -15,8 +15,13 @@ public interface ICostLog
 /// logs/cost.csv, so Copilot use can be read per repo and workflow after a month.
 /// The CSV is often open in Excel, which locks it; then the row is only in SQLite.
 /// </summary>
-public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger<CostLog> logger) : ICostLog
+public sealed class CostLog(RunnerConfigSource configSource, IStateStore stateStore, ILogger<CostLog> logger) : ICostLog
 {
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
+    private RunnerConfig Config => configSource.Current;
+
     private const string OldHeader = "date,repo,number,workflow,duration_s,result,detail";
     private const string CallsHeader = OldHeader + ",copilot_calls";
     private static readonly string Header = CallsHeader + "," + string.Join(",", CopilotUsage.ColumnNames);
@@ -34,7 +39,7 @@ public sealed class CostLog(RunnerConfig config, IStateStore stateStore, ILogger
             logger.LogWarning("Could not write the cost row to the database: {Message}", exception.Message);
         }
 
-        var logsFolder = config.ResolvePath(config.Paths.Logs);
+        var logsFolder = Config.ResolvePath(Config.Paths.Logs);
         var file = Path.Combine(logsFolder, "cost.csv");
 
         try

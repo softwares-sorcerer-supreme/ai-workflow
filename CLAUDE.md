@@ -34,6 +34,7 @@ Copilot change the PR's branch; it is planned before the review, and the pushed 
 ## Commands
 
 ```powershell
+dotnet run --project src/AiRunner                       # the loop; with no token: setup mode (see below)
 dotnet run --project src/AiRunner -- --once --dry-run   # poll once, print planned jobs, change nothing
 dotnet run --project src/AiRunner -- --once             # poll once, run queued jobs, exit
 dotnet run --project src/AiRunner -- --setup-labels     # create the workflow labels in every repo
@@ -49,11 +50,35 @@ dotnet run --project src/AiRunner -- --openapi <abs path>      # write the dashb
   `Configuration/` sees the raw types. `models:` takes only workflows that run Copilot (`Workflows.WithModel`; `models.breakdown`
   is an error: the breakdown table comes from the analysis). A job that needs "the" code component but is not told which uses
   `JobSupport.TargetComponent` (exactly one code component, else it fails and asks for the analysis again).
+- **Live config** (`Configuration/RunnerConfigSource`, ADR 0004): `Current` + `Version`; a new repos.yml goes through
+  `RunnerConfig.FromText` (the start's strict path) at the start of every poll (hash check) and after a dashboard save; a
+  file that fails never replaces the working config (`Error`, `/api/health` `configError`). Restart-needed keys
+  (`code_host`, `paths`, `dashboard`, `runner_name`) keep their startup values in every new config (`RestartNeeded`).
+  `RunnerConfig` is **scoped** (`Hosting/RunnerServices`, scope validation on): `JobWorker` runs each job in its own DI
+  scope and `Poller` each poll, resolving `RunnerConfig` first, so a running job keeps its snapshot to the end. Anything
+  that takes a `RunnerConfig` is scoped (jobs, `JobLoader`, `AgentSession`, `ClaimService`, `CopilotRunner`, ...);
+  singletons take `RunnerConfigSource` and read `Current` when they act (only restart-needed keys, or once per call).
+  A live key must never be read by a singleton during a job: pass it from the job's config (`IGitClient.CommitAsync`
+  takes the author). DI registrations live in `Hosting/RunnerServices`; Program.cs adds the hosted services of its mode.
 - Tests need no network: GitBucket, Copilot and processes are faked. `GitWorkspaceTests` uses real `git` against a `file://` bare repo.
 - Do not run `--copilot-test`, `--once` (without `--dry-run`), `--attachment-test`, `--close-test` or the loop yourself: they spend Copilot premium requests
   and/or touch the real GitBucket. They also need the token (`dotnet user-secrets set GitBucket:Token ... --project src/AiRunner` or env `GITBUCKET_TOKEN`)
   and VPN; leave these to the user.
+- **Setup mode**: the loop with no token (no user secret `GitBucket:Token`, no `GITBUCKET_TOKEN` / `GitBucket__Token`)
+  does not stop: it starts the dashboard (even when disabled; still 127.0.0.1), logs "No GitBucket token yet: open
+  http://localhost:<port>/setup", and the poller and worker wait (`RunnerCredentials.WaitForTokenAsync`: no code-host
+  call, no job) until the Setup page saves one. Every other mode stops with `RunMode.NoTokenMessage`.
+- **Secrets** live in `Infrastructure/RunnerCredentials` (token, git secret, web password, version), filled by
+  `CredentialSources` (user secret, else environment; web password: user secret, else `code_host.web_password`) from
+  `UserSecretsStore` (the `UserSecretsId` file; a write keeps the other keys, flattens like `dotnet user-secrets`, temp
+  file + move). No client holds the token: `GitBucketCodeHost` sets `Authorization` per request, `GitBucketGitRemote`
+  reads the git secret per git call, `GitBucketWeb` signs in again when `Version` changed. `Hosting/RunnerSetup`
+  (`IRunnerSetup`, shared with the web app) checks a new secret through `ICredentialCheck` on throwaway clients, saves
+  it only when accepted, swaps it in, sets `RunnerIdentity.Login` and wakes the poller. No answer, log line or
+  exception message carries a secret (`SetupApiTests` checks it; `RunnerCredentials.Redact` for quoted server text).
 - `repos.yml` is found in the current folder or a parent (or `--config <path>`); `paths` in it are relative to its folder.
+  The code host is the global `code_host: { kind: gitbucket, base_url, web_password }` block; the old `git_bucket:` block
+  (no `kind`) still means `gitbucket`; both at once, a missing or an unknown `kind` stop the start (`ConfigResolver`).
 
 ## Architecture: Poll -> Plan -> Queue -> Job
 
@@ -62,15 +87,25 @@ One project, folder = namespace, dependency direction `Hosting -> Jobs -> Infras
 - `Core/` — pure logic only: no I/O, no DI, no async. All decisions (`JobPlanner`, `SubIssueSequencer`) and all text parsing
   (`AnalysisParser`, `BreakdownParser`, `ReviewParser`, `SubIssueBody`, `Markers`, `MarkdownSections`) and naming (`Labels`, `Branches`,
   `BotComments`) go here. May depend only on the `Configuration/` POCOs.
-- `Infrastructure/` — every side effect behind a small interface (`IGitBucketClient`, `ICopilotRunner`, `IGitClient`, `IProcessRunner`,
-  `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a GitBucket/CLI quirk is fixed in exactly one class.
+- `Infrastructure/` — every side effect behind a small interface (`ICodeHost`, `ICopilotRunner`, `IGitClient`, `IProcessRunner`,
+  `IWorkspace`, `IStateStore`, `ICostLog`). No business decisions; a code-host/CLI quirk is fixed in exactly one class.
+  `Infrastructure/CodeHost/` is the code-host provider (ADR 0004): `ICodeHost` (issues, comments, labels, PRs, close,
+  attachments, `FindAttachments`), `IGitRemote` (clone URL, git auth header, PR head refspec; `GitClient` and `Workspace` read it) and
+  `CodeHostCapabilities` (what a job must know about the host, named after the job's need: `KeepsLabelsOnCreate`).
+  `CodeHostRegistration` picks the provider from `code_host.kind`; GitBucket (`GitBucketCodeHost`, `GitBucketWeb`,
+  `GitBucketGitRemote`) is the only one, and no class outside the folder knows its API. Failures are `CodeHostException`.
+  The host-neutral models are `Core/CodeHostModels.cs` (`HostIssue`, `HostPull`, `HostComment`, `HostUser`, `HostLabel`,
+  `HostRef`, `HostRepo`); tests use `FakeCodeHost` (`JobTestKit.CodeHost`).
 - `Jobs/` — one `IJob` per workflow step. A job orchestrates: load fresh data, ask Core, call Infrastructure. Expected failures throw `JobFailedException`.
 - `Hosting/` — `Poller` (GitBucket -> `JobPlanner` -> `JobQueue`), `JobQueue` (SQLite-backed, one pending job per key), `JobWorker`
   (one job at a time, timeout, failure comment + `ai:failed`, cost row), `RunnerStatus` (in-memory health the poller and worker
-  write), `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
-- `Web/` — the dashboard's read-only HTTP API (`DashboardApp`, `MapDashboardApi`, response records). May use `Core`,
-  `Configuration`, Infrastructure read interfaces and `Hosting/RunnerStatus`; `Core/` and `Jobs/` never reference it.
-- `Program.cs` — DI registration and command-line modes only.
+  write), `RunnerCommands` (the dashboard's runtime controls: wake the poller, pause the worker, cancel the running job),
+  `DashboardHost`, `RunMode` (command-line flags). Scheduling and lifetime only.
+- `Web/` — the dashboard's HTTP API (`DashboardApp`, `MapDashboardApi`, `WriteGuard`, response records). May use `Core`,
+  `Configuration`, Infrastructure read interfaces, `Hosting/RunnerStatus`, `Hosting/RunnerCommands` and
+  `Hosting/IRunnerSetup` (`Web/SetupApi`), `Hosting/IRunnerActions` (`Web/ActionsApi`), `Hosting/IRunnerWorkspaces`,
+  `Hosting/IRunnerAgents` and `Hosting/IRunnerSettings` (`Web/SettingsApi`); `Core/` and `Jobs/` never reference it.
+- `Program.cs` — command-line modes and the hosted services of each; the DI registrations are `Hosting/RunnerServices`.
 
 Key mechanics that span several files:
 
@@ -86,7 +121,7 @@ Key mechanics that span several files:
 - **Attachments.** Files people link from human text (`/_attached/<id>` on the GitBucket host; the JSON has no attachment list) are
   downloaded by `Jobs/AttachmentFetcher` right after `IWorkspace.PrepareAsync` (the next prepare removes them) into
   `<project root>/.ai-workflow/attachments/`, and `AttachmentReport` appends an "Attachments" section to context.md / plan.md. Analyze, review,
-  implement and review fix all use it; bot comments are skipped. `GitBucketClient.DownloadAttachmentAsync` is the only code that
+  implement and review fix all use it; bot comments are skipped. `GitBucketCodeHost.DownloadAttachmentAsync` is the only code that
   knows the quirks: a second `HttpClient` that never follows redirects (a redirect to the login page = "token not accepted"), the
   token goes only to the GitBucket host, the size cap is enforced while streaming. Images and PDFs also go to Copilot with
   `--attachment` (round 1 only) when `ICopilotRunner.CanAttachFilesAsync` finds the flag in `copilot --help`; older CLIs only get the
@@ -97,7 +132,7 @@ Key mechanics that span several files:
   So duplicate or late jobs are harmless, and planner rules must stay the single source of "should this run".
 - **Job metadata** (workflow name, timeout, description, PR vs issue) lives on the job as `IJob.Info`; per-job failure bookkeeping goes
   in `IJob.OnFailed`. `JobWorker` must not switch on job type.
-- **Adding a job type:** add to `JobType` (`Core/JobRequest.cs`), add the rule in `JobPlanner`, implement `IJob`, register it in `Program.cs`.
+- **Adding a job type:** add to `JobType` (`Core/JobRequest.cs`), add the rule in `JobPlanner`, implement `IJob`, register it (scoped) in `Hosting/RunnerServices`.
 - **Poller cost control:** issue fingerprints (updated_at + labels) are stored per issue; comments are fetched only when the plan
   returns `NeedsComments` and the issue changed. `PlanDecision.Routine` decisions log at Debug.
 - **No database dependency for correctness.** Bot comments carry a hidden `<!-- ai-runner -->` marker plus a visible `**[ai-runner]**` line;
@@ -178,12 +213,87 @@ Key mechanics that span several files:
 
 ## Dashboard
 
-Local, read-only status page of one runner (`docs/specs/dashboard.md`, `docs/adr/0001`-`0003`). `repos.yml` global block
+Local status page and control panel of one runner (`docs/specs/dashboard.md`, `docs/specs/dashboard-control.md` (built up to
+slice 3), `docs/adr/0001`, `0002`, `0004`). `repos.yml` global block
 `dashboard: { enabled: false, port: 5180 }`; only the polling loop (not `--once`, `--dry-run` or the other modes) starts
-`Hosting/DashboardHost`, which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
-token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; GET only, anything else 405; no CORS, no auth). A taken port
+`Hosting/DashboardHost` (in setup mode even when disabled), which builds its own small web app (`Web/DashboardApp`: empty builder, no appsettings/env/secrets, so no
+token; Kestrel on `127.0.0.1` only; host filter `localhost;127.0.0.1`; no CORS, no auth). A taken port
 is one warning, never a stopped runner. The API never calls GitBucket. Every answer is computed in C# (`Core/RunnerHealth`,
 `Core/IssueStage`, later the waiting-on rules) and sent as a stable code plus a label.
+
+- **Writes** are a security boundary: any page the user opens can send a request to `127.0.0.1`. Reads are GET; a write
+  route is mapped in the `writes` group of `MapDashboardApi` (metadata `WriteRoute`), and any other method or route is 405.
+  `DashboardApp.GuardWritesAsync` is the one method rule (405) and runs `Web/WriteGuard` after routing and before parameter
+  binding (so not as an endpoint filter): header `X-AiRunner-Request: 1`, a JSON `Content-Type`, an `Origin` (when sent)
+  equal to `http://<AllowedHosts>:<port>`, a loopback caller (the spec's "writes only while Kestrel listens on loopback",
+  checked per request); else 403. Order: host filter (400), routing, method rule (405), guard (403). The UI's interceptor adds the header; the dev proxy (`proxy.conf.json`) rewrites `Origin`.
+  The web app gets no token and no code-host client: its only ways to act are `Hosting/RunnerCommands` and
+  `Hosting/IRunnerSetup`, the same instances the poller and worker use (registered in both containers, like
+  `RunnerStatus`). `IRunnerSetup` takes a secret but never returns one. Every new write route gets a guard test.
+- **Setup** (`Web/SetupApi`): `GET /api/setup` (sources `user-secrets | environment | none` and
+  `user-secrets | repos-yml | none`, login, base URL, secrets file, `canRemove*`; no secret), `PUT`/`DELETE
+  /api/setup/token` and `/api/setup/web-password`: 200 `{ message, setup }`, 400 when the check refuses (not accepted,
+  not reachable (VPN?), host error), 409 when the value lives in the environment or `repos.yml`. Health code
+  `needs-setup` (first rule) plus `isSetupNeeded` for the banner.
+- **Runtime controls** (in memory, a restart resumes): `POST /api/runner/poll` wakes the poller (a wake during a poll gives
+  one more poll after it); `/pause` and `/resume` hold the worker after its dequeue (the poller keeps polling and queuing;
+  health code `paused`, below `stale` and `error`, plus `isPaused`); `POST /api/jobs/{id}/cancel` cancels the running job's timeout source, so it ends
+  through the timeout path of `JobWorker` with "Cancelled from the dashboard." (failure comment, `ai:failed` or `OnFailed`,
+  claim released, cost row) and is not planned again; 409 when that job is not running (a pending job cannot be cancelled).
+
+- **Actions** (`Core/IssueActions`, `Hosting/RunnerActions`, `Web/ActionsApi`): `actions` (code, label, `needsText`) on every issue row
+  and PR; `POST /api/issues/{owner}/{repo}/{n}/actions/{code}` and `POST /api/pulls/...`, body `{ text }` for answer / ask / fix. The rules
+  take the same inputs as `WaitingOn` (+ the project's workflows, trigger keyword and the PR's labels / author / draft in `pull_snapshot`). `RunnerActions`
+  (shared with the web app through `IRunnerActions`, like `IRunnerSetup`; the web app still has no code-host client) reads the item fresh
+  from the code host, checks the action is still offered (else 409), writes through `ICodeHost` (a label, or `AddPersonCommentAsync`: a
+  comment without the bot marker, so the planner takes it as a person's `@ai`; it ends with `_(sent from the ai-runner dashboard on <runner_name>)_`),
+  then wakes the poller. It never inserts into the queue. Unknown project/action 404, missing text 400, code host failure 502.
+
+- **Workspaces** (`Infrastructure/WorkspaceInspector`, `Hosting/RunnerWorkspaces`, `Web/WorkspacesApi`): `GET /api/workspaces` lists every
+  clone of every project (`work/<project>/<repo-name>/`) from local git only (`IGitClient.HeadAsync`, `ChangedPathsAsync`, `.git/FETCH_HEAD`,
+  never the network, never the lock) plus the orphan folders of `work/`; size comes from `DirectorySizes` (background walk, `null` until
+  done). Warnings are `Core/WorkspaceChecks` (`agent-override`, `instructions-missing`, `has-changes`; changes are not read while a job holds
+  the project). Actions: `POST /api/workspaces/{project}/{folder}/fetch|reclone` (`{folder}` = the clone folder name, `ProjectConfig.FolderOf`)
+  and `DELETE /api/workspaces/orphans/{folder}`. `Infrastructure/WorkspaceLocks`: `Workspace.PrepareAsync` takes the project for the job (waits
+  only for a running action), `JobWorker` releases it in its `finally`; an action only `TryHoldForAction`s and answers 409 when held. Orphan
+  delete is a security boundary: `Core/OrphanRules` (plain name only, no dot names, never a project, any case), then the resolved path must be a
+  direct child of `work/` and not a link. `IRunnerWorkspaces` is what the web app gets (no git client there).
+
+- **Agents and skills** (`Core/AgentPaths`, `Core/AgentFileRules`, `Core/AgentDrift`, `Infrastructure/AgentFiles`, `Hosting/RunnerAgents`,
+  `Hosting/AgentSync`, `Web/AgentsApi`): `GET /api/agents` lists `agents/*.agent.md`, `skills/**` and `templates/*` (read-only) with git
+  state (`git status --porcelain`; `unknown` outside a repo) and sync state; `GET`/`PUT /api/agents/file?path=`, `POST /api/agents/revert?path=`,
+  `POST /api/agents/sync`. The path is a query value (it holds slashes) and `AgentPaths` is the one boundary: only `agents/<n>.agent.md`,
+  `skills/<folder>/...`, `templates/<file>`, never `..`, a rooted path or a backslash. A save needs the file's `baseHash` (409 when stale),
+  passes `AgentFileRules` (400 with every reason), only replaces an existing file (temp + move, CRLF kept) and asks for a sync; no create,
+  no delete, templates 400. The Copilot home is a `CopilotHome` parameter (tests use a temp folder, never the real one). **Sync** =
+  `AgentInstaller.Install(home)` between jobs: `JobWorker` holds `RunnerCommands.HoldJobSlotAsync` for a whole job and `AgentSync` takes the
+  same slot, so a sync waits for the running job. It only copies; extra files in `~/.copilot/` stay. `Poller` compares hashes every poll
+  (`AgentFiles.CheckDrift`) and `/api/health` carries `hasAgentDrift` + `agentDriftLabel`.
+- **Live settings** (`Configuration/SettingsSchema`, `Configuration/SettingsJson`, `Infrastructure/ConfigFileStore`,
+  `Hosting/RunnerSettings`, `Web/SettingsApi`): `GET /api/settings/schema` (every key: path pattern, scope
+  `global | defaults | project | component | legacy`, type, allowed values, help = the old repos.yml comments, default,
+  `isRestartNeeded`, `isSecret`; `SettingsSchemaTests` fails when a key of the file types has no entry), `GET /api/settings`
+  (the raw file as snake_case JSON, secrets as `{ isSet }`, the disk hash, per project the merged value and source of each
+  setting), `PUT /api/settings` `{ file, baseHash }`: 409 when the file changed since the read, 400 with the resolver's
+  message, else backup `repos.yml.bak-<UTC>` (last 10), temp file + move, apply, wake the poller. JSON goes back through
+  the same strict YAML reader, and the written text must resolve to the same config or nothing is written
+  (`SettingsJson.Write`). A secret sent as null or as its mask keeps its value; one sent as text is refused (Setup page).
+  A save checks the base hash, writes and applies under the reload lock (`RunnerConfigSource.TryReplace`), so a hand edit
+  is never overwritten. `GET /api/settings` applies a changed file too (so a reload after a 409 gets the new hash).
+  Comments in repos.yml are not kept.
+- **Model selection** (`Configuration/ModelSetting`, `Core/ModelResolver`, `Core/ModelOverride`, `Jobs/ModelLookup`): `models.<workflow>` is a
+  string (= `default`) or an object `default | simple | complex | fix_rounds` (`fix_rounds` only for implement and fix; unknown keys stop
+  the start; `defaults:` merges key by key). `ModelResolver.Resolve` is pure: override, `fix_rounds` (Copilot runs after round 1), `simple` /
+  `complex`, `default`, none (Copilot's default) -> model + reason. `AgentSession`, `AnalyzeIssueJob` and `ReviewPullRequestJob` call it;
+  the override and the complexity label come from `ModelLookup.ReadAsync` (fresh; a sub-issue reads its parent). The override is the
+  bot comment tag `<!-- AI_SETTINGS models.<workflow>=<model> -->` (`Markers.SettingTag`, `ModelOverride`; bot comments only). The
+  `set-model` action (`IssueAction.NeedsModel`, body `{ workflow, model }`, choices from `GET /api/model-options`) writes it through
+  `ICodeHost.AddCommentAsync` (`ActionWriteKind.BotComment`) and is offered on every open issue. Global `allowed_models` (empty = no
+  check) is checked at start, on a settings save, an agent save, the action and again by each job (`ModelLookup` ignores an
+  override outside it: the bot marker is plain text); global `agent_models` is written into the installed copy
+  by `AgentInstaller` (`AgentFrontmatter`) and `AgentFiles` compares drift against that form. `JobRun.RecordModel` keeps the first run's
+  model; `JobWorker` stores it in `jobs.model` / `model_reason` and `cost_log.model` / `model_reason` (columns added at startup);
+  a fix round with another model says so in its round line. Not in `cost.csv`.
 
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
@@ -204,6 +314,15 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   else `modelMetrics` as agent `main`) goes to `cost_usage_part` (`UsagePart`, not in the CSV); `GET /api/cost?by=model` groups it
   per model and agent, and every cost row carries billed (`nanoAiu`, the CLI's raw value) and the four token counts.
 
+- **Job progress** (`Core/JobSteps`, `Infrastructure/JobStepTracker`, table `job_step`): a log like `jobs`, safe to delete with the
+  database; a step write error is a warning, never a failed job (`JobStepTracker` catches it). `JobRun.Step(code, label)` opens a
+  step and closes the one before it as ok; `EndStep(outcome, detail)` closes it early (a failed check); `JobWorker` closes the last one
+  (`ok`, or `failed` with the failure message) and sets the tracker, `RunnerStatus.JobStep` keeps the current one for the overview. Jobs
+  and `AgentSession` call `Step` where they already log (codes in `JobSteps`); `GET /api/jobs/{id}` and the overview's running job carry
+  the steps (`JobStepResponse`: state `running | ok | failed | interrupted`, from `JobSteps.StateOf`). Copilot output is also appended
+  line by line to `<logName>-live.txt` while it runs (`ProcessSpec.LiveOutputFile`, `CopilotRequest.LiveFile`; the `-stdout` / `-stderr`
+  files are saved as before), and `GET /api/jobs/{id}/files/{name}?offset=` returns text from a byte offset (whole characters) plus
+  `nextOffset` through the same `LogViewer` path rules.
 - UI: Angular + Angular Material in `src/AiRunner.Dashboard/`; its rules for every screen are in `src/AiRunner.Dashboard/UI.md`
   (the `dashboard-ui` subagent follows it). **No workflow logic in the UI**: it never reads labels or computes a stage, a
   waiting-on action, a health state or a total.
@@ -217,11 +336,11 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
 
 ## GitBucket and security constraints
 
-- GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketClient`); keep templates ASCII.
+- GitBucket returns HTTP 500 on non-ASCII text: all outgoing text goes through `AsciiSanitizer` (done in `GitBucketCodeHost`); keep templates ASCII.
 - `since` on issue lists is ignored; comment `DELETE` fails (use `PATCH`, never delete); `/pulls/{n}/files` does not exist (use `git diff` on the clone).
   Lists are paged with `per_page=100&page=n` until a page brings nothing new.
-  `/api/v3` cannot edit an issue (`PATCH issues/{n}` = 404), so `GitBucketClient.CloseIssueAsync` signs in on the web side as the token's
-  user (`git_bucket.web_password`, repos.yml only; `RunnerConfig.LoadFile` returns it in `ConfigFile` beside the config,
+  `/api/v3` cannot edit an issue (`PATCH issues/{n}` = 404), so `GitBucketCodeHost.CloseIssueAsync` signs in on the web side as the token's
+  user (`code_host.web_password`, repos.yml only; `RunnerConfig.LoadFile` returns it in `ConfigFile` beside the config,
   never inside it, so it cannot reach the dashboard; `GitBucketWeb` owns the cookie session and the sign-in), posts the issue page's form
   `{repo}/issue_comments/state` (`issueId`, `action=close`) and reads the issue back from the API (still open = exception,
   and the next close signs in again). Writes after a close go after it (`JobSupport.CloseDoneAsync`, the parent close),
@@ -261,7 +380,7 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   - Short `=>` members and lambdas are fine; use a block body when the expression spans several lines or needs a local.
   - Renaming covers locals, parameters, lambda parameters, private fields and constructor parameters only. Never rename JSON/YAML/SQLite/CLI-bound
     members, template text or markers just for style.
-- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`, `Web/` on a `TestServer`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeGitBucket`)
+- Tests mirror the layers (`Core/`, `Jobs/`, `Hosting/`, `Infrastructure/`, `Web/` on a `TestServer`). Job tests use `JobTestKit` (`Fakes/Fakes.cs`, `FakeCodeHost`)
   and build data with `Samples.Issue/Human/Bot` and the filled templates in `Samples.cs`.
 - `SQLitePCLRaw.lib.e_sqlite3` is pinned in the csproj to fix NU1903; don't drop it.
 

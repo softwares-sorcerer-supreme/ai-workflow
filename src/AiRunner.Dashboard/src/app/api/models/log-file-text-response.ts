@@ -5,6 +5,8 @@ export interface LogFileTextResponse {
   format: string;
   isTruncated: boolean;
   name: string;
+  nextOffset: number;
+  offset: number;
   sizeBytes: number;
   text: string;
   truncatedNote: (string | null);

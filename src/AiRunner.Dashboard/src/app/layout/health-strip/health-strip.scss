@@ -40,9 +40,36 @@
   }
 }
 
-.errors {
+.errors,
+.drift,
+.config-error,
+.setup-link {
   color: inherit;
   font: var(--mat-sys-label-large);
+}
+
+// The agent drift is a warning on any state: a small pill in the warning tone, linked to the Agents screen.
+.drift {
+  padding: 0 var(--app-space-2);
+  border-radius: 999px;
+  background: var(--app-tone-warning-bg);
+  color: var(--app-tone-warning-fg);
+
+  mat-icon {
+    color: var(--app-tone-warning-dot);
+  }
+}
+
+// A broken repos.yml (the old settings stay applied): a small pill in the danger tone, linked to the Settings screen.
+.config-error {
+  padding: 0 var(--app-space-2);
+  border-radius: 999px;
+  background: var(--app-tone-danger-bg);
+  color: var(--app-tone-danger-fg);
+
+  mat-icon {
+    color: var(--app-tone-danger-dot);
+  }
 }
 
 .app-muted {

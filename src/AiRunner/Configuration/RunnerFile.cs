@@ -3,27 +3,52 @@ namespace AiRunner.Configuration;
 // The shape of repos.yml as it is written (snake_case). Every setting is nullable: "not written" must stay
 // different from "written as the default", so a project can override only what it names. ConfigResolver
 // merges these into the resolved classes (RunnerConfig, ProjectConfig). Nothing outside Configuration/ sees them.
+// The property order is the key order RunnerFileWriter writes: keep it the order of today's repos.yml.
 
 internal sealed class RunnerFile
 {
-    public GitBucketFile GitBucket { get; set; } = new();
+    public CodeHostFile? CodeHost { get; set; }
+
+    /// <summary>The old name of <see cref="CodeHost"/>; it means kind gitbucket. Both at once stop the start.</summary>
+    public GitBucketFile? GitBucket { get; set; }
+
     public int PollIntervalSeconds { get; set; } = 90;
     public string RunnerName { get; set; } = "";
     public CopilotConfig Copilot { get; set; } = new();
     public PathsConfig Paths { get; set; } = new();
     public int LogRetentionDays { get; set; } = 30;
     public AttachmentsConfig Attachments { get; set; } = new();
-    public GitConfig Git { get; set; } = new();
     public DashboardConfig Dashboard { get; set; } = new();
+    public GitConfig Git { get; set; } = new();
+
+    /// <summary>
+    /// When not empty, every model of the file, an agent file and an issue override must be one of these.
+    /// </summary>
+    public List<string> AllowedModels { get; set; } = [];
+
+    /// <summary>Model per subagent name, written into the installed copy of its agent file.</summary>
+    public Dictionary<string, string> AgentModels { get; set; } = [];
+
     public SettingsFile Defaults { get; set; } = new();
     public Dictionary<string, ProjectFile> Projects { get; set; } = [];
-    public List<LegacyRepoFile> Repos { get; set; } = [];
+
+    /// <summary>The old flat list; null when the file has none, so a save does not add an empty one.</summary>
+    public List<LegacyRepoFile>? Repos { get; set; }
 }
 
 /// <summary>
-/// The git_bucket block. The web password is not copied into <see cref="RunnerConfig"/>: the dashboard gets the
+/// The code_host block. The web password is not copied into <see cref="RunnerConfig"/>: the dashboard gets the
 /// config, and no secret may reach it (docs/adr/0001). It travels next to it in <see cref="ConfigFile"/>.
 /// </summary>
+internal sealed class CodeHostFile
+{
+    /// <summary>Which provider talks to the host (<see cref="CodeHostKinds"/>). Required: no silent default.</summary>
+    public string? Kind { get; set; }
+    public string BaseUrl { get; set; } = "";
+    public string WebPassword { get; set; } = "";
+}
+
+/// <summary>The old git_bucket block: a code_host block without a kind.</summary>
 internal sealed class GitBucketFile
 {
     public string BaseUrl { get; set; } = "";
@@ -35,7 +60,7 @@ internal class SettingsFile
     public string? TriggerLabel { get; set; }
     public string? TriggerKeyword { get; set; }
     public List<string>? Workflows { get; set; }
-    public Dictionary<string, string>? Models { get; set; }
+    public Dictionary<string, ModelSetting>? Models { get; set; }
     public LimitsFile? Limits { get; set; }
     public ImplementFile? Implement { get; set; }
     public ReviewFile? Review { get; set; }
@@ -79,8 +104,8 @@ internal sealed class ComponentFile
     public string? Repo { get; set; }
     public string? Path { get; set; }
     public bool? Code { get; set; }
-    public CommandsFile? Commands { get; set; }
     public List<string>? Instructions { get; set; }
+    public CommandsFile? Commands { get; set; }
 }
 
 internal sealed class ProjectFile : SettingsFile

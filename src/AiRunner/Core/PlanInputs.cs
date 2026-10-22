@@ -9,8 +9,8 @@ namespace AiRunner.Core;
 public sealed record IssuePlanInput(
     ProjectConfig Project,
     string Repo,
-    GbIssue Issue,
-    IReadOnlyList<GbComment>? Comments,
+    HostIssue Issue,
+    IReadOnlyList<HostComment>? Comments,
     long LastHandledCommentId);
 
 /// <summary>What <see cref="JobPlanner.PlanPull"/> needs to decide between a review fix, a review or nothing.</summary>
@@ -21,10 +21,10 @@ public sealed record IssuePlanInput(
 public sealed record PullPlanInput(
     ProjectConfig Project,
     string Repo,
-    GbPull Pull,
+    HostPull Pull,
     string? ReviewedSha,
     string BotLogin,
-    IReadOnlyList<GbComment>? Comments = null,
+    IReadOnlyList<HostComment>? Comments = null,
     long LastHandledCommentId = 0)
 {
     /// <summary>Automatic reviews of this PR so far (local state; the review job checks the comment tag too).</summary>
@@ -40,7 +40,7 @@ public sealed record PullPlanInput(
 public sealed record FixCheckInput(
     ProjectConfig Project,
     ComponentConfig Target,
-    GbPull Pull,
-    IEnumerable<GbComment> Comments,
+    HostPull Pull,
+    IEnumerable<HostComment> Comments,
     string DefaultBranch,
     string? BranchSha);

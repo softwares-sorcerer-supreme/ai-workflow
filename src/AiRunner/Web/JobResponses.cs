@@ -8,6 +8,9 @@ namespace AiRunner.Web;
 /// <summary>An error the API explains in one sentence.</summary>
 public sealed record ApiError(string Message);
 
+/// <summary>The answer of a write: what the runner will do now, ready to show.</summary>
+public sealed record CommandResponse(string Message);
+
 /// <summary>
 /// One job of the history or the queue. State comes as a stable code plus the text to show; the log is read through
 /// <c>/api/jobs/{id}/files</c>.
@@ -29,8 +32,17 @@ public sealed record JobResponse(
     string? Detail,
     string? Error,
     bool HasLog,
-    int? CopilotCalls)
+    int? CopilotCalls,
+    bool IsRunning)
 {
+    /// <summary>The model of the job's first Copilot run (null = Copilot's default) and why it was chosen.</summary>
+    public string? Model { get; init; }
+
+    public string? ModelReason { get; init; }
+
+    /// <summary>The steps the job went through; only <c>GET /api/jobs/{id}</c> fills it (lists leave it out).</summary>
+    public IReadOnlyList<JobStepResponse>? Steps { get; init; }
+
     public static JobResponse From(JobRecord job, RunnerConfig config)
     {
         var project = config.FindProject(job.Repo)?.Name;
@@ -55,11 +67,57 @@ public sealed record JobResponse(
             job.Detail,
             job.Error,
             !string.IsNullOrEmpty(job.LogDir),
-            job.CopilotCalls);
+            job.CopilotCalls,
+            job.Status == JobStatus.Running)
+        {
+            Model = job.Model,
+            ModelReason = job.ModelReason,
+        };
     }
 }
 
-/// <summary>The job the worker runs now. <c>RoundLabel</c> is set while an agent session is in a round.</summary>
+/// <summary>
+/// One step of a job. <c>State</c> is <c>running | ok | failed | interrupted</c> with its label; <c>Detail</c> says
+/// why a step failed (a check's exit code, the failure message).
+/// </summary>
+public sealed record JobStepResponse(
+    int Seq,
+    string Code,
+    string Label,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    double? DurationSeconds,
+    string State,
+    string StateLabel,
+    string? Detail)
+{
+    public static JobStepResponse From(JobStepRecord step, bool isJobRunning)
+    {
+        var state = JobSteps.StateOf(step.Outcome, isJobRunning);
+        double? duration = step.EndedAt is { } endedAt ? Math.Max(0, (endedAt - step.StartedAt).TotalSeconds) : null;
+
+        return new JobStepResponse(
+            step.Seq,
+            step.Code,
+            step.Label,
+            step.StartedAt,
+            step.EndedAt,
+            duration,
+            state,
+            JobSteps.StateLabel(state),
+            step.Detail);
+    }
+
+    public static List<JobStepResponse> All(IEnumerable<JobStepRecord> steps, bool isJobRunning) =>
+        steps
+            .Select(step => From(step, isJobRunning))
+            .ToList();
+}
+
+/// <summary>
+/// The job the worker runs now. <c>RoundLabel</c> is set while an agent session is in a round; <c>CurrentStep</c>
+/// names the step it is in, and <c>Steps</c> lists the steps so far.
+/// </summary>
 public sealed record RunningJobResponse(
     long Id,
     string Type,
@@ -70,12 +128,15 @@ public sealed record RunningJobResponse(
     DateTimeOffset StartedAt,
     double ElapsedSeconds,
     int? Round,
-    string? RoundLabel)
+    string? RoundLabel,
+    CodeLabelResponse? CurrentStep,
+    IReadOnlyList<JobStepResponse> Steps)
 {
     public static RunningJobResponse From(RunningJob job, RunnerConfig config, DateTimeOffset now)
     {
         var project = config.FindProject(job.Repo)?.Name;
         var roundLabel = job.Round is { } round ? $"Round {round}" : null;
+        var currentStep = job.Step is { } step ? CodeLabelResponse.From(new CodeLabel(step.Code, step.Label)) : null;
 
         return new RunningJobResponse(
             job.Id,
@@ -87,7 +148,9 @@ public sealed record RunningJobResponse(
             job.StartedAt,
             Math.Max(0, (now - job.StartedAt).TotalSeconds),
             job.Round,
-            roundLabel);
+            roundLabel,
+            currentStep,
+            []);
     }
 }
 
@@ -125,18 +188,24 @@ public sealed record JobsPageResponse(
     int TotalPages);
 
 /// <summary>A log file of a job. <c>Format</c> is <c>markdown</c> or <c>text</c>: how the UI shows it.</summary>
-public sealed record LogFileResponse(string Name, string Format, long SizeBytes);
+/// <summary><c>IsLive</c>: the runner appends to this file while its job runs, so the UI tails it.</summary>
+public sealed record LogFileResponse(string Name, string Format, long SizeBytes, bool IsLive);
 
 public sealed record LogFilesResponse(long JobId, IReadOnlyList<LogFileResponse> Files);
 
-/// <summary>One file's text. When <c>IsTruncated</c>, <c>Text</c> is the first 2 MB and the note says so.</summary>
+/// <summary>
+/// One file's text from byte <c>Offset</c> (0 unless asked). When <c>IsTruncated</c>, <c>Text</c> is the first 2 MB
+/// from there and the note says so. A tail asks again with <c>NextOffset</c>; text is always whole characters.
+/// </summary>
 public sealed record LogFileTextResponse(
     string Name,
     string Format,
     long SizeBytes,
     string Text,
     bool IsTruncated,
-    string? TruncatedNote);
+    string? TruncatedNote,
+    long Offset,
+    long NextOffset);
 
 /// <summary>Display texts for job codes. The UI shows them as sent.</summary>
 public static class JobLabels
@@ -188,7 +257,13 @@ public sealed class OverviewReader(
     public OverviewResponse Read()
     {
         var running = status.Snapshot().Running;
-        var runningResponse = running is null ? null : RunningJobResponse.From(running, config, time.GetUtcNow());
+        RunningJobResponse? runningResponse = null;
+        if (running is not null)
+        {
+            var steps = JobStepResponse.All(jobs.ListSteps(running.Id), isJobRunning: true);
+            runningResponse = RunningJobResponse.From(running, config, time.GetUtcNow()) with { Steps = steps };
+        }
+
         var queue = jobs.ListQueue()
             .Select(job => JobResponse.From(job, config))
             .ToList();

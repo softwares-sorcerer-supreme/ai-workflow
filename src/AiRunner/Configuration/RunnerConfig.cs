@@ -9,7 +9,7 @@ namespace AiRunner.Configuration;
 /// </summary>
 public sealed class RunnerConfig
 {
-    public GitBucketConfig GitBucket { get; set; } = new();
+    public CodeHostConfig CodeHost { get; set; } = new();
     public int PollIntervalSeconds { get; set; } = 90;
 
     /// <summary>Names this runner in claims. Empty = the machine user name.</summary>
@@ -21,10 +21,21 @@ public sealed class RunnerConfig
     public GitConfig Git { get; set; } = new();
     public AttachmentsConfig Attachments { get; set; } = new();
     public DashboardConfig Dashboard { get; set; } = new();
+
+    /// <summary>
+    /// Empty = no check. Otherwise the only models settings, agent files and issue overrides may name.
+    /// </summary>
+    public List<string> AllowedModels { get; set; } = [];
+
+    /// <summary>
+    /// Subagent name to model; <c>AgentInstaller</c> writes it into the installed copy (the source stays).
+    /// </summary>
+    public Dictionary<string, string> AgentModels { get; set; } = [];
+
     public List<ProjectConfig> Projects { get; set; } = [];
 
     /// <summary>Folder of repos.yml; the shared agents/, skills/ and templates/ live here.</summary>
-    [YamlIgnore] public string RootDir { get; private set; } = "";
+    [YamlIgnore] public string RootDir { get; set; } = "";
 
     public string ResolvePath(string path)
     {
@@ -66,16 +77,31 @@ public sealed class RunnerConfig
         }
 
         var yaml = File.ReadAllText(path);
-        var configFile = ParseFile(yaml);
         var fullPath = Path.GetFullPath(path);
-        configFile.Config.RootDir = Path.GetDirectoryName(fullPath)!;
 
-        if (string.IsNullOrWhiteSpace(configFile.Config.GitBucket.BaseUrl))
-        {
-            throw new InvalidOperationException("git_bucket.base_url is missing in " + path);
-        }
+        return FromText(yaml, fullPath);
+    }
+
+    /// <summary>
+    /// The text of repos.yml at <paramref name="fullPath"/>, checked like at startup: the one way in for the start,
+    /// a reload and a save, so a file the runner would refuse to start with is never applied.
+    /// </summary>
+    public static ConfigFile FromText(string yaml, string fullPath)
+    {
+        var configFile = ParseFile(yaml);
+        configFile.Config.RootDir = Path.GetDirectoryName(fullPath)!;
+        RequireBaseUrl(configFile.Config, fullPath);
 
         return configFile;
+    }
+
+    internal static void RequireBaseUrl(RunnerConfig config, string path)
+    {
+        if (string.IsNullOrWhiteSpace(config.CodeHost.BaseUrl))
+        {
+            throw new InvalidOperationException(
+                $"code_host.base_url (or the old git_bucket.base_url) is missing in {path}");
+        }
     }
 
     /// <summary>Reads repos.yml text: strict snake_case keys, defaults merged into each project, everything validated.</summary>
@@ -84,9 +110,8 @@ public sealed class RunnerConfig
     public static ConfigFile ParseFile(string yaml)
     {
         var file = ConfigResolver.Deserialize(yaml);
-        var config = ConfigResolver.Resolve(file);
 
-        return new ConfigFile(config, file.GitBucket.WebPassword);
+        return ConfigResolver.Resolve(file);
     }
 }
 
@@ -95,7 +120,8 @@ public sealed class RunnerConfig
 /// because the config is handed to the dashboard and no secret may reach the dashboard (docs/adr/0001).
 /// </summary>
 /// <param name="WebPassword">
-/// git_bucket.web_password: the sign-in password of the token's user, for closing issues through the web page
+/// code_host.web_password (or git_bucket.web_password): the sign-in password of the token's user, for closing
+/// issues through the web page
 /// (/api/v3 cannot). Empty = not set. Never put it in an API response or a log.
 /// </param>
 public sealed record ConfigFile(RunnerConfig Config, string WebPassword);
@@ -115,20 +141,33 @@ public static class Workflows
     public static readonly string[] WithModel = [Analyze, Implement, Review, Fix];
 }
 
-public sealed class GitBucketConfig
+/// <summary>The code_host block without the web password. Kind and URL take effect at the next start.</summary>
+public sealed class CodeHostConfig
 {
+    /// <summary>One of <see cref="CodeHostKinds.All"/>; it picks the provider (Infrastructure/CodeHost).</summary>
+    public string Kind { get; set; } = CodeHostKinds.GitBucket;
     public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>The code hosts the runner has a provider for (code_host.kind).</summary>
+public static class CodeHostKinds
+{
+    public const string GitBucket = "gitbucket";
+
+    public static readonly string[] All = [GitBucket];
 }
 
 public sealed class CopilotConfig
 {
-    public string Command { get; set; } = "copilot";
     public int AnalyzeTimeoutMinutes { get; set; } = 15;
     public int ReviewTimeoutMinutes { get; set; } = 15;
     public int ImplementTimeoutMinutes { get; set; } = 30;
 
     /// <summary>Extra flags for every run, e.g. --disable-builtin-mcps so the agent cannot use the GitHub MCP server.</summary>
     public List<string> ExtraArgs { get; set; } = [];
+
+    /// <summary>Last, as in repos.yml (the key order of a saved file follows the properties).</summary>
+    public string Command { get; set; } = "copilot";
 }
 
 /// <summary>

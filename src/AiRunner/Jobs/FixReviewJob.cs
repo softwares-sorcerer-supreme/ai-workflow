@@ -3,6 +3,7 @@ using System.Text;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -31,7 +32,7 @@ public sealed record ReviewFixResult(
 /// </summary>
 public sealed class FixReviewJob(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader,
     IWorkspace workspace,
     IGitClient git,
@@ -74,7 +75,7 @@ public sealed class FixReviewJob(
         // The fix changes the code in the PR's repo, in the component the linked issue is for (its Component: line,
         // else the components its analysis names). Without such a link every code component in the repo may change.
         var pullLink = new PullLink(project, request.Repo, pull);
-        var linked = await gitBucketClient.LinkedIssueAsync(pullLink, run, cancellationToken);
+        var linked = await codeHost.LinkedIssueAsync(pullLink, run, cancellationToken);
         var componentsInRepo = project.CodeComponentsIn(request.Repo).ToList();
         if (componentsInRepo.Count == 0)
         {
@@ -99,24 +100,25 @@ public sealed class FixReviewJob(
         var number = thread.Next(settings.Limits.MaxReviewFixes).Number;
         var replyTarget = new ReviewFixThread(request.Repo, pull.Number, thread);
 
-        // The PR head is fetched too (refs/pull), so a fork PR gets the refusal below instead of a git error.
+        // The PR head is fetched too (the code host's PR head ref), so a fork PR gets the refusal below instead of
+        // a git error.
         var sha = pull.Head.Sha;
-        var pullHead = Branches.PullHead(pull.Number);
         var workspaceRequest = new WorkspaceRequest(
             Project: project,
             TargetRepo: request.Repo,
             StartPoint: sha,
             NewBranch: pull.Head.Ref,
-            ExtraFetch: [pullHead])
+            PullHead: pull.Number)
         {
             Writable = true,
             TargetComponent = writable.Count == 1 ? target.Name : null,
             OthersAt = Branches.FeatureBranchOf(pull),
         };
+        run.Step(JobSteps.Prepare, "Prepare workspace");
         var prepared = await workspace.PrepareAsync(workspaceRequest, cancellationToken);
         var directory = prepared.Root;
         var clone = prepared.TargetClone;
-        var defaultBranch = await gitBucketClient.DefaultBranchAsync(request.Repo, cancellationToken);
+        var defaultBranch = await codeHost.DefaultBranchAsync(request.Repo, cancellationToken);
         var remoteHead = Branches.Remote(pull.Head.Ref);
         var pushTarget = await git.ResolveAsync(clone, remoteHead, cancellationToken);
 
@@ -128,6 +130,8 @@ public sealed class FixReviewJob(
 
         if (refusalReason is not null)
         {
+            run.Step(JobSteps.Comment, "Reply");
+
             return await RefuseAsync(replyTarget, refusalReason, cancellationToken);
         }
 
@@ -141,6 +145,7 @@ public sealed class FixReviewJob(
             FixNumber: number,
             Linked: linked);
 
+        run.Step(JobSteps.Attachments, "Attachments");
         var description = new AttachmentSource("the PR description", pull.Body);
         var attachmentRequest = AttachmentRequest.Of(directory, description, thread.RequestsSinceReply);
         var fetched = await attachmentFetcher.FetchAsync(attachmentRequest, run, cancellationToken);
@@ -164,6 +169,12 @@ public sealed class FixReviewJob(
             DiffBase: sha)
         {
             Attachments = fetched.ForCopilot,
+            ModelContext = linked.Repo is { } linkedRepo && linked.Number is { } linkedNumber
+                ? await codeHost.ReadAsync(
+                    new ModelQuery(new IssueRef(linkedRepo, linkedNumber), Workflows.Fix, config.AllowedModels),
+                    run,
+                    cancellationToken)
+                : ModelContext.None,
         };
         var context = new AgentRunContext(project, target, prepared, run)
         {
@@ -214,6 +225,7 @@ public sealed class FixReviewJob(
             reply = Reply(pushedFix);
         }
 
+        run.Step(JobSteps.Comment, "Reply");
         await PostReplyAsync(replyTarget, reply, cancellationToken);
 
         var outcome = result.Failing ? "red" : stats is null ? "no-change" : "ok";
@@ -279,7 +291,7 @@ public sealed class FixReviewJob(
     {
         var (repo, number, thread) = target;
         var commentBody = thread.Reply(reply);
-        await gitBucketClient.AddCommentAsync(repo, number, commentBody, cancellationToken);
+        await codeHost.AddCommentAsync(repo, number, commentBody, cancellationToken);
         stateStore.SetLastHandledComment(repo, number, thread.ReadUpTo);
     }
 }

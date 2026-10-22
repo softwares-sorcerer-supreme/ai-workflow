@@ -15,6 +15,13 @@ app-inline-note {
   overflow-wrap: anywhere;
 }
 
+// The models of a row: a muted second line under its group.
+.models {
+  display: block;
+  font: var(--mat-sys-body-small);
+  overflow-wrap: anywhere;
+}
+
 // The API's total line: the last row of the table, set apart by weight, not by a color.
 .total {
   font: var(--mat-sys-label-large);

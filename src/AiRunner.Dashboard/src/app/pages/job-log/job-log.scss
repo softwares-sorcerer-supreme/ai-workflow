@@ -49,3 +49,14 @@
   font-family: var(--app-font-mono);
   white-space: pre-wrap;
 }
+
+.steps-title {
+  margin: var(--app-space-4) 0 var(--app-space-2);
+  font: var(--mat-sys-title-small);
+}
+
+// A live log that grows: it scrolls in its own box, so following its end never moves the page.
+.log-text.tail {
+  max-height: 60vh;
+  overflow-y: auto;
+}

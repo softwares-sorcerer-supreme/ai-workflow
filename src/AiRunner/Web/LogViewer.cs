@@ -8,8 +8,17 @@ namespace AiRunner.Web;
 /// <summary>One file of a job's log folder.</summary>
 public sealed record LogFileInfo(string Name, long SizeBytes);
 
-/// <summary>The content of one log file, as text.</summary>
-public sealed record LogFileContent(string Name, long SizeBytes, string Text, bool IsTruncated);
+/// <summary>
+/// The content of one log file, as text, from byte <c>Offset</c>. <c>NextOffset</c> is where the next read starts
+/// (always the start of a whole character); <c>IsTruncated</c> means more bytes follow the 2 MB that were read.
+/// </summary>
+public sealed record LogFileContent(
+    string Name,
+    long SizeBytes,
+    string Text,
+    bool IsTruncated,
+    long Offset = 0,
+    long NextOffset = 0);
 
 public enum LogReadStatus
 {
@@ -45,7 +54,11 @@ public sealed class LogViewer(RunnerConfig config)
             .ToList();
     }
 
-    public LogReadResult Read(JobRecord job, string? name)
+    /// <summary>
+    /// The text of one file from a byte offset (0 = the start). The name and folder rules are the same for every
+    /// offset; the offset only moves where reading starts.
+    /// </summary>
+    public LogReadResult Read(JobRecord job, string? name, long offset = 0)
     {
         if (!LogFileRules.IsPlainName(name))
         {
@@ -65,7 +78,7 @@ public sealed class LogViewer(RunnerConfig config)
             return new LogReadResult(LogReadStatus.NotFound);
         }
 
-        return ReadText(file);
+        return ReadText(file, Math.Max(0, offset));
     }
 
     /// <summary>The job's folder, or null when it is not a real folder directly under logs/jobs/.</summary>
@@ -101,7 +114,29 @@ public sealed class LogViewer(RunnerConfig config)
             .Where(file => !file.Attributes.HasFlag(FileAttributes.ReparsePoint))
             .ToList();
 
-    private static LogReadResult ReadText(FileInfo file)
+    private static bool IsContinuationByte(int value) => (value & 0xC0) == 0x80;
+
+    /// <summary>The length without a UTF-8 character that is cut off at the end of the bytes.</summary>
+    private static int WholeCharactersLength(byte[] bytes, int count)
+    {
+        var index = count - 1;
+        while (index >= 0 && count - index < 4 && IsContinuationByte(bytes[index]))
+        {
+            index--;
+        }
+
+        if (index < 0)
+        {
+            return count;
+        }
+
+        var lead = bytes[index];
+        var expected = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
+
+        return count - index < expected ? index : count;
+    }
+
+    private static LogReadResult ReadText(FileInfo file, long offset)
     {
         try
         {
@@ -112,12 +147,25 @@ public sealed class LogViewer(RunnerConfig config)
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
             var size = stream.Length;
-            var buffer = new byte[Math.Min(size, LogFileRules.MaxBytes)];
-            var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-            var isTruncated = size > LogFileRules.MaxBytes;
-            var text = Encoding.UTF8.GetString(buffer, 0, read);
+            var start = Math.Min(offset, size);
+            stream.Seek(start, SeekOrigin.Begin);
 
-            var content = new LogFileContent(file.Name, size, text, isTruncated);
+            // An offset inside a character starts at the next whole one.
+            while (start > 0 && start < size && IsContinuationByte(stream.ReadByte()))
+            {
+                start++;
+            }
+
+            stream.Seek(start, SeekOrigin.Begin);
+            var buffer = new byte[Math.Min(size - start, LogFileRules.MaxBytes)];
+            var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            var isTruncated = start + read < size;
+
+            // A character the runner is still writing waits for the next read.
+            var wholeLength = WholeCharactersLength(buffer, read);
+            var text = Encoding.UTF8.GetString(buffer, 0, wholeLength);
+
+            var content = new LogFileContent(file.Name, size, text, isTruncated, start, start + wholeLength);
 
             return new LogReadResult(LogReadStatus.Ok, content);
         }

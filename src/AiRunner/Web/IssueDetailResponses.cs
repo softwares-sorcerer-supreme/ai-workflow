@@ -4,7 +4,10 @@ using AiRunner.Infrastructure;
 
 namespace AiRunner.Web;
 
-/// <summary>A PR of an issue. <c>State</c> is <c>open</c>, <c>merged</c> or <c>closed</c>.</summary>
+/// <summary>
+/// A PR of an issue. <c>State</c> is <c>open</c>, <c>merged</c> or <c>closed</c>. <c>Actions</c> are what the user can
+/// ask for on this PR now (full review, fix); empty for a PR that is not open or not in scope.
+/// </summary>
 public sealed record PullResponse(
     string Repo,
     int Number,
@@ -14,7 +17,8 @@ public sealed record PullResponse(
     string HeadRef,
     string BaseRef,
     string? HtmlUrl,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<ActionResponse> Actions);
 
 /// <summary>What the analysis decided, read from the labels it set. Codes are <c>none</c> until it has run.</summary>
 public sealed record AnalysisSummaryResponse(

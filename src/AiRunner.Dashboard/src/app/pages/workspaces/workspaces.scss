@@ -1,0 +1,76 @@
+@use '@angular/material' as mat;
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2) var(--app-space-3);
+  margin-bottom: var(--app-space-3);
+
+  .app-card-title {
+    margin: 0;
+  }
+}
+
+.small {
+  font: var(--mat-sys-body-small);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--app-space-2);
+  min-width: 0;
+}
+
+.sha {
+  color: var(--mat-sys-primary);
+}
+
+.subject {
+  overflow-wrap: anywhere;
+}
+
+.changes {
+  cursor: help;
+  text-decoration: underline dotted;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+// The two clone buttons wrap below each other in a narrow row (360 px), like app-action-buttons in compact mode.
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--app-space-1);
+}
+
+// Shorter buttons in the table rows, as app-action-buttons in compact mode.
+app-data-table {
+  @include mat.button-overrides(
+    (
+      outlined-container-height: 28px,
+      outlined-horizontal-padding: 12px,
+      outlined-label-text-size: var(--mat-sys-label-medium-size),
+      outlined-touch-target-display: none,
+    )
+  );
+}
+
+.warning {
+  margin-top: var(--app-space-2);
+}
+
+.intro,
+.empty-note {
+  margin: 0 0 var(--app-space-3);
+  font: var(--mat-sys-body-small);
+}
+
+.empty-note {
+  margin: 0;
+}

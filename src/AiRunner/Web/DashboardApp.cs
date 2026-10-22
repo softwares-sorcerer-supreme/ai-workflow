@@ -12,8 +12,13 @@ using Microsoft.Extensions.FileProviders;
 namespace AiRunner.Web;
 
 /// <summary>What the dashboard web app is built from: the runner's own instances, never copies.</summary>
+/// <param name="ConfigSource">The runner's live config; each request reads one snapshot of it.</param>
 /// <param name="WebRoot">Folder of the built UI; it may be missing (then the "not built" page is served).</param>
-public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Status, TimeProvider Time, string WebRoot)
+public sealed record DashboardAppOptions(
+    RunnerConfigSource ConfigSource,
+    RunnerStatus Status,
+    TimeProvider Time,
+    string WebRoot)
 {
     /// <summary>Read access to the job table; the default holds no jobs (the OpenAPI export needs none).</summary>
     public IJobReader Jobs { get; init; } = NoJobs.Instance;
@@ -23,6 +28,47 @@ public sealed record DashboardAppOptions(RunnerConfig Config, RunnerStatus Statu
 
     /// <summary>Read access to the cost log; the default is empty (the OpenAPI export needs none).</summary>
     public ICostReader Cost { get; init; } = NoCost.Instance;
+
+    /// <summary>
+    /// The runtime controls, shared with the runner's poller and worker; the default controls nothing (the OpenAPI
+    /// export runs no runner). This is the web app's only way to act: it holds no token and no code-host client.
+    /// </summary>
+    public RunnerCommands Commands { get; init; } = new();
+
+    /// <summary>
+    /// The Setup page's way to give the runner a secret, shared with the runner; the default sets nothing up (the
+    /// OpenAPI export runs no runner). It takes secrets but never hands one back.
+    /// </summary>
+    public IRunnerSetup Setup { get; init; } = NoSetup.Instance;
+
+    /// <summary>
+    /// The actions on issues and PRs, shared with the runner; the default refuses (the OpenAPI export runs no runner).
+    /// It reads and writes the code host for the web app, which holds no client of its own.
+    /// </summary>
+    public IRunnerActions Actions { get; init; } = NoActions.Instance;
+
+    /// <summary>
+    /// What is under work/ and the actions on it, shared with the runner; the default shows nothing (the OpenAPI
+    /// export runs no runner).
+    /// </summary>
+    public IRunnerWorkspaces Workspaces { get; init; } = NoWorkspaces.Instance;
+
+    /// <summary>
+    /// The shared agents and skills and the actions on them, shared with the runner; the default shows nothing (the
+    /// OpenAPI export runs no runner).
+    /// </summary>
+    public IRunnerAgents Agents { get; init; } = NoAgents.Instance;
+
+    /// <summary>
+    /// repos.yml for the Settings screen, shared with the runner; the default has no file (the OpenAPI export runs no
+    /// runner).
+    /// </summary>
+    public IRunnerSettings Settings { get; init; } = NoSettings.Instance;
+
+    /// <summary>
+    /// The runner's login on the code host, for the scope of the PR actions; a login, never a secret.
+    /// </summary>
+    public RunnerIdentity Identity { get; init; } = new();
 }
 
 /// <summary>A snapshot reader for a runner that has no database yet.</summary>
@@ -48,20 +94,25 @@ public sealed class NoJobs : IJobReader
 
     public JobRecord? GetRecord(long id) => null;
 
+    public IReadOnlyList<JobStepRecord> ListSteps(long jobId) => [];
+
     public IReadOnlyList<JobRecord> ListForItem(string repo, int number) => [];
 }
 
 /// <summary>
 /// The dashboard's small web app. It is built from an empty builder on purpose: it reads no appsettings, no
 /// environment variables and no user secrets, so the GitBucket token can never reach it, and it gets only the
-/// services the API reads. Kestrel listens on 127.0.0.1; host filtering refuses any other Host header, so a web page
-/// on another site cannot reach the API through DNS rebinding. Read-only: every method other than GET is refused.
+/// services the API reads. The Setup page can hand a new secret to <see cref="IRunnerSetup"/>, which has no way to
+/// give one back. Kestrel listens on 127.0.0.1; host filtering refuses any other Host header, so a web page
+/// on another site cannot reach the API through DNS rebinding. Reads are GET; a write is allowed only on a route
+/// marked <see cref="WriteRoute"/> and only past the <see cref="WriteGuard"/>; any other method is a 405.
 /// </summary>
 public static class DashboardApp
 {
     private const string IndexFile = "index.html";
 
-    private static readonly string[] AllowedHosts = ["localhost", "127.0.0.1"];
+    /// <summary>The Host names the host filter accepts; the write guard builds the allowed origins from them.</summary>
+    internal static readonly string[] AllowedHosts = ["localhost", "127.0.0.1"];
 
     public static WebApplicationBuilder CreateBuilder(DashboardAppOptions options)
     {
@@ -72,7 +123,16 @@ public static class DashboardApp
         });
 
         builder.WebHost.UseKestrelCore();
-        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, options.Config.Dashboard.Port));
+        // The port needs a restart, so the live config always holds the startup one.
+        var port = options.ConfigSource.Current.Dashboard.Port;
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, port));
+
+        // A reader that captured the scoped config would show the startup config forever: refuse to build instead.
+        builder.Host.UseDefaultServiceProvider(provider =>
+        {
+            provider.ValidateScopes = true;
+            provider.ValidateOnBuild = true;
+        });
 
         // Its own console log: the 3 s polls of the UI must not flood the runner's log.
         builder.Logging.AddSimpleConsole(console =>
@@ -95,18 +155,28 @@ public static class DashboardApp
         builder.Services.ConfigureHttpJsonOptions(json =>
             json.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 
-        builder.Services.AddSingleton(options.Config);
+        // One config per request: the readers that take it are scoped.
+        builder.Services.AddSingleton(options.ConfigSource);
+        builder.Services.AddScoped(serviceProvider => serviceProvider.GetRequiredService<RunnerConfigSource>().Current);
         builder.Services.AddSingleton(options.Status);
         builder.Services.AddSingleton(options.Time);
         builder.Services.AddSingleton(options.Jobs);
         builder.Services.AddSingleton(options.Snapshot);
         builder.Services.AddSingleton(options.Cost);
-        builder.Services.AddSingleton<CostReader>();
-        builder.Services.AddSingleton<LogViewer>();
-        builder.Services.AddSingleton<OverviewReader>();
-        builder.Services.AddSingleton<IssueBoardReader>();
-        builder.Services.AddSingleton<IssueReader>();
-        builder.Services.AddSingleton<IssueDetailReader>();
+        builder.Services.AddSingleton(options.Commands);
+        builder.Services.AddSingleton(options.Setup);
+        builder.Services.AddSingleton(options.Actions);
+        builder.Services.AddSingleton(options.Workspaces);
+        builder.Services.AddSingleton(options.Agents);
+        builder.Services.AddSingleton(options.Settings);
+        builder.Services.AddSingleton(options.Identity);
+        builder.Services.AddScoped<CostReader>();
+        builder.Services.AddScoped<LogViewer>();
+        builder.Services.AddScoped<HealthReader>();
+        builder.Services.AddScoped<OverviewReader>();
+        builder.Services.AddScoped<IssueBoardReader>();
+        builder.Services.AddScoped<IssueReader>();
+        builder.Services.AddScoped<IssueDetailReader>();
 
         return builder;
     }
@@ -117,7 +187,6 @@ public static class DashboardApp
         var indexFile = Path.Combine(options.WebRoot, IndexFile);
         var isUiBuilt = File.Exists(indexFile);
 
-        app.Use(RejectNonGetAsync);
         app.UseHostFiltering();
 
         // Static files run before routing: once a fallback endpoint is chosen, the static file middleware steps aside.
@@ -131,6 +200,10 @@ public static class DashboardApp
         }
 
         app.UseRouting();
+
+        // After routing (the endpoint is known), before the endpoint binds its parameters.
+        var guard = new WriteGuard(options.ConfigSource.Current.Dashboard.Port);
+        app.Use((context, next) => GuardWritesAsync(context, next, guard));
 
         app.MapOpenApi();
         app.MapDashboardApi();
@@ -149,13 +222,31 @@ public static class DashboardApp
         return app;
     }
 
-    /// <summary>v1 is read-only (docs/adr/0003): anything but GET is a 405, whatever the route.</summary>
-    private static async Task RejectNonGetAsync(HttpContext context, RequestDelegate next)
+    /// <summary>
+    /// The one method rule: a non-GET request must have reached a write route (else 405: an unmapped method, an
+    /// unknown /api route or a UI route) and must pass the write guard (else 403).
+    /// </summary>
+    private static async Task GuardWritesAsync(HttpContext context, RequestDelegate next, WriteGuard guard)
     {
-        if (!HttpMethods.IsGet(context.Request.Method))
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            await next(context);
+            return;
+        }
+
+        var endpoint = context.GetEndpoint();
+        if (endpoint?.Metadata.GetMetadata<WriteRoute>() is null)
         {
             context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
             context.Response.Headers.Allow = HttpMethods.Get;
+            return;
+        }
+
+        var refusal = guard.WhyRefused(context.Request);
+        if (refusal is not null)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ApiError(refusal));
             return;
         }
 

@@ -56,16 +56,27 @@ public sealed record PullSnapshot(
 
     public string? HtmlUrl { get; init; }
 
+    /// <summary>Label names, for the scope of the review and the fix (the trigger label opts a PR in).</summary>
+    public IReadOnlyList<string> Labels { get; init; } = [];
+
+    /// <summary>Login of the PR's author: the runner's own PRs are in scope by it.</summary>
+    public string? Author { get; init; }
+
+    public bool IsDraft { get; init; }
+
     /// <summary>The PR in the shape the jobs read, so the "its PR" helpers run unchanged on snapshot data.</summary>
-    public GbPull AsPull() =>
+    public HostPull AsPull() =>
         new(
             Number,
             Title,
-            new GbRef(HeadRef, HeadSha),
-            new GbRef(BaseRef, ""),
+            new HostRef(HeadRef, HeadSha),
+            new HostRef(BaseRef, ""),
             UpdatedAt,
+            User: Author is null ? null : new HostUser(Author),
             State: State,
             Merged: IsMerged,
+            Draft: IsDraft,
+            Labels: Labels.Select(label => new HostLabel(label)).ToList(),
             HtmlUrl: HtmlUrl);
 }
 
@@ -88,7 +99,7 @@ public static class SnapshotRules
     /// <summary>The text of a state code, as the dashboard shows it.</summary>
     public static string StateLabel(string state) => state == Open ? "Open" : "Closed";
 
-    public static IssueSnapshot IssueRow(ProjectConfig project, GbIssue issue, DateTimeOffset seenAt)
+    public static IssueSnapshot IssueRow(ProjectConfig project, HostIssue issue, DateTimeOffset seenAt)
     {
         var labels = issue.LabelNames().Order(StringComparer.OrdinalIgnoreCase).ToList();
         var assignees = issue.AssigneeLogins();
@@ -107,7 +118,7 @@ public static class SnapshotRules
         };
     }
 
-    public static PullSnapshot PullRow(PullSource source, GbPull pull)
+    public static PullSnapshot PullRow(PullSource source, HostPull pull)
     {
         var (project, repo, seenAt) = source;
         var linkedIssue = IssueLinks.Find(pull.Body, repo, project);
@@ -118,6 +129,9 @@ public static class SnapshotRules
         {
             LinkedIssue = linkedIssue?.ToString(),
             HtmlUrl = pull.HtmlUrl,
+            Labels = pull.LabelNames().Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            Author = pull.User?.Login,
+            IsDraft = pull.Draft == true,
         };
     }
 
@@ -165,7 +179,7 @@ public static class SnapshotRules
     public static string? ComponentOf(IssueSnapshot issue, ProjectConfig project) =>
         issue.Component ?? project.SoleCodeComponent?.Name;
 
-    private static SubIssueInfo? SubIssueInfoOf(GbIssue issue)
+    private static SubIssueInfo? SubIssueInfoOf(HostIssue issue)
     {
         try
         {

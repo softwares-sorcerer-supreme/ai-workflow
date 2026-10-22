@@ -28,18 +28,18 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task Settled_issue_is_not_read_again_but_a_label_only_change_is_seen()
     {
-        _kit.GitBucket.AddIssue(7, "Export", null, "ai", Labels.QuestionsOpen);
+        _kit.CodeHost.AddIssue(7, "Export", null, "ai", Labels.QuestionsOpen);
         var analysisComment = Markers.Wrap("x", Markers.Analysis);
-        _kit.GitBucket.AddBotComment(7, analysisComment);
+        _kit.CodeHost.AddBotComment(7, analysisComment);
         var poller = NewPoller();
 
         await poller.PollOnceAsync(default);   // waits for @ai -> nothing to do, fingerprint saved
         await poller.PollOnceAsync(default);
-        Assert.Equal(1, _kit.GitBucket.CommentListCalls);
+        Assert.Equal(1, _kit.CodeHost.CommentListCalls);
         Assert.Empty(Pending());
 
         // A label is added; updated_at stays the same (GitBucket may not bump it).
-        await _kit.GitBucket.AddLabelsAsync(JobTestKit.Repo, 7, [Labels.Implement], default);
+        await _kit.CodeHost.AddLabelsAsync(JobTestKit.Repo, 7, [Labels.Implement], default);
         await poller.PollOnceAsync(default);
 
         var queuedJob = Assert.Single(Pending());
@@ -49,7 +49,7 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task Issue_that_still_needs_work_is_planned_again_after_an_unreported_failure()
     {
-        _kit.GitBucket.AddIssue(7, "Export", null, "ai");
+        _kit.CodeHost.AddIssue(7, "Export", null, "ai");
         var poller = NewPoller();
 
         await poller.PollOnceAsync(default);
@@ -67,7 +67,7 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task A_failed_poll_is_shown_in_the_runner_status_until_a_poll_goes_through()
     {
-        _kit.GitBucket.IssueListError = "connection refused";
+        _kit.CodeHost.IssueListError = "connection refused";
         var poller = NewPoller();
 
         await poller.PollOnceAsync(default);
@@ -79,7 +79,7 @@ public sealed class PollerTests : IDisposable
         Assert.NotNull(failed.LastPollEndedAt);
         Assert.False(failed.IsPolling);
 
-        _kit.GitBucket.IssueListError = null;
+        _kit.CodeHost.IssueListError = null;
         await poller.PollOnceAsync(default);
 
         Assert.Empty(_kit.Status.Snapshot().Errors);
@@ -88,8 +88,8 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task Dry_run_queues_nothing_and_remembers_nothing()
     {
-        _kit.GitBucket.AddIssue(7, "Export", null, "ai");
-        _kit.GitBucket.AddPull(3, "feature", "main");
+        _kit.CodeHost.AddIssue(7, "Export", null, "ai");
+        _kit.CodeHost.AddPull(3, "feature", "main");
 
         await NewPoller(dryRun: true).PollOnceAsync(default);
 
@@ -100,12 +100,12 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task Issue_assigned_to_the_runner_user_is_in_scope_without_the_label()
     {
-        var issue = _kit.GitBucket.AddIssue(8, "Assigned", null);
-        _kit.GitBucket.Issues[8] = issue with
+        var issue = _kit.CodeHost.AddIssue(8, "Assigned", null);
+        _kit.CodeHost.Issues[8] = issue with
         {
-            Assignee = new GbUser("bot")
+            Assignee = new HostUser("bot")
         };
-        _kit.GitBucket.AddIssue(9, "Someone else's", null);
+        _kit.CodeHost.AddIssue(9, "Someone else's", null);
 
         await NewPoller().PollOnceAsync(default);
 
@@ -116,8 +116,8 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task New_head_of_a_labelled_pr_is_queued_for_review()
     {
-        _kit.GitBucket.AddPull(3, "feature", "main", sha: "sha1", labels: "ai");
-        _kit.GitBucket.AddPull(4, "colleague", "main", sha: "sha9");   // no label: not reviewed by default
+        _kit.CodeHost.AddPull(3, "feature", "main", sha: "sha1", labels: "ai");
+        _kit.CodeHost.AddPull(4, "colleague", "main", sha: "sha9");   // no label: not reviewed by default
 
         await NewPoller().PollOnceAsync(default);
 
@@ -128,15 +128,15 @@ public sealed class PollerTests : IDisposable
     [Fact]
     public async Task At_ai_on_a_pr_in_scope_queues_a_review_fix_and_other_prs_are_not_read()
     {
-        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", labels: "ai");
-        _kit.GitBucket.AddPull(31, "feature/y", "main", sha: "sha2");   // out of scope: comments never read
-        _kit.GitBucket.AddHumanComment(31, "@ai fix this");
-        var trigger = _kit.GitBucket.AddHumanComment(30, "@ai 1: fix");
+        _kit.CodeHost.AddPull(30, "ai/issue-12", "main", sha: "sha1", labels: "ai");
+        _kit.CodeHost.AddPull(31, "feature/y", "main", sha: "sha2");   // out of scope: comments never read
+        _kit.CodeHost.AddHumanComment(31, "@ai fix this");
+        var trigger = _kit.CodeHost.AddHumanComment(30, "@ai 1: fix");
 
         await NewPoller().PollOnceAsync(default);
 
         var fix = Assert.Single(Pending());
         Assert.Equal((JobType.FixReview, 30, trigger.Id.ToString()), (fix.Type, fix.Number, fix.Payload));
-        Assert.Equal(1, _kit.GitBucket.CommentListCalls);
+        Assert.Equal(1, _kit.CodeHost.CommentListCalls);
     }
 }

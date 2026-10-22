@@ -1,12 +1,19 @@
+using AiRunner.Configuration;
 namespace AiRunner.Hosting;
 
 /// <summary>The latest poll error of one project.</summary>
 public sealed record ProjectPollError(string Project, string Message, DateTimeOffset At);
 
+/// <summary>The step a running job is in: a code from <c>JobSteps</c> and the text to show.</summary>
+public sealed record RunningStep(string Code, string Label);
+
 /// <summary>The job the worker runs now. <c>Round</c> is set by agent sessions (implement, review fix), else null.</summary>
 public sealed record RunningJob(long Id, string Type, string Repo, int Number, DateTimeOffset StartedAt)
 {
     public int? Round { get; init; }
+
+    /// <summary>The step the job is in now; null before its first step.</summary>
+    public RunningStep? Step { get; init; }
 
     /// <summary>
     /// This runner's claim on the issue or PR went through (claim_enabled). A routine job claims only before its
@@ -27,6 +34,24 @@ public sealed record RunnerStatusSnapshot(
     IReadOnlyList<ProjectPollError> Errors,
     RunningJob? Running = null)
 {
+    /// <summary>
+    /// The worker is paused from the dashboard; set from <see cref="RunnerCommands"/>, which owns it.
+    /// </summary>
+    public bool IsPaused { get; init; }
+
+    /// <summary>No code-host token yet (setup mode); set from <see cref="IRunnerSetup"/>, which owns it.</summary>
+    public bool IsSetupNeeded { get; init; }
+
+    /// <summary>
+    /// ~/.copilot/ differs from agents/ and skills/ (a file differs or is not installed); see <c>AgentDrift</c>.
+    /// </summary>
+    public bool HasAgentDrift { get; init; }
+
+    /// <summary>
+    /// Why repos.yml on disk is not applied (the runner keeps its config); set from <see cref="RunnerConfigSource"/>.
+    /// </summary>
+    public string? ConfigError { get; init; }
+
     /// <summary>A poll has started and not finished yet.</summary>
     public bool IsPolling => LastPollStartedAt is { } started && (LastPollEndedAt is not { } ended || ended < started);
 }
@@ -48,12 +73,22 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
     private DateTimeOffset? _lastPollEndedAt;
     private DateTimeOffset? _workerBusySince;
     private RunningJob? _running;
+    private bool _hasAgentDrift;
 
     public void SetCopilotVersion(string? version)
     {
         lock (_lock)
         {
             _copilotVersion = string.IsNullOrWhiteSpace(version) ? UnknownVersion : version.Trim();
+        }
+    }
+
+    /// <summary>The poller's latest drift check of the shared agents and skills.</summary>
+    public void AgentDriftChecked(bool hasDrift)
+    {
+        lock (_lock)
+        {
+            _hasAgentDrift = hasDrift;
         }
     }
 
@@ -120,6 +155,18 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
         }
     }
 
+    /// <summary>The running job opened a step.</summary>
+    public void JobStep(string code, string label)
+    {
+        lock (_lock)
+        {
+            if (_running is not null)
+            {
+                _running = _running with { Step = new RunningStep(code, label) };
+            }
+        }
+    }
+
     /// <summary>The running job now holds its claim: the dashboard names this runner as the holder.</summary>
     public void ClaimHeld()
     {
@@ -149,7 +196,10 @@ public sealed class RunnerStatus(string runnerName, string configPath, TimeProvi
                 _lastPollEndedAt,
                 _workerBusySince,
                 errors,
-                _running);
+                _running)
+            {
+                HasAgentDrift = _hasAgentDrift,
+            };
         }
     }
 }

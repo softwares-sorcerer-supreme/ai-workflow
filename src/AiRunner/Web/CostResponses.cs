@@ -24,6 +24,11 @@ public sealed record CostRowResponse(
     long OutputTokens,
     int JobsWithoutUsage)
 {
+    /// <summary>
+    /// The models the jobs of the row started with and why (empty for old rows and the model grouping).
+    /// </summary>
+    public IReadOnlyList<ModelUse> Models { get; init; } = [];
+
     public static CostRowResponse From(CostRow row) =>
         new(
             row.Key,
@@ -37,7 +42,10 @@ public sealed record CostRowResponse(
             row.Usage.CacheReadTokens,
             row.Usage.CacheWriteTokens,
             row.Usage.OutputTokens,
-            row.JobsWithoutUsage);
+            row.JobsWithoutUsage)
+        {
+            Models = row.Models,
+        };
 }
 
 /// <summary>

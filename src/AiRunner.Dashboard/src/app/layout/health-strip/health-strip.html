@@ -9,7 +9,11 @@
     </span>
   }
 } @else if (health(); as health) {
-  <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
+  @if (health.isSetupNeeded) {
+    <a class="state setup-link" [routerLink]="setupPath" data-testid="health-state">{{ health.stateLabel }}</a>
+  } @else {
+    <strong class="state" data-testid="health-state">{{ health.stateLabel }}</strong>
+  }
 
   <span class="item">
     <mat-icon aria-hidden="true">sync</mat-icon>
@@ -38,6 +42,26 @@
     >
       <mat-icon aria-hidden="true">error</mat-icon>
       {{ health.errorsLabel }}
+    </a>
+  }
+
+  @if (health.hasAgentDrift && health.agentDriftLabel) {
+    <a class="item drift" [routerLink]="agentsPath" data-testid="health-agent-drift">
+      <mat-icon aria-hidden="true">smart_toy</mat-icon>
+      {{ health.agentDriftLabel }}
+    </a>
+  }
+
+  @if (health.configError && health.configErrorLabel) {
+    <a
+      class="item config-error"
+      [routerLink]="settingsPath"
+      data-testid="health-config-error"
+      [matTooltip]="health.configError"
+      matTooltipClass="app-pre-line"
+    >
+      <mat-icon aria-hidden="true">error</mat-icon>
+      {{ health.configErrorLabel }}
     </a>
   }
 

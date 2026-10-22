@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -11,7 +12,7 @@ namespace AiRunner.Jobs;
 /// only, no Copilot run.
 /// </summary>
 public sealed class FinishIssueJob(
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     JobLoader jobLoader) : IJob
 {
     public JobType Type => JobType.FinishIssue;
@@ -44,7 +45,7 @@ public sealed class FinishIssueJob(
             return JobOutcome.NotNeeded(exception.Message);
         }
 
-        var allPulls = await gitBucketClient.ListAllPullsAsync(target.Repo, cancellationToken);
+        var allPulls = await codeHost.ListAllPullsAsync(target.Repo, cancellationToken);
         var pulls = IssuePulls.OfIssue(issue.Number, allPulls);
         var outcome = IssuePulls.OutcomeOf(pulls);
 
@@ -66,20 +67,22 @@ public sealed class FinishIssueJob(
         {
             var mergedRef = JobSupport.PullRef(merged.Number, request.Repo, target.Repo);
             var comment = $"PR {mergedRef} is merged into `{merged.Base.Ref}`. This issue is done, so I close it.";
-            await gitBucketClient.CloseDoneAsync(request.Repo, issue.Number, comment, cancellationToken);
+            run.Step(JobSteps.Close, "Close issue");
+            await codeHost.CloseDoneAsync(request.Repo, issue.Number, comment, cancellationToken);
             run.Info($"closed issue #{issue.Number} (PR {mergedRef} merged)");
 
             return JobOutcome.Ok($"closed after {mergedRef}", copilotCalls: 0);
         }
 
+        run.Step(JobSteps.Comment, "Comment");
         var closedRef = JobSupport.PullRef(pulls[0].Number, request.Repo, target.Repo);
-        await gitBucketClient.AddCommentAsync(
+        await codeHost.AddCommentAsync(
             request.Repo,
             issue.Number,
             $"PR {closedRef} was closed without a merge. I stop watching this issue. " +
             $"Add `{Labels.Implement}` to try again.",
             cancellationToken);
-        await gitBucketClient.RemoveLabelAsync(request.Repo, issue.Number, Labels.Implementing, cancellationToken);
+        await codeHost.RemoveLabelAsync(request.Repo, issue.Number, Labels.Implementing, cancellationToken);
 
         return JobOutcome.Ok($"{closedRef} closed without a merge", copilotCalls: 0);
     }

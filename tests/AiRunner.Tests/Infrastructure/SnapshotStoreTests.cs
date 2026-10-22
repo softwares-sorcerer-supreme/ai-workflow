@@ -40,7 +40,7 @@ public sealed class SnapshotStoreTests : IDisposable
     {
         var store = OpenStore();
         var issue = Issue(21, "closed");
-        var pull = Pull(40);
+        var pull = Pull(40) with { Labels = ["ai", "wip"], Author = "bot", IsDraft = true };
 
         store.SaveIssues([issue]);
         store.SavePulls([pull]);
@@ -50,7 +50,22 @@ public sealed class SnapshotStoreTests : IDisposable
         Assert.Equal(issue.Labels, readIssue.Labels);
         Assert.Equal(issue.Assignees, readIssue.Assignees);
         Assert.Equal(issue with { Labels = readIssue.Labels, Assignees = readIssue.Assignees }, readIssue);
-        Assert.Equal(pull, Assert.Single(reopened.ListPulls()));
+        var readPull = Assert.Single(reopened.ListPulls());
+        Assert.Equal(pull.Labels, readPull.Labels);
+        Assert.Equal(pull with { Labels = readPull.Labels }, readPull);
+    }
+
+    [Fact]
+    public void A_pull_row_without_scope_data_reads_back_empty()
+    {
+        var store = OpenStore();
+
+        store.SavePulls([Pull(40)]);
+
+        var readPull = Assert.Single(store.ListPulls());
+        Assert.Empty(readPull.Labels);
+        Assert.Null(readPull.Author);
+        Assert.False(readPull.IsDraft);
     }
 
     [Fact]

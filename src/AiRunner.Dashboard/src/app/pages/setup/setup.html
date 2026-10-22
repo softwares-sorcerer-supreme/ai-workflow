@@ -1,0 +1,212 @@
+<app-page-header
+  title="Setup"
+  subtitle="The GitBucket token and web password this runner uses. They are checked before they are saved."
+/>
+
+@if (current(); as setup) {
+  <div class="app-stack">
+    @if (resource.error(); as message) {
+      <app-inline-note icon="sync_problem">Showing older data. {{ message }}</app-inline-note>
+    }
+
+    <section class="app-card" aria-labelledby="server-title">
+      <h2 id="server-title" class="app-card-title">GitBucket server</h2>
+      <dl class="app-facts">
+        <dt>Base URL</dt>
+        <dd>
+          <span class="app-mono" data-testid="base-url">{{ setup.baseUrl }}</span>
+          <p class="hint app-muted">
+            Read only here: change <code>code_host.base_url</code> in repos.yml.
+          </p>
+        </dd>
+
+        <dt>Secrets file</dt>
+        <dd class="app-mono" data-testid="secrets-file">{{ setup.secretsFile }}</dd>
+      </dl>
+    </section>
+
+    <section class="app-card" aria-labelledby="token-title" data-testid="token-card">
+      <div class="card-head">
+        <h2 id="token-title" class="app-card-title">Token</h2>
+        <app-status-chip
+          data-testid="token-source"
+          [label]="setup.tokenSourceLabel"
+          [tone]="tokenTone(setup.tokenSource)"
+        />
+      </div>
+
+      <p class="app-muted intro">
+        A personal access token of the GitBucket user the runner acts as. Every API call and every
+        git fetch and push uses it.
+      </p>
+
+      @if (setup.tokenNote; as note) {
+        <app-inline-note icon="info" tone="info" class="note">{{ note }}</app-inline-note>
+      }
+
+      @if (setup.isTokenSet) {
+        <dl class="app-facts facts">
+          <dt>Signed in as</dt>
+          <dd data-testid="login">{{ setup.login || '-' }}</dd>
+        </dl>
+      }
+
+      <form class="secret-form" (submit)="submitToken($event)">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="secret-field">
+          <mat-label>{{ setup.isTokenSet ? 'New token' : 'Token' }}</mat-label>
+          <input
+            matInput
+            type="password"
+            name="token"
+            autocomplete="new-password"
+            spellcheck="false"
+            data-testid="token-input"
+            [value]="token()"
+            (input)="setToken($event)"
+          />
+        </mat-form-field>
+
+        <div class="actions">
+          <button
+            mat-flat-button
+            type="submit"
+            data-testid="token-save"
+            [disabled]="!token() || tokenSave.isBusy()"
+            [attr.aria-busy]="tokenSave.isBusy()"
+          >
+            @if (tokenSave.isBusy()) {
+              <mat-progress-spinner
+                class="app-busy"
+                mode="indeterminate"
+                diameter="18"
+                aria-hidden="true"
+              />
+            } @else {
+              <mat-icon aria-hidden="true">verified_user</mat-icon>
+            }
+            Check and save
+          </button>
+
+          @if (setup.canRemoveToken) {
+            <button
+              mat-stroked-button
+              type="button"
+              data-testid="token-remove"
+              [disabled]="tokenRemove.isBusy()"
+              [attr.aria-busy]="tokenRemove.isBusy()"
+              (click)="removeToken()"
+            >
+              @if (tokenRemove.isBusy()) {
+                <mat-progress-spinner
+                  class="app-busy"
+                  mode="indeterminate"
+                  diameter="18"
+                  aria-hidden="true"
+                />
+              } @else {
+                <mat-icon aria-hidden="true">delete</mat-icon>
+              }
+              Remove
+            </button>
+          }
+        </div>
+      </form>
+    </section>
+
+    <section class="app-card" aria-labelledby="web-password-title" data-testid="web-password-card">
+      <div class="card-head">
+        <h2 id="web-password-title" class="app-card-title">Web password</h2>
+        <app-status-chip
+          data-testid="web-password-source"
+          [label]="setup.webPasswordSourceLabel"
+          [tone]="webPasswordTone(setup.webPasswordSource)"
+        />
+      </div>
+
+      <p class="app-muted intro">
+        The password of the same GitBucket user. The runner signs in on the web pages with it to
+        close issues after a merge, because the GitBucket API cannot close an issue. Save the token
+        first.
+      </p>
+
+      @if (setup.webPasswordNote; as note) {
+        <app-inline-note icon="info" tone="info" class="note">{{ note }}</app-inline-note>
+      }
+
+      <form class="secret-form" (submit)="submitWebPassword($event)">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="secret-field">
+          <mat-label>{{ setup.isWebPasswordSet ? 'New web password' : 'Web password' }}</mat-label>
+          <input
+            matInput
+            type="password"
+            name="web-password"
+            autocomplete="new-password"
+            spellcheck="false"
+            data-testid="web-password-input"
+            [value]="webPassword()"
+            (input)="setWebPassword($event)"
+          />
+        </mat-form-field>
+
+        <div class="actions">
+          <button
+            mat-flat-button
+            type="submit"
+            data-testid="web-password-save"
+            [disabled]="!webPassword() || webPasswordSave.isBusy()"
+            [attr.aria-busy]="webPasswordSave.isBusy()"
+          >
+            @if (webPasswordSave.isBusy()) {
+              <mat-progress-spinner
+                class="app-busy"
+                mode="indeterminate"
+                diameter="18"
+                aria-hidden="true"
+              />
+            } @else {
+              <mat-icon aria-hidden="true">verified_user</mat-icon>
+            }
+            Check and save
+          </button>
+
+          @if (setup.canRemoveWebPassword) {
+            <button
+              mat-stroked-button
+              type="button"
+              data-testid="web-password-remove"
+              [disabled]="webPasswordRemove.isBusy()"
+              [attr.aria-busy]="webPasswordRemove.isBusy()"
+              (click)="removeWebPassword()"
+            >
+              @if (webPasswordRemove.isBusy()) {
+                <mat-progress-spinner
+                  class="app-busy"
+                  mode="indeterminate"
+                  diameter="18"
+                  aria-hidden="true"
+                />
+              } @else {
+                <mat-icon aria-hidden="true">delete</mat-icon>
+              }
+              Remove
+            </button>
+          }
+        </div>
+      </form>
+    </section>
+  </div>
+} @else if (resource.error()) {
+  <section class="app-card">
+    <app-view-state
+      kind="error"
+      title="Could not load the setup"
+      [message]="resource.error()"
+      [canRetry]="true"
+      (retry)="resource.reload()"
+    />
+  </section>
+} @else {
+  <section class="app-card">
+    <app-view-state kind="loading" />
+  </section>
+}

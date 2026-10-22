@@ -19,7 +19,7 @@ public static class OpenApiExport
         // Port 0: any free loopback port. The endpoints only reach the document once the app has started.
         var config = new RunnerConfig { Dashboard = new DashboardConfig { Port = 0 } };
         var options = new DashboardAppOptions(
-            config,
+            RunnerConfigSource.Fixed(config),
             new RunnerStatus("export", "repos.yml", TimeProvider.System),
             TimeProvider.System,
             WebRoot: "");

@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
@@ -8,7 +9,7 @@ namespace AiRunner.Jobs;
 public sealed record AttachmentRequest(string Directory, IReadOnlyList<AttachmentSource> Sources)
 {
     /// <summary>The usual input: the issue or PR body, then the human comments.</summary>
-    public static AttachmentRequest Of(string directory, AttachmentSource body, IEnumerable<GbComment> comments) =>
+    public static AttachmentRequest Of(string directory, AttachmentSource body, IEnumerable<HostComment> comments) =>
         new(directory, AttachmentSource.Of(body, comments));
 }
 
@@ -36,7 +37,7 @@ public sealed record AttachmentSet(IReadOnlyList<AttachmentResult> Results)
 /// </summary>
 public sealed class AttachmentFetcher(
     RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    ICodeHost codeHost,
     ICopilotRunner copilot)
 {
     private static readonly string[] FolderSegments = [".ai-workflow", "attachments"];
@@ -170,7 +171,7 @@ public sealed class AttachmentFetcher(
         var seen = new HashSet<string>();
         foreach (var source in sources)
         {
-            foreach (var reference in AttachmentLinks.Find(source.Text, config.GitBucket.BaseUrl))
+            foreach (var reference in codeHost.FindAttachments(source.Text))
             {
                 if (seen.Add(reference.Url))
                 {
@@ -217,7 +218,7 @@ public sealed class AttachmentFetcher(
     {
         try
         {
-            var downloaded = await gitBucketClient.DownloadAttachmentAsync(download, cancellationToken);
+            var downloaded = await codeHost.DownloadAttachmentAsync(download, cancellationToken);
 
             return (downloaded, null);
         }
@@ -226,7 +227,7 @@ public sealed class AttachmentFetcher(
             return (null, exception.Message);
         }
         catch (Exception exception) when (
-            exception is HttpRequestException or IOException or UnauthorizedAccessException or GitBucketException
+            exception is HttpRequestException or IOException or UnauthorizedAccessException or CodeHostException
             || (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             return (null, $"download failed ({Text.Short(exception.Message, 120)})");

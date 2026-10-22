@@ -1,5 +1,6 @@
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -7,7 +8,7 @@ namespace AiRunner.Hosting;
 /// --close-test owner/repo#n: closes one issue the way the jobs do (web sign-in + the issue page's close form) and
 /// says what GitBucket answered. It costs nothing (no Copilot) but it DOES close the issue; use a test issue.
 /// </summary>
-public sealed class CloseSelfTest(IGitBucketClient gitBucketClient, ILogger<CloseSelfTest> logger)
+public sealed class CloseSelfTest(ICodeHost codeHost, ILogger<CloseSelfTest> logger)
 {
     public async Task RunAsync(string issueText, CancellationToken cancellationToken)
     {
@@ -22,10 +23,10 @@ public sealed class CloseSelfTest(IGitBucketClient gitBucketClient, ILogger<Clos
 
         try
         {
-            await gitBucketClient.CloseIssueAsync(issue.Repo, issue.Number, cancellationToken);
+            await codeHost.CloseIssueAsync(issue.Repo, issue.Number, cancellationToken);
             logger.LogInformation("OK: {Issue} is closed", issue);
         }
-        catch (Exception exception) when (exception is HttpRequestException or GitBucketException)
+        catch (Exception exception) when (exception is HttpRequestException or CodeHostException)
         {
             logger.LogError("FAILED: {Reason}", exception.Message);
         }

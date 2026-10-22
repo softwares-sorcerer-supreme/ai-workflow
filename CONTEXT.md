@@ -36,6 +36,14 @@ _Avoid_: handled-up-to, last handled
 The newest `@ai` comment the runner's own database says was handled; it covers a job that failed before it could reply.
 _Avoid_: last-handled comment
 
+**Code host**:
+The server that holds the issues, pull requests and repos the runner works on. GitBucket today; the runner reaches it only through one provider, so it can be replaced.
+_Avoid_: GitBucket (for the role), forge, server
+
+**Setup mode**:
+How the runner starts in its loop when it has no code-host token yet: only the dashboard runs, nothing is polled and no job runs, until the token is saved on the dashboard's Setup page. Every other mode stops instead.
+_Avoid_: first run, onboarding mode, unconfigured
+
 **Project**:
 A group of components that are worked on together; its issues live in one place (`issues_in`). Every job checks out all components of one project.
 _Avoid_: workspace, product
@@ -76,6 +84,30 @@ _Avoid_: column, bucket, phase
 **Waiting on**:
 The one action a person must take before an issue can move to its next stage, such as answering questions or merging a pull request. An issue that is queued or running waits on nobody.
 _Avoid_: blocked, pending, todo
+
+**Action**:
+Something a person asks the runner to do from the dashboard (implement, break down, retry, answer, ask, start the next sub-issue, full review, fix). It is only a write on the code host, a label or a person's `@ai` comment, that the planner then picks up like the same change made by hand; it never puts a job in the queue. The runner offers an action only while the item still allows it, and checks again on fresh data right before it writes.
+_Avoid_: command, button, trigger
+
+**Workspace lock**:
+The one lock per project folder under `work/`. A job takes it when it prepares the project and the worker releases it when the job ends; a workspace action from the dashboard (fetch, re-clone) tries it without waiting and is refused with a 409 while a job holds it. Deleting an orphan needs no lock because no project owns that folder.
+_Avoid_: mutex, semaphore
+
+**Orphan**:
+A folder under `work/` that is no project of `repos.yml` (a project that was removed or renamed). The dashboard may delete it, and only it: a plain folder name that resolves directly inside `work/`, never a project folder.
+_Avoid_: stale folder, leftover
+
+**Sync**:
+Copying the shared `agents/` and `skills/` of this repo to the Copilot home (`~/.copilot/`), so Copilot uses the version in the repo. It runs at startup and from the dashboard, always between jobs: at once when no job runs, else right after the running job, so one Copilot run never mixes old and new agents. A sync only copies; a file in `~/.copilot/` the repo does not have (an **extra** file) is never deleted.
+_Avoid_: deploy, publish, install (the installer is the code that does a sync)
+
+**Drift**:
+The difference between the shared `agents/` and `skills/` of this repo and their copy in `~/.copilot/`, by content hash per file: `in-sync`, `differs`, or `missing` (not installed). The poller checks it every poll; while a file differs or is missing the health strip says "Agents out of sync" and a **Sync** fixes it.
+_Avoid_: stale, out of date
+
+**Model override**:
+The model a person picked for one issue and one workflow (the dashboard action `set-model`), kept as a **bot comment** with the tag `<!-- AI_SETTINGS models.<workflow>=<model> -->`. Only bot comments count, so nobody can fake it by typing the tag; the newest tag of a workflow wins and an empty model removes it. A sub-issue reads its own tags, then its parent's. It beats every `models:` setting (`ModelResolver`: override, `fix_rounds`, `simple`/`complex`, `default`, Copilot's default) and applies from the next job on.
+_Avoid_: model setting (that is `models:` in repos.yml), pin
 
 **Snapshot**:
 The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.

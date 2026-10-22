@@ -7,11 +7,11 @@ public class JobPlannerTests
     private static readonly ProjectConfig Project = TestProjects.Single();
     private long _id = 100;
 
-    private static GbIssue Issue(params string[] labels) => Samples.Issue(7, labels);
+    private static HostIssue Issue(params string[] labels) => Samples.Issue(7, labels);
 
-    private GbComment Human(string body) => Samples.Human(++_id, body);
+    private HostComment Human(string body) => Samples.Human(++_id, body);
 
-    private GbComment Analysis()
+    private HostComment Analysis()
     {
         var analysisBody = Markers.Wrap("x", Markers.Analysis);
         return Samples.Bot(++_id, analysisBody);
@@ -20,8 +20,8 @@ public class JobPlannerTests
     private static JobType? Type(PlanDecision decision) => decision.Job?.Type;
 
     private static PlanDecision PlanIssue(
-        GbIssue issue,
-        IReadOnlyList<GbComment>? comments,
+        HostIssue issue,
+        IReadOnlyList<HostComment>? comments,
         long lastHandledCommentId = 0)
     {
         var input = new IssuePlanInput(Project, TestProjects.Repo, issue, comments, lastHandledCommentId);
@@ -31,9 +31,9 @@ public class JobPlannerTests
 
     private static PlanDecision PlanPull(
         ProjectConfig project,
-        GbPull pull,
+        HostPull pull,
         string? reviewedSha = null,
-        IReadOnlyList<GbComment>? comments = null)
+        IReadOnlyList<HostComment>? comments = null)
     {
         var input = new PullPlanInput(project, TestProjects.Repo, pull, reviewedSha, BotLogin: "bot", Comments: comments);
 
@@ -80,7 +80,7 @@ public class JobPlannerTests
     {
         var analysis = Analysis();
         var question = Human("thanks, Q1: CSV only");
-        var comments = new List<GbComment> { analysis, question };
+        var comments = new List<HostComment> { analysis, question };
         var issue = Issue("ai");
         var waitingDecision = PlanIssue(issue, comments);
 
@@ -186,7 +186,7 @@ public class JobPlannerTests
 
     // ---- pull requests ----
 
-    private static GbPull Pull(
+    private static HostPull Pull(
         string head = "feature/x",
         string title = "Add export",
         bool? draft = null,
@@ -195,12 +195,12 @@ public class JobPlannerTests
         new(
             3,
             title,
-            new GbRef(head, "sha1"),
-            new GbRef("main", "sha0"),
+            new HostRef(head, "sha1"),
+            new HostRef("main", "sha0"),
             DateTimeOffset.UtcNow,
-            User: new GbUser(user),
+            User: new HostUser(user),
             Draft: draft,
-            Labels: labels.Select(label => new GbLabel(label)).ToList());
+            Labels: labels.Select(label => new HostLabel(label)).ToList());
 
     private static readonly ProjectConfig AllPrs = TestProjects.Single([Workflows.Review], reviewScope: "all");
 
@@ -280,7 +280,7 @@ public class JobPlannerTests
 
     // ---- review fixes ----
 
-    private GbComment FixReply(long upto)
+    private HostComment FixReply(long upto)
     {
         var replyBody = Samples.FixReply(upto);
         return Samples.Bot(++_id, replyBody);
@@ -447,11 +447,11 @@ public class ContextBuilderTests
     [Fact]
     public void Issue_context_lists_comments_oldest_first_and_marks_the_bot()
     {
-        var issue = new GbIssue(
+        var issue = new HostIssue(
             7,
             "Export",
             "Please export CSV",
-            new GbUser("alice"),
+            new HostUser("alice"),
             [],
             DateTimeOffset.UtcNow,
             null);
@@ -460,8 +460,8 @@ public class ContextBuilderTests
         var botCreatedAt = createdAt.AddMinutes(1);
         var comments = new[]
         {
-            new GbComment(3, "Q1: CSV @ai", new GbUser("alice"), humanCreatedAt),
-            new GbComment(2, BotComments.Marker + "\nQ1: which format?", new GbUser("hai"), botCreatedAt),
+            new HostComment(3, "Q1: CSV @ai", new HostUser("alice"), humanCreatedAt),
+            new HostComment(2, BotComments.Marker + "\nQ1: which format?", new HostUser("hai"), botCreatedAt),
         };
 
         var text = ContextBuilder.ForIssue(issue, comments, round: 2);
@@ -478,20 +478,27 @@ public class ContextBuilderTests
     [Fact]
     public void Issue_context_keeps_only_the_newest_analysis_and_spec_in_full()
     {
-        var issue = new GbIssue(7, "Export", "Please export CSV", new GbUser("alice"), [], DateTimeOffset.UtcNow, null);
+        var issue = new HostIssue(
+            7,
+            "Export",
+            "Please export CSV",
+            new HostUser("alice"),
+            [],
+            DateTimeOffset.UtcNow,
+            null);
         var at = DateTimeOffset.UtcNow;
 
-        GbComment Block(int id, string text, string marker) =>
-            new(id, BotComments.Marker + "\n" + Markers.Wrap(text, marker), new GbUser("hai"), at.AddMinutes(id));
+        HostComment Block(int id, string text, string marker) =>
+            new(id, BotComments.Marker + "\n" + Markers.Wrap(text, marker), new HostUser("hai"), at.AddMinutes(id));
 
         var comments = new[]
         {
             Block(1, "round one text", Markers.Analysis),
             Block(2, "old spec text", Markers.Spec),
-            new GbComment(3, "Q1: CSV @ai", new GbUser("alice"), at.AddMinutes(3)),
+            new HostComment(3, "Q1: CSV @ai", new HostUser("alice"), at.AddMinutes(3)),
             Block(4, "round two text", Markers.Analysis),
             Block(5, "new spec text", Markers.Spec),
-            new GbComment(6, BotComments.Marker + "\nCopilot started", new GbUser("hai"), at.AddMinutes(6)),
+            new HostComment(6, BotComments.Marker + "\nCopilot started", new HostUser("hai"), at.AddMinutes(6)),
         };
 
         var text = ContextBuilder.ForIssue(issue, comments, round: 3);

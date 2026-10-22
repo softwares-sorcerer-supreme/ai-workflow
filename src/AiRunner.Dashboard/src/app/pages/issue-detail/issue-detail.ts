@@ -8,6 +8,7 @@ import { getIssue } from '../../api/fn/issues/get-issue';
 import { JobResponse } from '../../api/models/job-response';
 import { PullResponse } from '../../api/models/pull-response';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
+import { ActionButtons, issueTarget, pullTarget } from '../../shared/action-buttons/action-buttons';
 import { DataCell, DataColumn, DataTable } from '../../shared/data-table/data-table';
 import { InlineNote } from '../../shared/inline-note/inline-note';
 import { issueKey, issueLink } from '../../shared/issue-link';
@@ -18,6 +19,7 @@ import { StageChip } from '../../shared/stage-chip/stage-chip';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { DurationPipe } from '../../shared/time/duration.pipe';
 import { AppTime } from '../../shared/time/time';
+import { jobModelText } from '../../shared/model-text';
 import { issueMarkIcon, issueMarkTone, jobStatusTone } from '../../shared/tone';
 import { ViewState } from '../../shared/view-state/view-state';
 
@@ -28,6 +30,7 @@ import { ViewState } from '../../shared/view-state/view-state';
 @Component({
   selector: 'app-issue-detail',
   imports: [
+    ActionButtons,
     AppTime,
     DataCell,
     DataTable,
@@ -65,6 +68,7 @@ export class IssueDetail {
   protected readonly subIssueColumns: readonly DataColumn[] = [
     { key: 'issue', header: 'Sub-issue' },
     { key: 'stage', header: 'Stage', width: '190px' },
+    { key: 'next', header: 'Next', width: '220px' },
     { key: 'pulls', header: 'Pull requests', hideBelow: 'sm' },
   ];
 
@@ -72,6 +76,7 @@ export class IssueDetail {
     { key: 'pull', header: 'Pull request' },
     { key: 'branches', header: 'Branches', hideBelow: 'sm' },
     { key: 'state', header: 'State', width: '120px' },
+    { key: 'actions', header: 'Actions', width: '200px' },
   ];
 
   protected readonly jobColumns: readonly DataColumn[] = [
@@ -81,14 +86,18 @@ export class IssueDetail {
     { key: 'duration', header: 'Duration', align: 'end', width: '110px', hideBelow: 'sm' },
     // No cell template: the table shows the number, or "-" for an old row or a failed job (null).
     { key: 'copilotCalls', header: 'Calls', align: 'end', width: '70px', hideBelow: 'sm' },
+    { key: 'model', header: 'Model', width: '200px', hideBelow: 'md' },
     { key: 'startedAt', header: 'Started', align: 'end', width: '170px', hideBelow: 'md' },
     { key: 'log', header: 'Log', width: '90px' },
   ];
 
+  protected readonly modelText = jobModelText;
   protected readonly markTone = issueMarkTone;
   protected readonly markIcon = issueMarkIcon;
   protected readonly statusTone = jobStatusTone;
   protected readonly link = issueLink;
+  protected readonly issueTarget = issueTarget;
+  protected readonly pullTarget = pullTarget;
 
   protected readonly trackBySubIssue = (_index: number, row: IssueRowResponse) => issueKey(row);
   protected readonly trackByPull = (_index: number, row: PullResponse) => issueKey(row);

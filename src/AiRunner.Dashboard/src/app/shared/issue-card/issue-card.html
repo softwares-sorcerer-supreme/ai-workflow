@@ -35,6 +35,8 @@
   <p class="waiting"><mat-icon aria-hidden="true">front_hand</mat-icon><span>{{ waiting.label }}</span></p>
 }
 
+<app-action-buttons compact [actions]="row.actions" [target]="actionTarget()" (after)="after.emit()" />
+
 @if (row.pulls.length > 0) {
   <div class="pulls">
     <span class="app-muted">PR</span>

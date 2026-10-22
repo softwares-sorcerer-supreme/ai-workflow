@@ -106,6 +106,13 @@ body {
   font: var(--mat-sys-title-medium);
 }
 
+// The spinner inside a write button while its request runs (UI.md, buttons that write).
+.app-busy {
+  display: inline-block;
+  margin-right: var(--app-space-2);
+  vertical-align: middle;
+}
+
 // Facts as label/value pairs (name, started, version...). Two columns, one column on phones.
 .app-facts {
   display: grid;

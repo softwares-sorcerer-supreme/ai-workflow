@@ -16,6 +16,7 @@ internal static partial class ConfigResolver
 {
     private static readonly IDeserializer Reader = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .WithTypeConverter(new ModelSetting.YamlConverter())
         .Build();
 
     /// <summary>Keys that moved: the hint says where they live now.</summary>
@@ -45,11 +46,15 @@ internal static partial class ConfigResolver
         }
     }
 
-    public static RunnerConfig Resolve(RunnerFile file)
+    /// <summary>
+    /// The config, and beside it the web password, which must stay out of it (<see cref="ConfigFile"/>).
+    /// </summary>
+    public static ConfigFile Resolve(RunnerFile file)
     {
+        var (codeHost, webPassword) = ResolveCodeHost(file);
         var config = new RunnerConfig
         {
-            GitBucket = new GitBucketConfig { BaseUrl = file.GitBucket.BaseUrl },
+            CodeHost = codeHost,
             PollIntervalSeconds = file.PollIntervalSeconds,
             RunnerName = file.RunnerName,
             Copilot = file.Copilot,
@@ -58,6 +63,8 @@ internal static partial class ConfigResolver
             Attachments = file.Attachments,
             Git = file.Git,
             Dashboard = file.Dashboard,
+            AllowedModels = [.. file.AllowedModels],
+            AgentModels = new Dictionary<string, string>(file.AgentModels),
         };
 
         foreach (var (name, projectFile) in file.Projects)
@@ -66,7 +73,7 @@ internal static partial class ConfigResolver
             config.Projects.Add(project);
         }
 
-        foreach (var legacy in file.Repos)
+        foreach (var legacy in file.Repos ?? [])
         {
             var project = BuildLegacyProject(legacy, file);
             config.Projects.Add(project);
@@ -74,7 +81,48 @@ internal static partial class ConfigResolver
 
         Validate(config);
 
-        return config;
+        return new ConfigFile(config, webPassword);
+    }
+
+    /// <summary>
+    /// The code_host block, or the old git_bucket block read as kind gitbucket, with its web password apart. With
+    /// neither, gitbucket with no URL: <see cref="RunnerConfig.LoadFile"/> asks for the URL, while a snippet in a
+    /// test still parses.
+    /// </summary>
+    private static (CodeHostConfig Config, string WebPassword) ResolveCodeHost(RunnerFile file)
+    {
+        if (file.CodeHost is not null && file.GitBucket is not null)
+        {
+            throw new InvalidOperationException(
+                "repos.yml has both 'code_host' and 'git_bucket'. Keep 'code_host' ('git_bucket' is its old name).");
+        }
+
+        if (file.GitBucket is { } oldBlock)
+        {
+            var oldConfig = new CodeHostConfig { Kind = CodeHostKinds.GitBucket, BaseUrl = oldBlock.BaseUrl };
+            return (oldConfig, oldBlock.WebPassword);
+        }
+
+        if (file.CodeHost is not { } block)
+        {
+            return (new CodeHostConfig(), "");
+        }
+
+        var kind = block.Kind?.Trim() ?? "";
+        var knownKinds = string.Join(", ", CodeHostKinds.All);
+        if (kind.Length == 0)
+        {
+            throw new InvalidOperationException($"code_host.kind is missing. Use: {knownKinds}");
+        }
+
+        if (!CodeHostKinds.All.Contains(kind, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException($"code_host.kind '{kind}' is unknown. Use: {knownKinds}");
+        }
+
+        var config = new CodeHostConfig { Kind = kind, BaseUrl = block.BaseUrl };
+
+        return (config, block.WebPassword);
     }
 
     private static ProjectConfig BuildProject(string name, ProjectFile file, SettingsFile defaults)
@@ -158,7 +206,8 @@ internal static partial class ConfigResolver
 
             foreach (var (workflow, model) in layer.Models ?? [])
             {
-                settings.Models[workflow] = model;
+                var earlier = settings.Models.GetValueOrDefault(workflow) ?? new ModelSetting();
+                settings.Models[workflow] = earlier.MergedWith(model);
             }
 
             var limits = layer.Limits;
@@ -212,6 +261,15 @@ internal static partial class ConfigResolver
             throw new InvalidOperationException($"dashboard.port {port} is not a port. Use 1 to 65535.");
         }
 
+        foreach (var (agent, model) in config.AgentModels)
+        {
+            if (!ModelSetting.IsAllowed(config.AllowedModels, model))
+            {
+                throw new InvalidOperationException(
+                    $"agent_models.{agent} names '{model}', which is not in allowed_models.");
+            }
+        }
+
         var projectNames = new HashSet<string>(StringComparer.Ordinal);
         var repoOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -224,7 +282,7 @@ internal static partial class ConfigResolver
             }
 
             ValidateName(project.Name, $"project '{project.Name}'");
-            ValidateSettings(project);
+            ValidateSettings(project, config.AllowedModels);
             ValidateComponents(project);
 
             foreach (var repo in project.Repos)
@@ -250,7 +308,7 @@ internal static partial class ConfigResolver
         }
     }
 
-    private static void ValidateSettings(ProjectConfig project)
+    private static void ValidateSettings(ProjectConfig project, IReadOnlyCollection<string> allowedModels)
     {
         var settings = project.Settings;
 
@@ -267,6 +325,23 @@ internal static partial class ConfigResolver
                 $"Project '{project.Name}': models.{unknownModel} is not a workflow that runs Copilot " +
                 "(the breakdown table comes from the analysis, so models.analyze picks its model). " +
                 $"Use: {string.Join(", ", Workflows.WithModel)}");
+        }
+
+        foreach (var (workflow, model) in settings.Models)
+        {
+            var canHaveFixRounds = workflow is Workflows.Implement or Workflows.Fix;
+            if (model.FixRounds is not null && !canHaveFixRounds)
+            {
+                throw new InvalidOperationException(
+                    $"Project '{project.Name}': models.{workflow}.fix_rounds only exists for " +
+                    $"{Workflows.Implement} and {Workflows.Fix} (the workflows that run Copilot again after round 1).");
+            }
+
+            foreach (var name in model.AllModels().Where(name => !ModelSetting.IsAllowed(allowedModels, name)))
+            {
+                throw new InvalidOperationException(
+                    $"Project '{project.Name}': models.{workflow} names '{name}', which is not in allowed_models.");
+            }
         }
 
         if (settings.Limits.MaxReviews < 1)

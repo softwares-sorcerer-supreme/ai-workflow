@@ -1,14 +1,25 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
-import { fixedClock, sampleIssue, samplePull } from '../testing';
+import { Api } from '../../api/api';
+import { runIssueAction } from '../../api/fn/issues/run-issue-action';
+import { FakeApi, fixedClock, sampleIssue, samplePull, settle } from '../testing';
 import { IssueCard } from './issue-card';
 
 describe('IssueCard', () => {
-  async function render(issue: IssueRowResponse) {
-    TestBed.configureTestingModule({ providers: [provideRouter([]), fixedClock] });
+  let api: FakeApi;
+  let fixture: ComponentFixture<IssueCard>;
 
-    const fixture = TestBed.createComponent(IssueCard);
+  beforeEach(() => {
+    api = new FakeApi();
+  });
+
+  async function render(issue: IssueRowResponse) {
+    TestBed.configureTestingModule({
+      providers: [provideRouter([]), fixedClock, { provide: Api, useValue: api }],
+    });
+
+    fixture = TestBed.createComponent(IssueCard);
     fixture.componentRef.setInput('issue', issue);
     await fixture.whenStable();
 
@@ -63,5 +74,30 @@ describe('IssueCard', () => {
     TestBed.resetTestingModule();
     const parent = await render(sampleIssue({ number: 12, progress: { closed: 1, total: 3 } }));
     expect(parent.querySelector('app-sub-issue-progress .text')?.textContent).toBe('1/3');
+  });
+
+  it('shows the actions of the issue and tells the screen to reload after one ran', async () => {
+    api.answer(runIssueAction, () => ({ message: 'Added ai-implement to #42.' }));
+    const element = await render(
+      sampleIssue({
+        actions: [
+          { code: 'implement', label: 'Implement', needsText: false },
+          { code: 'ask', label: 'Ask a question', needsText: true },
+        ],
+      }),
+    );
+    let afters = 0;
+    fixture.componentInstance.after.subscribe(() => afters++);
+
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('app-action-buttons button'));
+    expect(buttons.map((item) => item.textContent?.trim())).toEqual(['Implement', 'Ask a question']);
+
+    buttons[0].click();
+    await settle(fixture);
+
+    expect(api.callsOf(runIssueAction)).toEqual([
+      { owner: 'team', repo: 'shop', number: 42, code: 'implement', body: { text: null } },
+    ]);
+    expect(afters).toBe(1);
   });
 });

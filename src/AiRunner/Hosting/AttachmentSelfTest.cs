@@ -1,6 +1,7 @@
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -10,21 +11,24 @@ namespace AiRunner.Hosting;
 /// for attachments on your server.
 /// </summary>
 public sealed class AttachmentSelfTest(
-    RunnerConfig config,
-    IGitBucketClient gitBucketClient,
+    RunnerConfigSource configSource,
+    ICodeHost codeHost,
     ILogger<AttachmentSelfTest> logger)
 {
+    /// <summary>The live config, read per call: each call works with the projects as they are now.</summary>
+    private RunnerConfig Config => configSource.Current;
+
     public async Task RunAsync(string url, CancellationToken cancellationToken)
     {
-        var baseUrl = config.GitBucket.BaseUrl.TrimEnd('/');
+        var baseUrl = Config.CodeHost.BaseUrl.TrimEnd('/');
         var absoluteUrl = url.StartsWith('/') ? baseUrl + url : url;
         var directory = Directory.CreateTempSubdirectory("ai-runner-attachment-").FullName;
         logger.LogInformation("Downloading {Url} into {Directory}", absoluteUrl, directory);
 
-        var download = new AttachmentDownload(absoluteUrl, directory, "test", config.Attachments.MaxFileBytes);
+        var download = new AttachmentDownload(absoluteUrl, directory, "test", Config.Attachments.MaxFileBytes);
         try
         {
-            var downloaded = await gitBucketClient.DownloadAttachmentAsync(download, cancellationToken);
+            var downloaded = await codeHost.DownloadAttachmentAsync(download, cancellationToken);
             var size = AttachmentReport.Size(downloaded.Bytes);
             var extension = Path.GetExtension(downloaded.Path);
             var kind = AttachmentPolicy.Classify(extension, downloaded.ContentType);
@@ -37,7 +41,7 @@ public sealed class AttachmentSelfTest(
                 kind);
         }
         catch (Exception exception) when (
-            exception is AttachmentDownloadException or HttpRequestException or GitBucketException)
+            exception is AttachmentDownloadException or HttpRequestException or CodeHostException)
         {
             logger.LogError("FAILED: {Reason}", exception.Message);
         }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using AiRunner.Hosting;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
@@ -117,7 +118,7 @@ public sealed class FakeGit : IGitClient
     public Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<DiffStat>>(Staged);
 
-    public Task CommitAsync(string directory, string message, CancellationToken cancellationToken)
+    public Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken)
     {
         Commits.Add(message);
         return Task.CompletedTask;
@@ -208,6 +209,12 @@ public sealed class FakeGit : IGitClient
 
         return Task.CompletedTask;
     }
+
+    /// <summary>What HeadAsync answers for every clone; null = no usable clone.</summary>
+    public CloneHead? Head { get; set; }
+
+    public Task<CloneHead?> HeadAsync(string directory, CancellationToken cancellationToken) =>
+        Task.FromResult(Head);
 
     /// <summary>Returned in order; the last value repeats. Two different values = config changed.</summary>
     public Queue<string> Fingerprints { get; } = new();
@@ -307,14 +314,26 @@ public sealed class JobTestKit : IDisposable
     public const string BaseUrl = "http://gb.test";
 
     public RunnerConfig Config { get; }
-    public FakeGitBucket GitBucket { get; } = new();
+    public FakeCodeHost CodeHost { get; } = new();
     public FakeCopilot Copilot { get; } = new();
     public FakeGit Git { get; } = new();
     public FakeWorkspace Workspace { get; } = new();
     public FakeProcesses Processes { get; } = new();
     public SqliteStateStore State { get; }
     public RunnerIdentity Identity { get; } = new() { Login = "bot" };
+
+    /// <summary>The live secrets of the kit's poller and worker; a token by default, empty for setup mode.</summary>
+    public RunnerCredentials Credentials { get; init; } = RunnerCredentials.Of(token: "kit-token");
     public JobRun Run { get; }
+
+    /// <summary>The job id the kit's run writes its steps under.</summary>
+    public const long StepJobId = 900;
+
+    /// <summary>The steps the kit's run has written so far, in order.</summary>
+    public IReadOnlyList<JobStepRecord> Steps => State.ListSteps(StepJobId);
+
+    /// <summary>Closes the open step like the worker does at the end of a job.</summary>
+    public void EndRun(string outcome = JobSteps.Ok, string? detail = null) => Run.EndStep(outcome, detail);
 
     private readonly string _tempFolder = Directory.CreateTempSubdirectory("ai-runner-kit-").FullName;
 
@@ -333,7 +352,7 @@ public sealed class JobTestKit : IDisposable
 
         Config = new RunnerConfig
         {
-            GitBucket = new GitBucketConfig { BaseUrl = BaseUrl },
+            CodeHost = new CodeHostConfig { BaseUrl = BaseUrl },
             Projects = [Project],
         };
         Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
@@ -343,8 +362,16 @@ public sealed class JobTestKit : IDisposable
         var runFolder = Path.Combine(_tempFolder, "run");
         Directory.CreateDirectory(runFolder);
         Run = new JobRun(runFolder, NullLogger.Instance);
+        Run.StepTracker = new JobStepTracker(StepJobId, State, TimeProvider.System, NullLogger.Instance);
         Status = new RunnerStatus("test-runner", "repos.yml", Time);
+        Commands = new RunnerCommands();
     }
+
+    /// <summary>The dashboard's runtime controls, shared by the kit's worker and poller.</summary>
+    public RunnerCommands Commands { get; }
+
+    /// <summary>The project locks the worker releases when a job ends.</summary>
+    public WorkspaceLocks Locks { get; } = new();
 
     /// <summary>The in-memory health the poller and the worker write, on the kit's clock.</summary>
     public RunnerStatus Status { get; }
@@ -358,9 +385,9 @@ public sealed class JobTestKit : IDisposable
 
     public AgentSession Session => new(Config, Workspace, Git, Copilot, Processes);
 
-    public JobLoader Loader => new(Config, GitBucket, State, Identity);
+    public JobLoader Loader => new(Config, CodeHost, State, Identity);
 
-    public AttachmentFetcher Attachments => new(Config, GitBucket, Copilot);
+    public AttachmentFetcher Attachments => new(Config, CodeHost, Copilot);
 
     /// <summary>A request for an issue job (in the issues repo) or a PR job (in the first code repo).</summary>
     public JobRequest Request(JobType type, int number, string? payload = null)
@@ -371,7 +398,7 @@ public sealed class JobTestKit : IDisposable
         return new JobRequest(type, repo, number, payload);
     }
 
-    /// <summary>A worker and its queue over this kit's state and GitBucket, logging into a temp folder.</summary>
+    /// <summary>A worker and its queue over this kit's state and code host, logging into a temp folder.</summary>
     public (JobWorker Worker, JobQueue Queue, string LogsDir) CreateWorker(params IJob[] jobs) =>
         CreateWorker(State, jobs);
 
@@ -388,35 +415,101 @@ public sealed class JobTestKit : IDisposable
             Paths = new PathsConfig { Logs = logs },
             RunnerName = Config.RunnerName,
         };
-        var queue = new JobQueue(State, NullLogger<JobQueue>.Instance);
-        var worker = new JobWorker(
-            config,
-            queue,
-            new JobFactory(jobs),
-            new JobLog(config, NullLogger<JobLog>.Instance),
-            new CostLog(config, State, NullLogger<CostLog>.Instance),
-            workerState,
-            GitBucket,
-            new ClaimService(config, GitBucket, Time),
-            Status,
-            NullLogger<JobWorker>.Instance);
+        var configSource = RunnerConfigSource.Fixed(config);
+        var scopes = JobScopes(configSource, services =>
+        {
+            foreach (var job in jobs)
+            {
+                services.AddScoped(_ => job);
+            }
+        });
+        var (worker, queue) = NewWorker(configSource, scopes, workerState);
 
         return (worker, queue, logs);
     }
 
-    /// <summary>A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given.</summary>
-    public Poller NewPoller(JobQueue queue, ISnapshotStore? snapshotStore = null)
+    /// <summary>
+    /// A worker over this kit whose jobs run in <paramref name="scopes"/> (see <see cref="JobScopes"/>).
+    /// </summary>
+    public (JobWorker Worker, JobQueue Queue) NewWorker(
+        RunnerConfigSource configSource,
+        IServiceScopeFactory scopes,
+        IStateStore workerState)
     {
-        var recorder = new SnapshotRecorder(
-            GitBucket,
-            snapshotStore ?? State,
-            Config,
-            Time,
-            NullLogger<SnapshotRecorder>.Instance);
+        var queue = new JobQueue(State, NullLogger<JobQueue>.Instance);
+        var worker = new JobWorker(
+            scopes,
+            queue,
+            new JobLog(configSource, NullLogger<JobLog>.Instance),
+            new CostLog(configSource, State, NullLogger<CostLog>.Instance),
+            workerState,
+            State,
+            CodeHost,
+            Credentials,
+            Status,
+            Commands,
+            Locks,
+            NullLogger<JobWorker>.Instance);
 
+        return (worker, queue);
+    }
+
+    /// <summary>
+    /// The scopes a worker runs its jobs in, like <see cref="RunnerServices"/>: each scope's config comes from
+    /// <paramref name="configSource"/>, and <paramref name="addJobs"/> registers the jobs (scoped).
+    /// </summary>
+    public IServiceScopeFactory JobScopes(RunnerConfigSource configSource, Action<IServiceCollection> addJobs)
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => configSource.Current);
+        addJobs(services);
+        services.AddScoped<JobFactory>();
+        services.AddScoped(serviceProvider =>
+            new ClaimService(serviceProvider.GetRequiredService<RunnerConfig>(), CodeHost, Time));
+
+        return services
+            .BuildServiceProvider(RunnerServices.ProviderOptions)
+            .GetRequiredService<IServiceScopeFactory>();
+    }
+
+    /// <summary>
+    /// A poller over this kit, wired like Program.cs; the snapshot goes to the kit's state if none is given, the config
+    /// comes from the kit unless a live <paramref name="configSource"/> is given.
+    /// </summary>
+    public Poller NewPoller(
+        JobQueue queue,
+        ISnapshotStore? snapshotStore = null,
+        RunnerConfigSource? configSource = null)
+    {
+        var source = configSource ?? RunnerConfigSource.Fixed(Config);
+        var services = new ServiceCollection();
+        services.AddScoped(_ => source.Current);
+        services.AddScoped(serviceProvider =>
+            new JobLoader(serviceProvider.GetRequiredService<RunnerConfig>(), CodeHost, State, Identity));
+        services.AddScoped(serviceProvider => new SnapshotRecorder(
+            CodeHost,
+            snapshotStore ?? State,
+            serviceProvider.GetRequiredService<RunnerConfig>(),
+            Time,
+            NullLogger<SnapshotRecorder>.Instance));
+        var scopes = services
+            .BuildServiceProvider(RunnerServices.ProviderOptions)
+            .GetRequiredService<IServiceScopeFactory>();
+        var copilotHome = new CopilotHome(Path.Combine(_tempFolder, "copilot-home"));
         var logger = NullLogger<Poller>.Instance;
 
-        return new Poller(Config, GitBucket, Loader, State, queue, Identity, Status, recorder, logger);
+        return new Poller(
+            source,
+            scopes,
+            CodeHost,
+            State,
+            queue,
+            Identity,
+            Credentials,
+            Status,
+            Commands,
+            new AgentFiles(source, copilotHome, Processes),
+            logger);
     }
 
     /// <summary>The clock of the claims and the snapshot; a test moves it to age a claim.</summary>

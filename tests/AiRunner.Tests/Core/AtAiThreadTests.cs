@@ -2,9 +2,9 @@ namespace AiRunner.Tests.Core;
 
 public class AtAiThreadTests
 {
-    private static GbComment Human(long id, string body = "Q1: yes @ai") => Samples.Human(id, body);
+    private static HostComment Human(long id, string body = "Q1: yes @ai") => Samples.Human(id, body);
 
-    private static GbComment Reply(long id, long readUpTo, string marker = Markers.Analysis)
+    private static HostComment Reply(long id, long readUpTo, string marker = Markers.Analysis)
     {
         var replyBody = AtAiThread.ReplyBody("x", marker, readUpTo);
         return Samples.Bot(id, replyBody);

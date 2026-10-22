@@ -1,5 +1,5 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { CountResponse } from '../../api/models/count-response';
 import { IssueRowResponse } from '../../api/models/issue-row-response';
 import { IssueCard } from '../../shared/issue-card/issue-card';
@@ -28,7 +28,7 @@ export interface BoardLane extends CountResponse {
         </h3>
         <ul class="cards">
           @for (issue of lane.issues; track issueKey(issue)) {
-            <li><app-issue-card [issue]="issue" /></li>
+            <li><app-issue-card [issue]="issue" (after)="after.emit()" /></li>
           } @empty {
             <li class="nothing app-muted">Nothing here</li>
           }
@@ -40,6 +40,8 @@ export interface BoardLane extends CountResponse {
 })
 export class IssueBoard {
   readonly lanes = input.required<readonly BoardLane[]>();
+  /** After an action of a card was answered: the screen reloads the issues. */
+  readonly after = output<void>();
 
   protected readonly laneTone = laneTone;
   protected readonly issueKey = issueKey;

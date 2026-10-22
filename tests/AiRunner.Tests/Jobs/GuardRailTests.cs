@@ -11,14 +11,14 @@ public sealed class ImplementGuardRailTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private ImplementIssueJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
+        new(_kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.Attachments);
 
     public ImplementGuardRailTests()
     {
         _kit.Component.Commands.Setup = "npm ci";
-        _kit.GitBucket.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai", Labels.Ready, Labels.Simple, Labels.Implement);
         var specComment = Markers.Wrap(Samples.Spec, Markers.Spec);
-        _kit.GitBucket.AddBotComment(12, specComment);
+        _kit.CodeHost.AddBotComment(12, specComment);
     }
 
     public void Dispose() => _kit.Dispose();
@@ -43,7 +43,7 @@ public sealed class ImplementGuardRailTests : IDisposable
 
         Assert.Contains("npm ci", exception.Message);
         Assert.Empty(_kit.Copilot.Requests);
-        Assert.DoesNotContain(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Implementing, _kit.CodeHost.LabelsOf(12));
     }
 
     [Fact]
@@ -79,21 +79,21 @@ public sealed class ImplementGuardRailTests : IDisposable
     [Fact]
     public async Task Open_pr_from_an_earlier_run_is_not_started_again()
     {
-        _kit.GitBucket.AddPull(40, "ai/issue-12", "main");
+        _kit.CodeHost.AddPull(40, "ai/issue-12", "main");
 
         var jobRequest = _kit.Request(JobType.ImplementIssue, 12);
         var outcome = await Job.RunAsync(jobRequest, _kit.Run, default);
 
         Assert.Equal("already-open", outcome.Result);
         Assert.Empty(_kit.Copilot.Requests);
-        Assert.DoesNotContain(Labels.Implement, _kit.GitBucket.LabelsOf(12));
-        Assert.Contains(Labels.Implementing, _kit.GitBucket.LabelsOf(12));
+        Assert.DoesNotContain(Labels.Implement, _kit.CodeHost.LabelsOf(12));
+        Assert.Contains(Labels.Implementing, _kit.CodeHost.LabelsOf(12));
     }
 
     [Fact]
     public async Task Parent_line_in_a_normal_issue_does_not_make_it_a_sub_issue()
     {
-        _kit.GitBucket.Issues[12] = _kit.GitBucket.Issues[12] with
+        _kit.CodeHost.Issues[12] = _kit.CodeHost.Issues[12] with
         {
             Body = "Parent: #3\nsee there"
         };
@@ -109,14 +109,22 @@ public sealed class ReviewGuardRailTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private ReviewPullRequestJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Attachments);
+        new(
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Copilot,
+            _kit.State,
+            _kit.Attachments);
 
     public void Dispose() => _kit.Dispose();
 
     [Fact]
     public async Task No_changed_files_means_no_copilot_run()
     {
-        _kit.GitBucket.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
+        _kit.CodeHost.AddPull(30, "feature", "main", sha: "sha1", labels: "ai");
         _kit.Git.ChangedFiles = [];
 
         var jobRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha1");
@@ -132,8 +140,8 @@ public sealed class ReviewGuardRailTests : IDisposable
         var task = new SubTask(1, "demo", "Entity", "Add the Export entity", "Domain", [], false);
         var draft = new SubIssueDraft(12, task, 2, "entity Export");
         var subIssueBody = SubIssueBody.Build(draft);
-        _kit.GitBucket.AddIssue(20, "#12.1 Entity", subIssueBody, "ai", Labels.SubIssue);
-        _kit.GitBucket.AddPull(
+        _kit.CodeHost.AddIssue(20, "#12.1 Entity", subIssueBody, "ai", Labels.SubIssue);
+        _kit.CodeHost.AddPull(
             31,
             "ai/issue-12-1",
             "feat/issue-12",

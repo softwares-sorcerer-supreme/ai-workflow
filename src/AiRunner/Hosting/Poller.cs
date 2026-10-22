@@ -2,6 +2,7 @@ using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Jobs;
+using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Hosting;
 
@@ -16,16 +17,20 @@ namespace AiRunner.Hosting;
 /// to report it (e.g. VPN down), the next poll plans it again instead of losing the request.
 /// What it lists also goes to the dashboard's snapshot (<see cref="SnapshotRecorder"/>), which never
 /// changes a decision; open PRs are listed for it even when review and fix are off.
+/// Each poll first applies a changed repos.yml (<see cref="RunnerConfigSource.ReloadIfChanged"/>), then works in its
+/// own DI scope, so the whole poll sees one config.
 /// </summary>
 public sealed class Poller(
-    RunnerConfig config,
-    IGitBucketClient gitBucketClient,
-    JobLoader jobLoader,
+    RunnerConfigSource configSource,
+    IServiceScopeFactory scopes,
+    ICodeHost codeHost,
     IStateStore stateStore,
     JobQueue queue,
     RunnerIdentity identity,
+    RunnerCredentials credentials,
     RunnerStatus status,
-    SnapshotRecorder snapshot,
+    RunnerCommands commands,
+    AgentFiles agentFiles,
     ILogger<Poller> logger) : BackgroundService
 {
     private int _pollCount;
@@ -38,19 +43,60 @@ public sealed class Poller(
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var pollInterval = TimeSpan.FromSeconds(config.PollIntervalSeconds);
+        var pollInterval = TimeSpan.FromSeconds(configSource.Current.PollIntervalSeconds);
         using var timer = new PeriodicTimer(pollInterval);
 
-        do
+        // The wait that lost is kept for the next round: PeriodicTimer allows one wait in flight, and a second read
+        // of the wake channel would swallow the next wake. A wake during a poll completes the kept wait, so it gives
+        // exactly one more poll after it.
+        Task<bool>? tick = null;
+        Task? wake = null;
+        while (true)
         {
+            // Setup mode: no code-host call until the Setup page saves a token (or after it removed the last one).
+            await credentials.WaitForTokenAsync(cancellationToken);
             await PollOnceAsync(cancellationToken);
+
+            // poll_interval_seconds is live: the next wait already uses a changed value.
+            var currentInterval = TimeSpan.FromSeconds(configSource.Current.PollIntervalSeconds);
+            if (timer.Period != currentInterval)
+            {
+                timer.Period = currentInterval;
+            }
+
+            tick ??= timer.WaitForNextTickAsync(cancellationToken).AsTask();
+            wake ??= commands.WaitForWakeAsync(cancellationToken);
+            var completed = await Task.WhenAny(tick, wake);
+
+            // Rethrows a shutdown.
+            await completed;
+
+            if (completed == tick)
+            {
+                tick = null;
+            }
+            else
+            {
+                wake = null;
+            }
         }
-        while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
         status.PollStarted();
+
+        // A hand edit is applied here; a broken one keeps the working config and shows on the dashboard.
+        var reload = configSource.ReloadIfChanged();
+        logger.LogReload(reload);
+
+        // The first resolution pins the scope's config: every project, list and plan of this poll uses it.
+        using var scope = scopes.CreateScope();
+        var services = scope.ServiceProvider;
+        var config = services.GetRequiredService<RunnerConfig>();
+        var jobLoader = services.GetRequiredService<JobLoader>();
+        var snapshot = services.GetRequiredService<SnapshotRecorder>();
+        var tools = new PollTools(jobLoader, snapshot);
 
         _pollCount++;
         if (SnapshotRecorder.IsRefreshDue(_pollCount))
@@ -62,12 +108,12 @@ public sealed class Poller(
         {
             // The first error of this poll is what the dashboard shows for the project.
             string? failure = null;
-            IReadOnlyList<GbIssue> openIssues = [];
-            var openPulls = new Dictionary<string, IReadOnlyList<GbPull>>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<HostIssue> openIssues = [];
+            var openPulls = new Dictionary<string, IReadOnlyList<HostPull>>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                openIssues = await PollIssuesAsync(project, cancellationToken);
+                openIssues = await PollIssuesAsync(project, tools, cancellationToken);
             }
             // An HTTP timeout is also an OperationCanceledException, so only a real shutdown is rethrown.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -80,7 +126,8 @@ public sealed class Poller(
             {
                 try
                 {
-                    openPulls[repo] = await PollPullsAsync(new PullLocation(project, repo), cancellationToken);
+                    var location = new PullLocation(project, repo);
+                    openPulls[repo] = await PollPullsAsync(location, tools, cancellationToken);
                 }
                 catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -111,6 +158,7 @@ public sealed class Poller(
             }
         }
 
+        RecordAgentDrift();
         status.PollEnded();
 
         if (DryRun)
@@ -120,20 +168,23 @@ public sealed class Poller(
     }
 
     /// <summary>Plans every open issue in scope; returns them for the snapshot.</summary>
-    private async Task<IReadOnlyList<GbIssue>> PollIssuesAsync(
+    private async Task<IReadOnlyList<HostIssue>> PollIssuesAsync(
         ProjectConfig project,
+        PollTools tools,
         CancellationToken cancellationToken)
     {
+        var snapshot = tools.Snapshot;
+
         // All issues of a project live in its issues repo; issues anywhere else are ignored.
         var repo = project.IssuesRepo;
 
         // Scope guard: only issues with the trigger label or assigned to the runner's user.
-        var labelled = await gitBucketClient.ListOpenIssuesAsync(
+        var labelled = await codeHost.ListOpenIssuesAsync(
             repo,
             project.Settings.TriggerLabel,
             null,
             cancellationToken);
-        var assignedToRunner = await gitBucketClient.ListOpenIssuesAsync(
+        var assignedToRunner = await codeHost.ListOpenIssuesAsync(
             repo,
             null,
             identity.Login,
@@ -168,7 +219,7 @@ public sealed class Poller(
             var decision = JobPlanner.PlanIssue(planInput);
             if (decision.NeedsComments && isChanged)
             {
-                var comments = await gitBucketClient.ListCommentsAsync(repo, issue.Number, cancellationToken);
+                var comments = await codeHost.ListCommentsAsync(repo, issue.Number, cancellationToken);
                 var lastHandledComment = stateStore.GetLastHandledComment(repo, issue.Number);
                 var planInputWithComments = planInput with
                 {
@@ -190,8 +241,12 @@ public sealed class Poller(
     }
 
     /// <summary>Plans the open PRs of one repo when review or fix is on; returns them for the snapshot.</summary>
-    private async Task<IReadOnlyList<GbPull>> PollPullsAsync(PullLocation location, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<HostPull>> PollPullsAsync(
+        PullLocation location,
+        PollTools tools,
+        CancellationToken cancellationToken)
     {
+        var (jobLoader, snapshot) = tools;
         var (project, repo) = location;
         var settings = project.Settings;
         var isPlanned = settings.IsEnabled(Workflows.Review) || settings.IsEnabled(Workflows.Fix);
@@ -202,7 +257,7 @@ public sealed class Poller(
             return [];
         }
 
-        var pulls = await gitBucketClient.ListPullsAsync(repo, "open", cancellationToken);
+        var pulls = await codeHost.ListPullsAsync(repo, "open", cancellationToken);
 
         if (!DryRun)
         {
@@ -227,6 +282,23 @@ public sealed class Poller(
         return pulls;
     }
 
+    /// <summary>
+    /// Compares ~/.copilot/ with agents/ and skills/ for the health strip, so a git pull of this repo while the runner
+    /// runs is noticed. Local file reads only; a read error is a warning, never a failed poll.
+    /// </summary>
+    private void RecordAgentDrift()
+    {
+        try
+        {
+            var drift = agentFiles.CheckDrift();
+            status.AgentDriftChecked(drift.IsOutOfSync);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Could not compare the agents with ~/.copilot: {Error}", exception.Message);
+        }
+    }
+
     private void Handle(PlanDecision decision, string what)
     {
         if (DryRun)
@@ -246,4 +318,7 @@ public sealed class Poller(
 
         logger.Log(level, "  {What} -> {Decision}{Queued}", what, decision, added ? " queued" : " already queued");
     }
+
+    /// <summary>The scoped services of one poll (they read the poll's config).</summary>
+    private sealed record PollTools(JobLoader JobLoader, SnapshotRecorder Snapshot);
 }

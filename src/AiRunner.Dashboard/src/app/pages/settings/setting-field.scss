@@ -1,0 +1,90 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-1) var(--app-space-2);
+  margin-bottom: var(--app-space-1);
+}
+
+.key {
+  font: var(--mat-sys-label-large);
+  font-family: var(--app-font-mono);
+}
+
+.control {
+  width: 100%;
+  max-width: 480px;
+}
+
+.control.number {
+  max-width: 200px;
+}
+
+.secret {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+  font: var(--mat-sys-body-medium);
+
+  a {
+    color: var(--mat-sys-primary);
+  }
+}
+
+.help,
+.note,
+.small {
+  margin: var(--app-space-1) 0 0;
+  font: var(--mat-sys-body-small);
+}
+
+.note {
+  color: var(--mat-sys-on-surface);
+}
+
+// The key/value editor: name and value side by side, one above the other on phones.
+.map {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  max-width: 480px;
+}
+
+.map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--app-space-2);
+  width: 100%;
+}
+
+@media (max-width: 599.98px) {
+  .map-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .map-value {
+    grid-row: 2;
+  }
+}
+
+.map-empty {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+}
+
+.raw {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.reset {
+  margin-top: var(--app-space-1);
+}

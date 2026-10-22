@@ -15,7 +15,13 @@ public static class FileSystem
 
         try
         {
-            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            // Links are skipped: a junction inside the folder must not lead this loop to files outside it.
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
+            foreach (var file in Directory.EnumerateFiles(directory, "*", options))
             {
                 File.SetAttributes(file, FileAttributes.Normal);
             }
@@ -28,6 +34,12 @@ public static class FileSystem
             return false;
         }
     }
+
+    /// <summary>
+    /// True when the folder is a link (symlink or junction), which must never be walked or deleted through.
+    /// </summary>
+    public static bool IsLink(string directory) =>
+        new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint);
 
     /// <summary>
     /// Clears the read-only attribute of every folder and file under a clone, except its .git folder, so that
@@ -69,6 +81,22 @@ public static class FileSystem
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // Left behind; the next job's git clean removes it.
+        }
+    }
+
+    /// <summary>A temp file beside the target, then one move over it: readers see the old file or the new.</summary>
+    public static void ReplaceFile(string path, string text)
+    {
+        var folder = Path.GetDirectoryName(path)!;
+        var tempFile = Path.Combine(folder, $"{Path.GetFileName(path)}.tmp-{Guid.NewGuid():N}");
+        try
+        {
+            File.WriteAllText(tempFile, text);
+            File.Move(tempFile, path, overwrite: true);
+        }
+        finally
+        {
+            DeleteFile(tempFile);
         }
     }
 }

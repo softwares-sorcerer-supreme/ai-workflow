@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { Tone, healthTone, workerIcon } from '../../shared/tone';
 import { AppTime } from '../../shared/time/time';
 import { HealthStore } from '../health-store';
+import { AGENTS_PATH, SETTINGS_PATH, SETUP_PATH } from '../nav-items';
 
 /**
  * The line under the toolbar on every screen: is the runner working? State, last poll, worker, poll errors. When
@@ -40,6 +41,9 @@ export class HealthStrip {
   });
 
   protected readonly workerIcon = workerIcon;
+  protected readonly setupPath = SETUP_PATH;
+  protected readonly agentsPath = AGENTS_PATH;
+  protected readonly settingsPath = SETTINGS_PATH;
 
   protected readonly errorsText = computed(() =>
     (this.health()?.errors ?? []).map((error) => `${error.project}: ${error.message}`).join('\n'),

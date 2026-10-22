@@ -4,6 +4,33 @@ using AiRunner.Hosting;
 
 namespace AiRunner.Web;
 
+/// <summary>
+/// Builds the health from the runner's status, the pause, which <see cref="RunnerCommands"/> owns (the worker
+/// obeys it there; the status only reports), and setup mode, which <see cref="IRunnerSetup"/> owns.
+/// </summary>
+public sealed class HealthReader(
+    RunnerStatus status,
+    RunnerCommands commands,
+    IRunnerSetup setup,
+    RunnerConfigSource configSource,
+    RunnerConfig config,
+    TimeProvider time)
+{
+    public HealthResponse Read()
+    {
+        var isSetupNeeded = setup.IsSetupNeeded;
+        var snapshot = status.Snapshot() with
+        {
+            IsPaused = commands.IsPaused,
+            IsSetupNeeded = isSetupNeeded,
+            ConfigError = configSource.State.Error,
+        };
+        var now = time.GetUtcNow();
+
+        return HealthResponse.From(snapshot, config, now);
+    }
+}
+
 /// <summary>The worker: <c>idle</c> or <c>busy</c> (the running job itself is shown from the overview).</summary>
 public sealed record WorkerHealth(string State, string StateLabel, DateTimeOffset? Since);
 
@@ -12,7 +39,11 @@ public sealed record PollErrorResponse(string Project, string Message, DateTimeO
 
 /// <summary>
 /// <c>GET /api/health</c>: is the runner working? Every state comes as a stable code (for styling) plus the text to
-/// show, so the UI never decides what "healthy" means. Times are UTC.
+/// show, so the UI never decides what "healthy" means. <c>IsPaused</c> drives the Pause / Resume button;
+/// <c>IsSetupNeeded</c> shows the setup banner on every screen; <c>HasAgentDrift</c> says ~/.copilot/ differs from
+/// agents/ and skills/ (the label is for the health strip, a flag and not a state: the runner still works).
+/// <c>ConfigError</c> says why repos.yml on disk is not applied (the runner keeps the config it has), with
+/// <c>ConfigErrorLabel</c> for the strip. Times are UTC.
 /// </summary>
 public sealed record HealthResponse(
     string State,
@@ -25,10 +56,18 @@ public sealed record HealthResponse(
     DateTimeOffset? LastPollStartedAt,
     DateTimeOffset? LastPollEndedAt,
     bool IsPolling,
+    bool IsPaused,
+    bool IsSetupNeeded,
+    bool HasAgentDrift,
+    string? AgentDriftLabel,
+    string? ConfigError,
+    string? ConfigErrorLabel,
     WorkerHealth Worker,
     string ErrorsLabel,
     IReadOnlyList<PollErrorResponse> Errors)
 {
+    private const string AgentDriftText = "Agents out of sync";
+    private const string ConfigErrorText = "repos.yml has errors";
     private const string WorkerIdle = "idle";
     private const string WorkerBusy = "busy";
 
@@ -41,7 +80,9 @@ public sealed record HealthResponse(
             status.LastPollEndedAt,
             pollInterval,
             status.Errors.Count,
-            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null);
+            PollRunningSince: status.IsPolling ? status.LastPollStartedAt : null,
+            IsPaused: status.IsPaused,
+            IsSetupNeeded: status.IsSetupNeeded);
         var health = RunnerHealth.Assess(input);
 
         var worker = status.WorkerBusySince is { } busySince
@@ -63,6 +104,12 @@ public sealed record HealthResponse(
             status.LastPollStartedAt,
             status.LastPollEndedAt,
             status.IsPolling,
+            status.IsPaused,
+            status.IsSetupNeeded,
+            status.HasAgentDrift,
+            status.HasAgentDrift ? AgentDriftText : null,
+            status.ConfigError,
+            status.ConfigError is null ? null : ConfigErrorText,
             worker,
             ErrorsLabelOf(errors.Count),
             errors);

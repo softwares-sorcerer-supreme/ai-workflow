@@ -8,7 +8,7 @@
     <mat-icon aria-hidden="true">smart_toy</mat-icon>
     <span>ai-runner</span>
   </a>
-  <span class="tagline app-muted">dashboard - read only</span>
+  <span class="tagline app-muted">dashboard - local</span>
 </mat-toolbar>
 
 <app-health-strip />
@@ -40,6 +40,7 @@
 
   <mat-sidenav-content>
     <main class="content">
+      <app-setup-banner />
       <router-outlet />
     </main>
   </mat-sidenav-content>

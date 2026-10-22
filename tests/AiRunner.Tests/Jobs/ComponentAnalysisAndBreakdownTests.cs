@@ -20,10 +20,10 @@ public sealed class ComponentAnalysisAndBreakdownTests
         };
 
     private static AnalyzeIssueJob AnalyzeJob(JobTestKit kit) =>
-        new(kit.Config, kit.GitBucket, kit.Loader, kit.Workspace, kit.Copilot, kit.State, kit.Attachments);
+        new(kit.Config, kit.CodeHost, kit.Loader, kit.Workspace, kit.Copilot, kit.State, kit.Attachments);
 
     private static BreakdownIssueJob BreakdownJob(JobTestKit kit) =>
-        new(kit.GitBucket, kit.Loader, kit.Workspace, kit.Git);
+        new(kit.CodeHost, kit.Loader, kit.Workspace, kit.Git);
 
     private static string[] CodeNames(ProjectConfig project) =>
         project.CodeComponents.Select(component => component.Name).ToArray();
@@ -37,10 +37,10 @@ public sealed class ComponentAnalysisAndBreakdownTests
 
     private static void PrepareParent(JobTestKit kit, string table)
     {
-        kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
+        kit.CodeHost.AddIssue(12, "Export", null, "ai", Labels.Ready, Labels.Complex, Labels.Breakdown);
         var analysis = Samples.Analysis("ready", "complex", table, components: "all");
         var analysisComment = Markers.Wrap(analysis, Markers.Analysis);
-        kit.GitBucket.AddBotComment(12, analysisComment);
+        kit.CodeHost.AddBotComment(12, analysisComment);
     }
 
     // ---- analysis ----
@@ -50,7 +50,7 @@ public sealed class ComponentAnalysisAndBreakdownTests
     public async Task A_complex_analysis_over_all_components_with_a_spec_per_component_is_posted(string layout)
     {
         using var kit = new JobTestKit(project: Layout(layout));
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
         var names = CodeNames(kit.Project);
         var table = Samples.Breakdown(names[0], names[1], names[0]);
         var analysis = Samples.Analysis("ready", "complex", table, components: "all");
@@ -59,8 +59,8 @@ public sealed class ComponentAnalysisAndBreakdownTests
         var outcome = await AnalyzeJob(kit).RunAsync(kit.Request(JobType.AnalyzeIssue, 7), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.Equal(2, kit.GitBucket.CommentsOf(7).Count);
-        Assert.Contains(Labels.Complex, kit.GitBucket.LabelsOf(7));
+        Assert.Equal(2, kit.CodeHost.CommentsOf(7).Count);
+        Assert.Contains(Labels.Complex, kit.CodeHost.LabelsOf(7));
     }
 
     [Theory]
@@ -69,14 +69,14 @@ public sealed class ComponentAnalysisAndBreakdownTests
     {
         using var kit = new JobTestKit(project: Layout(layout));
         var first = CodeNames(kit.Project)[0];
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
         var analysis = Samples.Analysis("ready", "simple", components: first);
         kit.Copilot.StdOut = Samples.AgentOutput(analysis, Samples.SpecFor(first));
 
         var outcome = await AnalyzeJob(kit).RunAsync(kit.Request(JobType.AnalyzeIssue, 7), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.Contains(Labels.Simple, kit.GitBucket.LabelsOf(7));
+        Assert.Contains(Labels.Simple, kit.CodeHost.LabelsOf(7));
     }
 
     [Theory]
@@ -92,7 +92,7 @@ public sealed class ComponentAnalysisAndBreakdownTests
             Samples.Analysis("ready", "complex", components: "issues"),     // no code component of that name
             Samples.Analysis("ready", "complex", components: "unknown"),    // ready needs names
         ];
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
 
         foreach (var analysis in badAnalyses)
         {
@@ -104,8 +104,8 @@ public sealed class ComponentAnalysisAndBreakdownTests
             Assert.Contains("The analysis has the wrong format", exception.Message);
         }
 
-        Assert.Empty(kit.GitBucket.CommentsOf(7));
-        Assert.Equal(["ai"], kit.GitBucket.LabelsOf(7));
+        Assert.Empty(kit.CodeHost.CommentsOf(7));
+        Assert.Equal(["ai"], kit.CodeHost.LabelsOf(7));
     }
 
     [Theory]
@@ -114,7 +114,7 @@ public sealed class ComponentAnalysisAndBreakdownTests
     {
         using var kit = new JobTestKit(project: Layout(layout));
         var first = CodeNames(kit.Project)[0];
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
         var analysis = Samples.Analysis("ready", "simple", components: first);
         kit.Copilot.StdOut = Samples.AgentOutput(analysis, Samples.SpecFor("shop"));
 
@@ -122,7 +122,7 @@ public sealed class ComponentAnalysisAndBreakdownTests
             () => AnalyzeJob(kit).RunAsync(kit.Request(JobType.AnalyzeIssue, 7), kit.Run, default));
 
         Assert.Contains("The SPEC has the wrong format", exception.Message);
-        Assert.Empty(kit.GitBucket.CommentsOf(7));
+        Assert.Empty(kit.CodeHost.CommentsOf(7));
     }
 
     [Theory]
@@ -130,13 +130,13 @@ public sealed class ComponentAnalysisAndBreakdownTests
     public async Task Questions_open_may_leave_the_components_unknown(string layout)
     {
         using var kit = new JobTestKit(project: Layout(layout));
-        kit.GitBucket.AddIssue(7, "Export", "body", "ai");
+        kit.CodeHost.AddIssue(7, "Export", "body", "ai");
         kit.Copilot.StdOut = Samples.AgentOutput(Samples.Analysis("questions-open", "simple"));
 
         var outcome = await AnalyzeJob(kit).RunAsync(kit.Request(JobType.AnalyzeIssue, 7), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.Contains(Labels.QuestionsOpen, kit.GitBucket.LabelsOf(7));
+        Assert.Contains(Labels.QuestionsOpen, kit.CodeHost.LabelsOf(7));
     }
 
     // ---- breakdown ----
@@ -153,9 +153,9 @@ public sealed class ComponentAnalysisAndBreakdownTests
         var outcome = await BreakdownJob(kit).RunAsync(kit.Request(JobType.BreakdownIssue, 12), kit.Run, default);
 
         Assert.Equal("ok", outcome.Result);
-        Assert.Equal([project.IssuesRepo], kit.GitBucket.ReposOf("create-issue"));
+        Assert.Equal([project.IssuesRepo], kit.CodeHost.ReposOf("create-issue"));
 
-        var subIssues = kit.GitBucket.Issues.Values
+        var subIssues = kit.CodeHost.Issues.Values
             .Where(issue => issue.HasLabel(Labels.SubIssue))
             .OrderBy(issue => issue.Number)
             .ToList();
@@ -195,12 +195,12 @@ public sealed class ComponentAnalysisAndBreakdownTests
 
         await BreakdownJob(kit).RunAsync(kit.Request(JobType.BreakdownIssue, 12), kit.Run, default);
 
-        var comment = kit.GitBucket.CommentsOf(12).Last().Body!;
+        var comment = kit.CodeHost.CommentsOf(12).Last().Body!;
         Assert.Contains($"Export entity [{names[0]}]", comment);
         Assert.Contains($"Export command [{names[1]}]", comment);
         Assert.Contains($"Export API [{names[0]}] (a developer builds this one)", comment);
-        Assert.Equal(3, SubIssueBody.FindList(kit.GitBucket.CommentsOf(12))!.Count);
-        Assert.Contains(Labels.Parent, kit.GitBucket.LabelsOf(12));
+        Assert.Equal(3, SubIssueBody.FindList(kit.CodeHost.CommentsOf(12))!.Count);
+        Assert.Contains(Labels.Parent, kit.CodeHost.LabelsOf(12));
     }
 
     [Theory]
@@ -215,9 +215,9 @@ public sealed class ComponentAnalysisAndBreakdownTests
         var outcome = await BreakdownJob(kit).RunAsync(kit.Request(JobType.BreakdownIssue, 12), kit.Run, default);
 
         Assert.Equal("rejected", outcome.Result);
-        Assert.Contains("row 2", kit.GitBucket.CommentsOf(12).Last().Body);
-        Assert.DoesNotContain(Labels.Breakdown, kit.GitBucket.LabelsOf(12));
-        Assert.Empty(kit.GitBucket.ReposOf("create-issue"));
+        Assert.Contains("row 2", kit.CodeHost.CommentsOf(12).Last().Body);
+        Assert.DoesNotContain(Labels.Breakdown, kit.CodeHost.LabelsOf(12));
+        Assert.Empty(kit.CodeHost.ReposOf("create-issue"));
         Assert.Empty(kit.Git.PushLog);
     }
 
@@ -244,7 +244,7 @@ public sealed class ComponentAnalysisAndBreakdownTests
 
         Assert.Equal("ok", outcome.Result);
         Assert.Empty(kit.Git.PushLog);
-        Assert.Equal(3, kit.GitBucket.Issues.Values.Count(issue => issue.HasLabel(Labels.SubIssue)));
+        Assert.Equal(3, kit.CodeHost.Issues.Values.Count(issue => issue.HasLabel(Labels.SubIssue)));
     }
 
     [Fact]

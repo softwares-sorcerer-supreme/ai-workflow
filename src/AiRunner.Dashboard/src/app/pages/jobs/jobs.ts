@@ -12,6 +12,7 @@ import { pollResource } from '../../shared/poll-resource';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { DurationPipe } from '../../shared/time/duration.pipe';
 import { AppTime } from '../../shared/time/time';
+import { jobModelText } from '../../shared/model-text';
 import { jobStatusTone } from '../../shared/tone';
 import { JOB_STATUS_OPTIONS, JOB_TYPE_OPTIONS } from './job-filters';
 
@@ -61,10 +62,12 @@ export class Jobs {
     { key: 'duration', header: 'Duration', align: 'end', width: '110px', hideBelow: 'sm' },
     // No cell template: the table shows the number, or "-" for an old row or a failed job (null).
     { key: 'copilotCalls', header: 'Calls', align: 'end', width: '70px', hideBelow: 'sm' },
+    { key: 'model', header: 'Model', width: '220px', hideBelow: 'md' },
     { key: 'result', header: 'Result', hideBelow: 'md' },
   ];
 
   protected readonly statusTone = jobStatusTone;
+  protected readonly modelText = jobModelText;
   protected readonly trackById = (_index: number, row: JobResponse) => row.id;
 
   protected setStatus(code: string): void {

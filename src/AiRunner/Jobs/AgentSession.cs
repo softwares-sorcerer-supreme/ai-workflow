@@ -23,6 +23,11 @@ public sealed record AgentTask(
 {
     /// <summary>Files for the --attachment flag; only round 1 gets them, later rounds can open them from disk.</summary>
     public IReadOnlyList<string> Attachments { get; init; } = [];
+
+    /// <summary>
+    /// The issue's model override and complexity (see <see cref="ModelLookup"/>); none = project settings only.
+    /// </summary>
+    public ModelContext ModelContext { get; init; } = ModelContext.None;
 }
 
 /// <summary>
@@ -126,6 +131,11 @@ public sealed class AgentSession(
             }
 
             setupNumber++;
+            if (setupNumber == 1)
+            {
+                run.Step(JobSteps.Prepare, "Setup commands");
+            }
+
             var setupCommand = componentCommands.Setup.Trim();
             var setupLog = setupNumber == 1 ? "setup.txt" : $"setup-{setupNumber}.txt";
             var setup = await RunCommandAsync(setupCommand, folder, setupLog);
@@ -190,7 +200,10 @@ public sealed class AgentSession(
         }
 
         // Returns the failure instead of throwing: round 1 is the job's call, a failed fix round still ends well.
-        var model = settings.ModelFor(task.Workflow);
+        var modelSetting = settings.ModelSettingFor(task.Workflow);
+        var firstChoice = task.ModelContext.Choose(modelSetting, isFixRound: false);
+        var laterChoice = task.ModelContext.Choose(modelSetting, isFixRound: true);
+        run.RecordModel(firstChoice);
         var allowTools = context.Writable
             .SelectMany(component => AllowTools(component.Commands))
             .Distinct()
@@ -199,11 +212,13 @@ public sealed class AgentSession(
         async Task<JobFailedException?> RunAgentAsync(string prompt, int round)
         {
             run.ReportRound(round);
+            run.Step(JobSteps.Copilot, $"Copilot round {round}");
 
             JobFailedException? failure = null;
             try
             {
                 var transcriptFile = Path.Combine(run.Dir, $"round-{round}-transcript.md");
+                var model = (round == 1 ? firstChoice : laterChoice).Model;
                 await copilot.RunCopilotAsync(
                     new CopilotRequest(rootFolder, prompt, task.Agent, model, timeout)
                     {
@@ -216,8 +231,10 @@ public sealed class AgentSession(
             catch (JobFailedException exception)
             {
                 failure = exception;
+                run.EndStep(JobSteps.Failed, exception.Message);
             }
 
+            run.Step(JobSteps.ScopeGuard, "Scope guard");
             GuardGitConfig();
             await GuardScopeAsync();
 
@@ -233,10 +250,16 @@ public sealed class AgentSession(
             {
                 var buildFirst = !string.IsNullOrWhiteSpace(componentCommands.Build);   // Verification() starts with Build
                 var componentChecks = 0;
-                foreach (var command in componentCommands.Verification())
+                foreach (var (kind, command) in componentCommands.VerificationByKind())
                 {
                     var logName = $"round-{round}-check-{checks.Count + 1}.txt";
+                    run.Step(JobSteps.Check, kind);
                     var result = await RunCommandAsync(command, folder, logName);
+                    if (!result.Ok)
+                    {
+                        run.EndStep(JobSteps.Failed, Status(result));
+                    }
+
                     checks.Add(new CheckRun(command, result));
                     componentChecks++;
                     if (!result.Ok && buildFirst && componentChecks == 1)
@@ -248,6 +271,7 @@ public sealed class AgentSession(
 
             // The commands run code too: a lockfile or snapshot they write outside the target component must not
             // reach the commit, which stages everything.
+            run.Step(JobSteps.ScopeGuard, "Scope guard");
             GuardGitConfig();
             await GuardScopeAsync();
 
@@ -286,7 +310,8 @@ public sealed class AgentSession(
 
             outputText = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, cancellationToken) : null;
             problems = task.Problems(outputText);
-            rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " +
+            var modelNote = ModelNote(round, firstChoice, laterChoice);
+            rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " + modelNote +
                        (fixFailure is null ? "" : $"Copilot failed ({fixFailure}); ") +
                        $"{ChecksSummary(checks)}; " +
                        $"{task.OutputFile} {(problems.Count == 0 ? "complete" : $"{problems.Count} problem(s)")}");
@@ -370,6 +395,7 @@ public sealed class AgentSession(
         CancellationToken cancellationToken)
     {
         var (directory, message, branch) = work;
+        run.Step(JobSteps.Commit, "Commit");
         var stats = await git.StageAllAsync(directory, cancellationToken);
         var statLines = stats.Select(stat => $"{stat.Added}\t{stat.Deleted}\t{stat.Path}");
         var numstat = string.Join("\n", statLines);
@@ -379,7 +405,8 @@ public sealed class AgentSession(
             return null;
         }
 
-        await git.CommitAsync(directory, message, cancellationToken);
+        await git.CommitAsync(directory, message, config.Git, cancellationToken);
+        run.Step(JobSteps.Push, "Push");
         await git.PushAsync(directory, "HEAD", branch, cancellationToken);
         run.Info($"pushed {branch}: {stats.Count} files, {stats.Sum(stat => stat.Lines)} lines");
 
@@ -410,6 +437,14 @@ public sealed class AgentSession(
         var summaries = checks.Select(check => $"`{check.Command}` {Status(check.Result)}");
 
         return string.Join(", ", summaries);
+    }
+
+    /// <summary>"model X (reason); " for a fix round on another model than round 1, else nothing.</summary>
+    private static string ModelNote(int round, ModelChoice firstChoice, ModelChoice laterChoice)
+    {
+        var isOtherModel = round > 1 && laterChoice.Model != firstChoice.Model;
+
+        return isOtherModel ? $"model {laterChoice.Model ?? "Copilot default"} ({laterChoice.Reason}); " : "";
     }
 
     /// <summary>"Checks run by ai-runner", "Rounds by ai-runner" and the output file problems left (under problemsTitle), for a PR body or a reply.</summary>

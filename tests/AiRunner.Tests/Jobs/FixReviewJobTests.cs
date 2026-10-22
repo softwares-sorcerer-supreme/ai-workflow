@@ -8,50 +8,58 @@ public sealed class FixReviewJobTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private FixReviewJob Job =>
-        new(_kit.Config, _kit.GitBucket, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.State, _kit.Attachments);
+        new(
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Session,
+            _kit.State,
+            _kit.Attachments);
 
     public FixReviewJobTests() => _kit.Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
 
     public void Dispose() => _kit.Dispose();
 
     /// <summary>A runner PR with an AI review and a human answer; returns the @ai comment.</summary>
-    private GbComment PrWithAnswer(string answer = "@ai 1: fix, 2: skip because it is on purpose")
+    private HostComment PrWithAnswer(string answer = "@ai 1: fix, 2: skip because it is on purpose")
     {
-        _kit.GitBucket.AddIssue(12, "Export", null, "ai");
+        _kit.CodeHost.AddIssue(12, "Export", null, "ai");
         var specComment = Markers.Wrap(Samples.Spec, Markers.Spec);
-        _kit.GitBucket.AddBotComment(12, specComment);
-        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", body: "Closes #12", labels: "ai");
+        _kit.CodeHost.AddBotComment(12, specComment);
+        _kit.CodeHost.AddPull(30, "ai/issue-12", "main", sha: "sha1", body: "Closes #12", labels: "ai");
         _kit.Git.Refs["origin/ai/issue-12"] = "sha1";   // the PR's own branch, at the PR head
         var review = Samples.Review();
         var reviewComment = Markers.Wrap(review, Markers.Review);
-        _kit.GitBucket.AddBotComment(30, reviewComment);
-        return _kit.GitBucket.AddHumanComment(30, answer);
+        _kit.CodeHost.AddBotComment(30, reviewComment);
+        return _kit.CodeHost.AddHumanComment(30, answer);
     }
 
-    private Task<JobOutcome> RunAsync(GbComment trigger)
+    private Task<JobOutcome> RunAsync(HostComment trigger)
     {
         var triggerId = trigger.Id.ToString();
         var jobRequest = _kit.Request(JobType.FixReview, 30, triggerId);
         return Job.RunAsync(jobRequest, _kit.Run, default);
     }
 
-    private string ReplyBody() => _kit.GitBucket.CommentsOf(30).Last().Body!;
+    private string ReplyBody() => _kit.CodeHost.CommentsOf(30).Last().Body!;
 
     [Fact]
     public async Task A_fix_on_a_sub_issue_pr_reads_the_others_at_the_feature_branch_and_names_the_parent()
     {
-        _kit.GitBucket.AddIssue(12, "Export", null, "ai", Labels.Parent);
+        _kit.CodeHost.AddIssue(12, "Export", null, "ai", Labels.Parent);
         var parentSpec = Samples.SpecWith([Samples.DefaultComponent], Samples.ApiTable, Samples.UiTable);
-        _kit.GitBucket.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
+        _kit.CodeHost.AddBotComment(12, Markers.Wrap(parentSpec, Markers.Spec));
         var task = new SubTask(1, Samples.DefaultComponent, "Task", "Do the work.", "src/x.cs", [], false);
         var body = SubIssueBody.Build(new SubIssueDraft(12, task, 2, "contract"));
-        _kit.GitBucket.AddIssue(21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
-        _kit.GitBucket.AddPull(
+        _kit.CodeHost.AddIssue(21, "#12.1 Task", body, "ai", Labels.SubIssue, Labels.Ready, Labels.Simple);
+        _kit.CodeHost.AddPull(
             30, "ai/issue-12-1", "feat/issue-12", sha: "sha1", body: "Issue: james/demo#21", labels: "ai");
         _kit.Git.Refs["origin/ai/issue-12-1"] = "sha1";
         var reviewComment = Markers.Wrap(Samples.Review(), Markers.Review);
-        _kit.GitBucket.AddBotComment(30, reviewComment);
-        var trigger = _kit.GitBucket.AddHumanComment(30, "@ai 1: fix");
+        _kit.CodeHost.AddBotComment(30, reviewComment);
+        var trigger = _kit.CodeHost.AddHumanComment(30, "@ai 1: fix");
 
         var outcome = await RunAsync(trigger);
 
@@ -94,7 +102,7 @@ public sealed class FixReviewJobTests : IDisposable
         var reviewFixFile = Path.Combine(_kit.Workspace.Dir, "review-fix.md");
         Assert.False(File.Exists(reviewFixFile));
 
-        var reply = _kit.GitBucket.CommentsOf(30).Last();
+        var reply = _kit.CodeHost.CommentsOf(30).Last();
         Assert.True(BotComments.Is(reply, Markers.ReviewFix));
         Assert.Contains("## AI fix 1 - commit fix1234, 1 changed files on `ai/issue-12`", reply.Body);
         Assert.Contains("- [x] 1. Report downloads as CSV", reply.Body);
@@ -103,8 +111,8 @@ public sealed class FixReviewJobTests : IDisposable
         Assert.Equal(trigger.Id, _kit.State.GetLastHandledComment(JobTestKit.Repo, 30));
 
         // Answered: the planner now goes back to reviewing the new head.
-        var pull = _kit.GitBucket.Pulls.Single();
-        var comments = _kit.GitBucket.CommentsOf(30);
+        var pull = _kit.CodeHost.Pulls.Single();
+        var comments = _kit.CodeHost.CommentsOf(30);
         var planInput = new PullPlanInput(
             _kit.Project,
             JobTestKit.Repo,
@@ -122,8 +130,8 @@ public sealed class FixReviewJobTests : IDisposable
     {
         var first = PrWithAnswer("@ai please rename Foo");
         var fixReply = Samples.FixReply(first.Id);
-        _kit.GitBucket.AddBotComment(30, fixReply);
-        var second = _kit.GitBucket.AddHumanComment(30, "@ai and add a test for Bar");
+        _kit.CodeHost.AddBotComment(30, fixReply);
+        var second = _kit.CodeHost.AddHumanComment(30, "@ai and add a test for Bar");
 
         await RunAsync(second);
 
@@ -145,11 +153,11 @@ public sealed class FixReviewJobTests : IDisposable
         var firstId = first.Id.ToString();
         var failedRequest = _kit.Request(JobType.FixReview, 30, firstId);
         Job.OnFailed(failedRequest);   // as the worker does
-        _kit.GitBucket.AddBotComment(
+        _kit.CodeHost.AddBotComment(
             30, "AI review fix failed: push rejected. Write a new comment with @ai to try again.");
 
         _kit.Git.PushFails = false;
-        var retry = _kit.GitBucket.AddHumanComment(30, "@ai again");
+        var retry = _kit.CodeHost.AddHumanComment(30, "@ai again");
         await RunAsync(retry);
 
         var planFile = Path.Combine(_kit.Workspace.Dir, "plan.md");
@@ -257,8 +265,8 @@ public sealed class FixReviewJobTests : IDisposable
         var first = PrWithAnswer();
         _kit.Settings.Limits.MaxReviewFixes = 1;
         var fixReply = Samples.FixReply(first.Id);
-        _kit.GitBucket.AddBotComment(30, fixReply);
-        var again = _kit.GitBucket.AddHumanComment(30, "@ai one more");
+        _kit.CodeHost.AddBotComment(30, fixReply);
+        var again = _kit.CodeHost.AddHumanComment(30, "@ai one more");
 
         var outcome = await RunAsync(again);
 
@@ -271,8 +279,8 @@ public sealed class FixReviewJobTests : IDisposable
     [Fact]
     public async Task Pr_from_the_default_branch_is_refused()
     {
-        _kit.GitBucket.AddPull(30, "main", "release", sha: "sha1", labels: "ai");
-        var trigger = _kit.GitBucket.AddHumanComment(30, "@ai fix it");
+        _kit.CodeHost.AddPull(30, "main", "release", sha: "sha1", labels: "ai");
+        var trigger = _kit.CodeHost.AddHumanComment(30, "@ai fix it");
 
         var outcome = await RunAsync(trigger);
 
@@ -310,7 +318,7 @@ public sealed class FixReviewJobTests : IDisposable
     public async Task Closed_pr_gets_no_fix()
     {
         var trigger = PrWithAnswer();
-        _kit.GitBucket.AddPull(30, "ai/issue-12", "main", sha: "sha1", merged: true, state: "closed", labels: "ai");
+        _kit.CodeHost.AddPull(30, "ai/issue-12", "main", sha: "sha1", merged: true, state: "closed", labels: "ai");
 
         var outcome = await RunAsync(trigger);
 
@@ -327,7 +335,7 @@ public sealed class FixReviewJobTests : IDisposable
 
         await RunAsync(trigger);
 
-        var reply = _kit.GitBucket.CommentsOf(30).Last();
+        var reply = _kit.CodeHost.CommentsOf(30).Last();
         Assert.Equal(trigger.Id, AtAiThread.ReadUpToOf(reply));
         Assert.False(Markers.Contains(reply.Body, Markers.Review));
     }
@@ -349,12 +357,12 @@ public sealed class FixReviewJobTests : IDisposable
     {
         var trigger = PrWithAnswer();
         _kit.Git.PushFails = true;
-        var comments = _kit.GitBucket.CommentsOf(30).Count;
+        var comments = _kit.CodeHost.CommentsOf(30).Count;
 
         var exception = await Assert.ThrowsAsync<JobFailedException>(() => RunAsync(trigger));
 
         Assert.Contains("someone pushed to it", exception.Message);
-        Assert.Equal(comments, _kit.GitBucket.CommentsOf(30).Count);
+        Assert.Equal(comments, _kit.CodeHost.CommentsOf(30).Count);
     }
 
     [Fact]
