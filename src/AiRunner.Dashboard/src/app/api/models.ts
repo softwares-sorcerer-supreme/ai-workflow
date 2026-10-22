@@ -28,6 +28,8 @@ export type { JsonObject } from './models/json-object';
 export type { LogFileResponse } from './models/log-file-response';
 export type { LogFilesResponse } from './models/log-files-response';
 export type { LogFileTextResponse } from './models/log-file-text-response';
+export type { ModelOptionsResponse } from './models/model-options-response';
+export type { ModelUse } from './models/model-use';
 export type { OrphanResponse } from './models/orphan-response';
 export type { OverviewResponse } from './models/overview-response';
 export type { PollErrorResponse } from './models/poll-error-response';

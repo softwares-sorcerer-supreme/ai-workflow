@@ -113,6 +113,7 @@ public sealed class WriteGuardTests : IAsyncDisposable
     [InlineData("PUT", "api/agents/file?path=agents/a.agent.md")]
     [InlineData("POST", "api/agents/revert?path=agents/a.agent.md")]
     [InlineData("POST", "api/agents/sync")]
+    [InlineData("POST", "api/issues/org/repo/7/actions/set-model")]
     public async Task Every_write_route_without_the_header_is_403(string method, string path)
     {
         var client = await StartAsync();

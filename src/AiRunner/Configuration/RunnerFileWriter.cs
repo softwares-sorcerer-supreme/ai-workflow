@@ -16,6 +16,7 @@ internal static class RunnerFileWriter
 {
     private static readonly ISerializer Writer = new SerializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .WithTypeConverter(new ModelSetting.YamlConverter())
         .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
         .DisableAliases()
         .WithEventEmitter(next => new TextListsOnOneLine(next))

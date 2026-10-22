@@ -15,7 +15,13 @@ using ActionResponseKind = Microsoft.AspNetCore.Http.HttpResults.Results<
 namespace AiRunner.Web;
 
 /// <summary>The body of an action: the text the user typed, for the actions that take one (answer, ask, fix).</summary>
-public sealed record ActionRequest(string? Text);
+public sealed record ActionRequest(string? Text)
+{
+    /// <summary>For set-model: the workflow and the model; an empty model removes the override.</summary>
+    public string? Workflow { get; init; }
+
+    public string? Model { get; init; }
+}
 
 /// <summary>The route values of <c>POST /api/issues|pulls/{owner}/{repo}/{number}/actions/{code}</c>.</summary>
 public sealed record ActionRoute(
@@ -72,7 +78,11 @@ public static class ActionsApi
     {
         var (owner, repo, number, code) = route;
 
-        return (new IssueRef($"{owner}/{repo}", number), new ActionCall(code, request?.Text));
+        return (new IssueRef($"{owner}/{repo}", number), new ActionCall(code, request?.Text)
+        {
+            Workflow = request?.Workflow,
+            Model = request?.Model,
+        });
     }
 
     private static ActionResponseKind AnswerOf(ActionReply result)

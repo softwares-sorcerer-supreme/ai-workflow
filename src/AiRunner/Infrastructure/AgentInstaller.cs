@@ -1,4 +1,5 @@
 using AiRunner.Configuration;
+using AiRunner.Core;
 
 namespace AiRunner.Infrastructure;
 
@@ -33,6 +34,35 @@ public sealed class AgentInstaller(RunnerConfigSource configSource, ILogger<Agen
             var targetFolder = Path.Combine(copilotHome, folder);
             Workspace.CopyDirectory(sourceFolder, targetFolder);
             logger.LogInformation("Installed shared {Folder} to {Target}", folder, targetFolder);
+        }
+
+        ApplyAgentModels(copilotHome);
+    }
+
+    /// <summary>
+    /// Writes <c>agent_models</c> into the front matter of the installed copies (never the source files). A name with
+    /// no installed agent file, or a model outside <c>allowed_models</c>, is skipped with a warning.
+    /// </summary>
+    private void ApplyAgentModels(string copilotHome)
+    {
+        foreach (var (agent, model) in Config.AgentModels)
+        {
+            if (!ModelSetting.IsAllowed(Config.AllowedModels, model))
+            {
+                logger.LogWarning("agent_models.{Agent} names {Model}, which is not in allowed_models: skipped", agent, model);
+                continue;
+            }
+
+            var agentFile = Path.Combine(copilotHome, "agents", agent + ".agent.md");
+            if (!File.Exists(agentFile))
+            {
+                logger.LogWarning("agent_models.{Agent}: no installed agent file {File}: skipped", agent, agentFile);
+                continue;
+            }
+
+            var text = File.ReadAllText(agentFile);
+            File.WriteAllText(agentFile, AgentFrontmatter.WithModel(text, model));
+            logger.LogInformation("Set the model of agent {Agent} to {Model}", agent, model);
         }
     }
 }

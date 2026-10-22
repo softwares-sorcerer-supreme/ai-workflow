@@ -35,6 +35,11 @@ public sealed record JobResponse(
     int? CopilotCalls,
     bool IsRunning)
 {
+    /// <summary>The model of the job's first Copilot run (null = Copilot's default) and why it was chosen.</summary>
+    public string? Model { get; init; }
+
+    public string? ModelReason { get; init; }
+
     /// <summary>The steps the job went through; only <c>GET /api/jobs/{id}</c> fills it (lists leave it out).</summary>
     public IReadOnlyList<JobStepResponse>? Steps { get; init; }
 
@@ -63,7 +68,11 @@ public sealed record JobResponse(
             job.Error,
             !string.IsNullOrEmpty(job.LogDir),
             job.CopilotCalls,
-            job.Status == JobStatus.Running);
+            job.Status == JobStatus.Running)
+        {
+            Model = job.Model,
+            ModelReason = job.ModelReason,
+        };
     }
 }
 

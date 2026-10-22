@@ -21,6 +21,13 @@ public sealed class RunnerConfig
     public GitConfig Git { get; set; } = new();
     public AttachmentsConfig Attachments { get; set; } = new();
     public DashboardConfig Dashboard { get; set; } = new();
+
+    /// <summary>Empty = no check. Otherwise the only models settings, agent files and issue overrides may name.</summary>
+    public List<string> AllowedModels { get; set; } = [];
+
+    /// <summary>Subagent name to model; <c>AgentInstaller</c> writes it into the installed copy (the source stays).</summary>
+    public Dictionary<string, string> AgentModels { get; set; } = [];
+
     public List<ProjectConfig> Projects { get; set; } = [];
 
     /// <summary>Folder of repos.yml; the shared agents/, skills/ and templates/ live here.</summary>

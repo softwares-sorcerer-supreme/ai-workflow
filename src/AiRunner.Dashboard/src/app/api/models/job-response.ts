@@ -12,6 +12,8 @@ export interface JobResponse {
   hasLog: boolean;
   id: number;
   isRunning: boolean;
+  model?: (string | null);
+  modelReason?: (string | null);
   number: number;
   project: (string | null);
   repo: string;

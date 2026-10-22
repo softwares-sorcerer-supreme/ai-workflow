@@ -6,7 +6,11 @@ namespace AiRunner.Core;
 /// One thing a person can ask the runner to do from the dashboard: a code, its button text, and whether the user
 /// types a text.
 /// </summary>
-public sealed record IssueAction(string Code, string Label, bool NeedsText);
+public sealed record IssueAction(string Code, string Label, bool NeedsText)
+{
+    /// <summary>The user picks a workflow and a model (set-model); <c>/api/model-options</c> lists the choices.</summary>
+    public bool NeedsModel { get; init; }
+}
 
 /// <summary>The codes of the actions. The UI keys its text box and icons on them, so they never change.</summary>
 public static class ActionCodes
@@ -19,6 +23,7 @@ public static class ActionCodes
     public const string StartNextSubIssue = "start-next-sub-issue";
     public const string ReviewFull = "review-full";
     public const string Fix = "fix";
+    public const string SetModel = "set-model";
 }
 
 /// <summary>
@@ -45,6 +50,9 @@ public enum ActionWriteKind
     AddLabel,
     RemoveLabel,
     Comment,
+
+    /// <summary>A comment with the runner's marker: the runner reads it back as its own (the model override).</summary>
+    BotComment,
 }
 
 /// <summary>One write on the code host. <c>Value</c> is the label name or the comment text.</summary>
@@ -53,7 +61,13 @@ public sealed record ActionWrite(ActionWriteKind Kind, IssueRef Target, string V
 /// <summary>What <see cref="IssueActions.WriteOf"/> needs to describe the write of an action.</summary>
 /// <param name="Target">The issue or PR to write on (for the next sub-issue: that sub-issue).</param>
 /// <param name="Text">What the user typed; required for the actions that need a text.</param>
-public sealed record ActionWriteContext(IssueRef Target, string? Text, ProjectSettings Settings, string RunnerName);
+public sealed record ActionWriteContext(IssueRef Target, string? Text, ProjectSettings Settings, string RunnerName)
+{
+    /// <summary>For set-model: the workflow whose model is set, and the model (empty = remove the override).</summary>
+    public string? Workflow { get; init; }
+
+    public string? Model { get; init; }
+}
 
 /// <summary>
 /// The actions a person can take on an issue or a PR from the dashboard (docs/specs/dashboard-control.md section 4).
@@ -75,6 +89,7 @@ public static class IssueActions
         new IssueAction(ActionCodes.StartNextSubIssue, "Start next sub-issue", false),
         new IssueAction(ActionCodes.ReviewFull, "Full review", false),
         new IssueAction(ActionCodes.Fix, "Ask for a fix", true),
+        new IssueAction(ActionCodes.SetModel, "Set model", false) { NeedsModel = true },
     }.ToDictionary(action => action.Code);
 
     /// <summary>The action with this code, or null when there is no such action.</summary>
@@ -82,6 +97,19 @@ public static class IssueActions
 
     /// <summary>The actions of an issue that are offered now, in the order the buttons are shown.</summary>
     public static IReadOnlyList<IssueAction> Available(IssueActionInput input)
+    {
+        var actions = WorkflowActions(input).ToList();
+
+        // The model of the next job can be set whatever the issue is doing now (it never changes a running job).
+        if (input.Waiting.Issue.IsOpen)
+        {
+            actions.Add(Known[ActionCodes.SetModel]);
+        }
+
+        return actions;
+    }
+
+    private static IReadOnlyList<IssueAction> WorkflowActions(IssueActionInput input)
     {
         var (waiting, settings, _) = input;
         var (issue, stage, _, _) = waiting;
@@ -207,9 +235,33 @@ public static class IssueActions
             case ActionCodes.Fix:
                 return CommentWrite(context);
 
+            case ActionCodes.SetModel:
+                return ModelWrite(context);
+
             default:
                 return null;
         }
+    }
+
+    /// <summary>The override comment; null without a workflow, or with a model name that cannot go into a tag.</summary>
+    private static ActionWrite? ModelWrite(ActionWriteContext context)
+    {
+        var (target, _, _, runnerName) = context;
+        var workflow = context.Workflow?.Trim();
+        var model = context.Model?.Trim() ?? "";
+
+        var isModelOk = model.Length == 0 || ModelOverride.IsValidName(model);
+        if (string.IsNullOrEmpty(workflow) || !isModelOk)
+        {
+            return null;
+        }
+
+        var visibleLine = model.Length == 0
+            ? $"Model override for {workflow} removed from the dashboard on {runnerName}."
+            : $"Model for {workflow} set to {model} from the dashboard on {runnerName}.";
+        var body = ModelOverride.CommentText(workflow, model, visibleLine);
+
+        return new ActionWrite(ActionWriteKind.BotComment, target, body);
     }
 
     private static ActionWrite? CommentWrite(ActionWriteContext context)

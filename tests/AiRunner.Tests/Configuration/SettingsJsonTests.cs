@@ -90,7 +90,7 @@ public class SettingsJsonTests
 
         Assert.Equal(
             ["code_host", "poll_interval_seconds", "runner_name", "copilot", "paths", "log_retention_days",
-                "attachments", "dashboard", "git", "defaults", "projects"],
+                "attachments", "dashboard", "git", "allowed_models", "agent_models", "defaults", "projects"],
             topKeys);
     }
 
@@ -207,7 +207,7 @@ public class SettingsJsonTests
         var maxReviews = byKey["limits.max_reviews"];
         var maxDiffLines = byKey["limits.max_diff_lines"];
         var maxChangedFiles = byKey["limits.max_changed_files"];
-        var implementModel = byKey["models.implement"];
+        var implementModel = byKey["models.implement.default"];
 
         Assert.Equal("4", maxReviews.Effective.Value!.ToJsonString());
         Assert.Equal(("project", "Set in this project"), (maxReviews.Effective.Source, maxReviews.Effective.SourceLabel));

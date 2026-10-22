@@ -105,6 +105,10 @@ _Avoid_: deploy, publish, install (the installer is the code that does a sync)
 The difference between the shared `agents/` and `skills/` of this repo and their copy in `~/.copilot/`, by content hash per file: `in-sync`, `differs`, or `missing` (not installed). The poller checks it every poll; while a file differs or is missing the health strip says "Agents out of sync" and a **Sync** fixes it.
 _Avoid_: stale, out of date
 
+**Model override**:
+The model a person picked for one issue and one workflow (the dashboard action `set-model`), kept as a **bot comment** with the tag `<!-- AI_SETTINGS models.<workflow>=<model> -->`. Only bot comments count, so nobody can fake it by typing the tag; the newest tag of a workflow wins and an empty model removes it. A sub-issue reads its own tags, then its parent's. It beats every `models:` setting (`ModelResolver`: override, `fix_rounds`, `simple`/`complex`, `default`, Copilot's default) and applies from the next job on.
+_Avoid_: model setting (that is `models:` in repos.yml), pin
+
 **Snapshot**:
 The runner's own copy of the issues and pull requests it saw on its last polls, kept only so the dashboard can show them. It can be thrown away at any time and is rebuilt by the next polls.
 _Avoid_: cache, mirror, sync

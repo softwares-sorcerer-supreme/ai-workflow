@@ -19,6 +19,8 @@ export type { GetIssues$Params as GetIssues$Params } from './fn/issues/get-issue
 export { getIssues as getIssues } from './fn/issues/get-issues';
 export type { GetIssue$Params as GetIssue$Params } from './fn/issues/get-issue';
 export { getIssue as getIssue } from './fn/issues/get-issue';
+export type { GetModelOptions$Params as GetModelOptions$Params } from './fn/issues/get-model-options';
+export { getModelOptions as getModelOptions } from './fn/issues/get-model-options';
 export type { RunIssueAction$Params as RunIssueAction$Params } from './fn/issues/run-issue-action';
 export { runIssueAction as runIssueAction } from './fn/issues/run-issue-action';
 export type { GetCost$Params as GetCost$Params } from './fn/cost/get-cost';

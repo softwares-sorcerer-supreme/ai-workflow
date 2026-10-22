@@ -47,8 +47,8 @@ public class RunnerConfigTests
         Assert.Same(project, config.FindProject("o/r"));
         Assert.True(settings.IsEnabled("analyze"));
         Assert.False(settings.IsEnabled("review"));
-        Assert.Equal("big-model", settings.ModelFor("analyze"));
-        Assert.Null(settings.ModelFor("implement"));
+        Assert.Equal("big-model", settings.ModelSettingFor("analyze")?.Default);
+        Assert.Null(settings.ModelSettingFor("implement")?.Default);
         Assert.Equal(["npm run build", "npm test"], component.Commands.Verification());
         Assert.True(settings.Review.IsScoped);
         Assert.Equal(["**/*.md"], settings.Review.SkipPaths);
@@ -136,8 +136,8 @@ public class RunnerConfigTests
         Assert.Equal(400, tuned.Limits.MaxDiffLines);
         Assert.Equal(9, tuned.Limits.MaxChangedFiles);
         Assert.Equal(4, tuned.Limits.MaxReviews);
-        Assert.Equal("strong", tuned.ModelFor("analyze"));
-        Assert.Equal("other", tuned.ModelFor("implement"));
+        Assert.Equal("strong", tuned.ModelSettingFor("analyze")?.Default);
+        Assert.Equal("other", tuned.ModelSettingFor("implement")?.Default);
         Assert.Equal(["docs/**"], tuned.Review.SkipPaths);
     }
 

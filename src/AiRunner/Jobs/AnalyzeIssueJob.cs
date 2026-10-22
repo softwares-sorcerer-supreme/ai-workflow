@@ -76,7 +76,13 @@ public sealed class AnalyzeIssueJob(
         await File.WriteAllTextAsync(contextFile, context, cancellationToken);
         run.Save("context.md", context);
 
-        var model = settings.ModelFor(Workflows.Analyze);
+        var issueRef = new IssueRef(request.Repo, issue.Number);
+        var modelContext = await codeHost.ReadAsync(issueRef, Workflows.Analyze, run, cancellationToken);
+        var modelInput = new ModelInput(
+            settings.ModelSettingFor(Workflows.Analyze), modelContext.IssueOverride, modelContext.Complexity, IsFixRound: false);
+        var modelChoice = ModelResolver.Resolve(modelInput);
+        run.RecordModel(modelChoice);
+        var model = modelChoice.Model;
         var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);
         run.Step(JobSteps.Copilot, $"Copilot round {round}");
         var output = await copilot.RunCopilotAsync(

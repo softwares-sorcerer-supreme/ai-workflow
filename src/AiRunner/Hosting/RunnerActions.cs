@@ -27,7 +27,13 @@ public enum ActionOutcome
 public sealed record ActionReply(ActionOutcome Outcome, string Message);
 
 /// <summary>Which action to run and the text the user typed for it (null when the action takes none).</summary>
-public sealed record ActionCall(string Code, string? Text);
+public sealed record ActionCall(string Code, string? Text)
+{
+    /// <summary>For set-model: the workflow and the model (empty = remove the override).</summary>
+    public string? Workflow { get; init; }
+
+    public string? Model { get; init; }
+}
 
 /// <summary>
 /// The dashboard's way to ask for an action (docs/specs/dashboard-control.md section 4). The web app can name an
@@ -153,7 +159,11 @@ public sealed class RunnerActions(
             target = new IssueRef(item.Repo, next.Number);
         }
 
-        var context = new ActionWriteContext(target, call.Text, project.Settings, RunnerName);
+        var context = new ActionWriteContext(target, call.Text, project.Settings, RunnerName)
+        {
+            Workflow = call.Workflow,
+            Model = call.Model,
+        };
 
         return await WriteAsync(context, call.Code, cancellationToken);
     }
@@ -268,6 +278,11 @@ public sealed class RunnerActions(
                 await codeHost.RemoveLabelAsync(repo, number, write.Value, cancellationToken);
                 break;
 
+            case ActionWriteKind.BotComment:
+                // The runner's own comment: only these count as a model override, so a person cannot fake one.
+                await codeHost.AddCommentAsync(repo, number, write.Value, cancellationToken);
+                break;
+
             default:
                 // A person's comment, not a runner comment: the planner must take it as a trigger.
                 await codeHost.AddPersonCommentAsync(repo, number, write.Value, cancellationToken);
@@ -290,15 +305,45 @@ public sealed class RunnerActions(
         {
             ActionWriteKind.AddLabel => $"Added {write.Value} to {item}. The runner polls now.",
             ActionWriteKind.RemoveLabel => $"Removed {write.Value} from {item}. The runner polls now.",
+            ActionWriteKind.BotComment => $"Model setting saved on {item}. It applies to the next job.",
             _ => $"Comment sent on {item}. The runner polls now.",
         };
     }
 
-    private static ActionReply? WhyInvalid(IssueAction known, ActionCall call)
+    private ActionReply? WhyInvalid(IssueAction known, ActionCall call)
     {
+        if (known.NeedsModel)
+        {
+            return WhyModelInvalid(call);
+        }
+
         if (known.NeedsText && string.IsNullOrWhiteSpace(call.Text))
         {
             return new ActionReply(ActionOutcome.Invalid, $"{known.Label} needs a text.");
+        }
+
+        return null;
+    }
+
+    private ActionReply? WhyModelInvalid(ActionCall call)
+    {
+        var workflow = call.Workflow?.Trim() ?? "";
+        var model = call.Model?.Trim() ?? "";
+
+        if (!Workflows.WithModel.Contains(workflow))
+        {
+            return new ActionReply(
+                ActionOutcome.Invalid, $"Pick a workflow: {string.Join(", ", Workflows.WithModel)}.");
+        }
+
+        if (model.Length > 0 && !ModelOverride.IsValidName(model))
+        {
+            return new ActionReply(ActionOutcome.Invalid, $"\"{model}\" is not a model name.");
+        }
+
+        if (model.Length > 0 && !ModelSetting.IsAllowed(Config.AllowedModels, model))
+        {
+            return new ActionReply(ActionOutcome.Invalid, $"\"{model}\" is not in allowed_models.");
         }
 
         return null;

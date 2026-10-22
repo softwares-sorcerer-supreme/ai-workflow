@@ -379,10 +379,19 @@ public sealed class JobWorker(
             outcome.Result,
             outcome.Detail,
             outcome.CopilotCalls,
-            usage);
+            usage)
+        {
+            Model = finished.Run.Model,
+            ModelReason = finished.Run.ModelReason,
+        };
         costLog.Record(entry);
 
-        var jobResult = new JobResult(outcome.Result, outcome.Detail, outcome.CopilotCalls);
+        var jobResult = new JobResult(
+            outcome.Result,
+            outcome.Detail,
+            outcome.CopilotCalls,
+            finished.Run.Model,
+            finished.Run.ModelReason);
 
         try
         {

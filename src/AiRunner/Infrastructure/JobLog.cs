@@ -18,6 +18,24 @@ public sealed class JobRun(string directory, ILogger logger)
 
     public string Dir { get; } = directory;
 
+    /// <summary>The model of the job's first Copilot run (null = Copilot's default); null reason = not recorded.</summary>
+    public string? Model { get; private set; }
+
+    /// <summary>Why <see cref="Model"/> was chosen ("issue override", "default", ...); the worker stores both.</summary>
+    public string? ModelReason { get; private set; }
+
+    /// <summary>Records the model of the first Copilot run; later runs (fix rounds) only appear in their round line.</summary>
+    public void RecordModel(ModelChoice choice)
+    {
+        if (ModelReason is not null)
+        {
+            return;
+        }
+
+        Model = choice.Model;
+        ModelReason = choice.Reason;
+    }
+
     /// <summary>When JobWorker cancels the job (it sets this from the same timeout); jobs use it to avoid starting work they cannot finish.</summary>
     public DateTimeOffset Deadline { get; set; } = DateTimeOffset.MaxValue;
 

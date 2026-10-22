@@ -154,7 +154,17 @@ public sealed class ReviewPullRequestJob(
         run.Save("context.md", context);
         run.Save("diff.patch", diff);
 
-        var model = project.Settings.ModelFor(Workflows.Review);
+        var modelContext = linked.Repo is { } linkedRepo && linked.Number is { } linkedNumber
+            ? await codeHost.ReadAsync(new IssueRef(linkedRepo, linkedNumber), Workflows.Review, run, cancellationToken)
+            : ModelContext.None;
+        var modelInput = new ModelInput(
+            project.Settings.ModelSettingFor(Workflows.Review),
+            modelContext.IssueOverride,
+            modelContext.Complexity,
+            IsFixRound: false);
+        var modelChoice = ModelResolver.Resolve(modelInput);
+        run.RecordModel(modelChoice);
+        var model = modelChoice.Model;
         var timeout = TimeSpan.FromMinutes(config.Copilot.ReviewTimeoutMinutes);
         run.Step(JobSteps.Copilot, "Copilot");
         var output = await copilot.RunCopilotAsync(

@@ -705,6 +705,27 @@
         }
       }
     },
+    "/api/model-options": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "The workflows and models the set-model action offers.",
+        "operationId": "getModelOptions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelOptionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runner/poll": {
       "post": {
         "tags": [
@@ -1519,6 +1540,18 @@
               "null",
               "string"
             ]
+          },
+          "workflow": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1537,6 +1570,9 @@
             "type": "string"
           },
           "needsText": {
+            "type": "boolean"
+          },
+          "needsModel": {
             "type": "boolean"
           }
         }
@@ -1910,6 +1946,12 @@
           "jobsWithoutUsage": {
             "type": "integer",
             "format": "int32"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelUse"
+            }
           }
         }
       },
@@ -2395,6 +2437,18 @@
           "isRunning": {
             "type": "boolean"
           },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "modelReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "steps": {
             "type": [
               "null",
@@ -2585,6 +2639,50 @@
           "nextOffset": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "ModelOptionsResponse": {
+        "required": [
+          "workflows",
+          "allowedModels"
+        ],
+        "type": "object",
+        "properties": {
+          "workflows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeLabelResponse"
+            }
+          },
+          "allowedModels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ModelUse": {
+        "required": [
+          "model",
+          "reason",
+          "jobs"
+        ],
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "jobs": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

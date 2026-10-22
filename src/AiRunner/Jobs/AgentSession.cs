@@ -23,6 +23,9 @@ public sealed record AgentTask(
 {
     /// <summary>Files for the --attachment flag; only round 1 gets them, later rounds can open them from disk.</summary>
     public IReadOnlyList<string> Attachments { get; init; } = [];
+
+    /// <summary>The issue's model override and complexity (see <see cref="ModelLookup"/>); none = project settings only.</summary>
+    public ModelContext ModelContext { get; init; } = ModelContext.None;
 }
 
 /// <summary>
@@ -195,7 +198,12 @@ public sealed class AgentSession(
         }
 
         // Returns the failure instead of throwing: round 1 is the job's call, a failed fix round still ends well.
-        var model = settings.ModelFor(task.Workflow);
+        var modelSetting = settings.ModelSettingFor(task.Workflow);
+        var firstChoice = ModelResolver.Resolve(new ModelInput(
+            modelSetting, task.ModelContext.IssueOverride, task.ModelContext.Complexity, IsFixRound: false));
+        var laterChoice = ModelResolver.Resolve(new ModelInput(
+            modelSetting, task.ModelContext.IssueOverride, task.ModelContext.Complexity, IsFixRound: true));
+        run.RecordModel(firstChoice);
         var allowTools = context.Writable
             .SelectMany(component => AllowTools(component.Commands))
             .Distinct()
@@ -210,6 +218,7 @@ public sealed class AgentSession(
             try
             {
                 var transcriptFile = Path.Combine(run.Dir, $"round-{round}-transcript.md");
+                var model = (round == 1 ? firstChoice : laterChoice).Model;
                 await copilot.RunCopilotAsync(
                     new CopilotRequest(rootFolder, prompt, task.Agent, model, timeout)
                     {
@@ -301,7 +310,9 @@ public sealed class AgentSession(
 
             outputText = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, cancellationToken) : null;
             problems = task.Problems(outputText);
-            rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " +
+            var isOtherModel = round > 1 && laterChoice.Model != firstChoice.Model;
+            var modelNote = isOtherModel ? $"model {laterChoice.Model ?? "Copilot default"} ({laterChoice.Reason}); " : "";
+            rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " + modelNote +
                        (fixFailure is null ? "" : $"Copilot failed ({fixFailure}); ") +
                        $"{ChecksSummary(checks)}; " +
                        $"{task.OutputFile} {(problems.Count == 0 ? "complete" : $"{problems.Count} problem(s)")}");

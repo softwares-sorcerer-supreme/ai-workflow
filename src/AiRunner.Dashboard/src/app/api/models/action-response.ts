@@ -4,5 +4,6 @@
 export interface ActionResponse {
   code: string;
   label: string;
+  needsModel?: boolean;
   needsText: boolean;
 }

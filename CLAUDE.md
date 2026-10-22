@@ -281,6 +281,19 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   A save checks the base hash, writes and applies under the reload lock (`RunnerConfigSource.TryReplace`), so a hand edit
   is never overwritten. `GET /api/settings` applies a changed file too (so a reload after a 409 gets the new hash).
   Comments in repos.yml are not kept.
+- **Model selection** (`Configuration/ModelSetting`, `Core/ModelResolver`, `Core/ModelOverride`, `Jobs/ModelLookup`): `models.<workflow>` is a
+  string (= `default`) or an object `default | simple | complex | fix_rounds` (`fix_rounds` only for implement and fix; unknown keys stop
+  the start; `defaults:` merges key by key). `ModelResolver.Resolve` is pure: override, `fix_rounds` (Copilot runs after round 1), `simple` /
+  `complex`, `default`, none (Copilot's default) -> model + reason. `AgentSession`, `AnalyzeIssueJob` and `ReviewPullRequestJob` call it;
+  the override and the complexity label come from `ModelLookup.ReadAsync` (fresh; a sub-issue reads its parent). The override is the
+  bot comment tag `<!-- AI_SETTINGS models.<workflow>=<model> -->` (`Markers.SettingTag`, `ModelOverride`; bot comments only). The
+  `set-model` action (`IssueAction.NeedsModel`, body `{ workflow, model }`, choices from `GET /api/model-options`) writes it through
+  `ICodeHost.AddCommentAsync` (`ActionWriteKind.BotComment`) and is offered on every open issue. Global `allowed_models` (empty = no
+  check) is checked at start, on a settings save, an agent save and the action; global `agent_models` is written into the installed copy
+  by `AgentInstaller` (`AgentFrontmatter`) and `AgentFiles` compares drift against that form. `JobRun.RecordModel` keeps the first run's
+  model; `JobWorker` stores it in `jobs.model` / `model_reason` and `cost_log.model` / `model_reason` (columns added at startup);
+  a fix round with another model says so in its round line. Not in `cost.csv`.
+
 - **Snapshot** (`issue_snapshot`, `pull_snapshot`; safe to delete like the rest of `ai-runner.db`): `Hosting/SnapshotRecorder` saves what
   `Poller` already lists (issues in scope, open PRs of every code repo, also when review and fix are off), reads once more each row that
   is still `open` but no longer listed (merged or closed since the last poll; `RefreshVanishedAsync`, no call when nothing vanished) and, on

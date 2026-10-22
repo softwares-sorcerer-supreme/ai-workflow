@@ -39,8 +39,10 @@ public sealed class IssueActionsTests
         var waiting = new WaitingInput(issue, stage, false, progress ?? []);
         var input = new IssueActionInput(waiting, settings ?? Settings(), subIssues ?? []);
 
+        // set-model has its own tests below; every other test is about the workflow actions.
         return IssueActions.Available(input)
             .Select(action => action.Code)
+            .Where(code => code != ActionCodes.SetModel)
             .ToList();
     }
 
@@ -226,7 +228,52 @@ public sealed class IssueActionsTests
             .ToList();
 
         Assert.Equal([ActionCodes.Answer, ActionCodes.Ask, ActionCodes.Fix], needText);
-        Assert.Null(IssueActions.Find("set-model"));
+        Assert.True(IssueActions.Find(ActionCodes.SetModel)!.NeedsModel);
+        Assert.False(IssueActions.Find(ActionCodes.SetModel)!.NeedsText);
+    }
+
+    private static IReadOnlyList<string> AllCodesOf(IssueSnapshot issue, StageResult stage)
+    {
+        var waiting = new WaitingInput(issue, stage, false, []);
+
+        return IssueActions.Available(new IssueActionInput(waiting, Settings(), []))
+            .Select(action => action.Code)
+            .ToList();
+    }
+
+    [Fact]
+    public void Set_model_is_offered_on_every_open_issue_even_while_a_job_runs_or_it_failed()
+    {
+        var open = Issue();
+
+        Assert.Contains(ActionCodes.SetModel, AllCodesOf(open, Stage(IssueStage.New)));
+        Assert.Contains(ActionCodes.SetModel, AllCodesOf(open, Stage(IssueStage.New, badge: QueuedBadge)));
+        Assert.Contains(ActionCodes.SetModel, AllCodesOf(open, Stage(IssueStage.New, badge: RunningBadge)));
+        Assert.Equal(
+            [ActionCodes.Retry, ActionCodes.SetModel],
+            AllCodesOf(open, Stage(IssueStage.New, flag: FailedFlag)));
+    }
+
+    [Fact]
+    public void Set_model_is_not_offered_on_a_closed_issue()
+    {
+        Assert.Empty(AllCodesOf(Issue(isOpen: false), Stage(IssueStage.New)));
+    }
+
+    [Fact]
+    public void Set_model_writes_a_bot_comment_with_the_tag_and_refuses_a_missing_workflow_or_bad_name()
+    {
+        var target = new IssueRef("o/r", 7);
+        var context = new ActionWriteContext(target, null, Settings(), "laptop") { Workflow = "implement", Model = "m-1" };
+
+        var write = IssueActions.WriteOf(ActionCodes.SetModel, context)!;
+
+        Assert.Equal(ActionWriteKind.BotComment, write.Kind);
+        Assert.Contains("<!-- AI_SETTINGS models.implement=m-1 -->", write.Value);
+        Assert.Contains(BotComments.Marker, write.Value);
+        Assert.Null(IssueActions.WriteOf(ActionCodes.SetModel, context with { Workflow = null }));
+        Assert.Null(IssueActions.WriteOf(ActionCodes.SetModel, context with { Model = "a b" }));
+        Assert.Contains("=", IssueActions.WriteOf(ActionCodes.SetModel, context with { Model = "" })!.Value);
     }
 
     // ---- PRs ----

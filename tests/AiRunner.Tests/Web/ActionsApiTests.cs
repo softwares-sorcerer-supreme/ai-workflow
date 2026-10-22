@@ -247,18 +247,16 @@ public sealed class ActionsApiTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Unknown_actions_unknown_repos_and_set_model_are_404()
+    public async Task Unknown_actions_and_unknown_repos_are_404()
     {
         ReadySimple();
         var client = await StartAsync();
 
         var unknownAction = await IssueActionAsync(client, 7, "explode");
-        var setModel = await IssueActionAsync(client, 7, "set-model", "x");
         var unknownRepo = await IssueActionAsync(client, 7, "implement", repo: "org/elsewhere");
         var codeRepo = await IssueActionAsync(client, 7, "implement", repo: BackendRepo);
 
         Assert.Equal(HttpStatusCode.NotFound, unknownAction.Status);
-        Assert.Equal(HttpStatusCode.NotFound, setModel.Status);
         Assert.Equal(HttpStatusCode.NotFound, unknownRepo.Status);
         Assert.Equal(HttpStatusCode.NotFound, codeRepo.Status);
         AssertNothingWritten();
@@ -454,9 +452,106 @@ public sealed class ActionsApiTests : IAsyncDisposable
         Assert.True(
             simple.Actions.Any(action => action is { Code: "ask", NeedsText: true }),
             JsonSerializer.Serialize(simple, Json));
-        Assert.Equal(["implement", "ask"], simple.Actions.Select(action => action.Code));
-        Assert.Empty(inReview.Actions);
-        Assert.Equal(["retry"], failed.Actions.Select(action => action.Code));
+        Assert.Equal(["implement", "ask", "set-model"], simple.Actions.Select(action => action.Code));
+        Assert.Equal(["set-model"], inReview.Actions.Select(action => action.Code));
+        Assert.Equal(["retry", "set-model"], failed.Actions.Select(action => action.Code));
         Assert.Equal(["review-full", "fix"], detail!.Issue.Pulls.Single().Actions.Select(action => action.Code));
+    }
+
+    // ---- set-model ----
+
+    private Task<(HttpStatusCode Status, string Message)> SetModelAsync(
+        HttpClient client,
+        int number,
+        string? workflow,
+        string? model) =>
+        SendAsync(client, Post($"api/issues/{IssuesRepo}/{number}/actions/set-model", new { workflow, model }));
+
+    [Fact]
+    public async Task Set_model_writes_a_bot_comment_that_the_model_override_reads_back()
+    {
+        ReadySimple();
+        var client = await StartAsync();
+
+        var (status, message) = await SetModelAsync(client, 7, "implement", "claude-opus-5.5");
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.Contains("next job", message);
+        var comment = Assert.Single(_host.CommentsOf(7));
+        Assert.True(BotComments.IsBot(comment));
+        Assert.Contains("<!-- AI_SETTINGS models.implement=claude-opus-5.5 -->", comment.Body);
+        Assert.Equal("claude-opus-5.5", ModelOverride.For("implement", _host.CommentsOf(7), null));
+        Assert.Empty(_host.PersonCommentTargets);
+        Assert.True(IsPollerWoken());
+        AssertNothingQueued();
+    }
+
+    [Fact]
+    public async Task An_empty_model_removes_the_override()
+    {
+        ReadySimple();
+        var client = await StartAsync();
+        await SetModelAsync(client, 7, "implement", "claude-opus-5.5");
+
+        var (status, _) = await SetModelAsync(client, 7, "implement", "");
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.Null(ModelOverride.For("implement", _host.CommentsOf(7), null));
+    }
+
+    [Fact]
+    public async Task Set_model_is_offered_while_a_job_is_queued()
+    {
+        ReadySimple();
+        _store.AddJob(new JobRequest(JobType.ImplementIssue, IssuesRepo, 7));
+        var client = await StartAsync();
+
+        var (status, _) = await SetModelAsync(client, 7, "review", "claude-sonnet-5.5");
+
+        Assert.Equal(HttpStatusCode.Accepted, status);
+    }
+
+    [Theory]
+    [InlineData("breakdown", "claude-opus-5.5")]
+    [InlineData(null, "claude-opus-5.5")]
+    [InlineData("implement", "bad model")]
+    [InlineData("implement", "x-->y")]
+    public async Task Set_model_refuses_a_bad_workflow_or_name_and_writes_nothing(string? workflow, string model)
+    {
+        ReadySimple();
+        var client = await StartAsync();
+
+        var (status, _) = await SetModelAsync(client, 7, workflow, model);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Empty(_host.CommentsOf(7));
+        Assert.False(IsPollerWoken());
+    }
+
+    [Fact]
+    public async Task Set_model_refuses_a_model_outside_allowed_models()
+    {
+        _config.AllowedModels = ["claude-sonnet-5.5"];
+        ReadySimple();
+        var client = await StartAsync();
+
+        var (refused, message) = await SetModelAsync(client, 7, "implement", "claude-opus-5.5");
+        var (accepted, _) = await SetModelAsync(client, 7, "implement", "claude-sonnet-5.5");
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused);
+        Assert.Contains("allowed_models", message);
+        Assert.Equal(HttpStatusCode.Accepted, accepted);
+    }
+
+    [Fact]
+    public async Task Model_options_list_the_workflows_and_the_allowed_models()
+    {
+        _config.AllowedModels = ["a", "b"];
+        var client = await StartAsync();
+
+        var options = await client.GetFromJsonAsync<ModelOptionsResponse>("api/model-options", Json);
+
+        Assert.Equal(["analyze", "implement", "review", "fix"], options!.Workflows.Select(workflow => workflow.Code));
+        Assert.Equal(["a", "b"], options.AllowedModels);
     }
 }

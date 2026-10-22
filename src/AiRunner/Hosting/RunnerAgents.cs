@@ -130,7 +130,7 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
                     "The file changed since you opened it. Reload it and make your edit again.");
             }
 
-            var reasons = AgentFileRules.Check(path, save.Text);
+            var reasons = AgentFileRules.Check(path, save.Text, files.AllowedModels);
             if (reasons.Count > 0)
             {
                 return new AgentReply(AgentOutcome.Invalid, "The file was not saved.") { Reasons = reasons };

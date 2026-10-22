@@ -33,8 +33,19 @@ public class SettingsSchemaTests
 
             if (propertyType == typeof(Dictionary<string, string>))
             {
-                // models: the resolver accepts exactly the workflows that run Copilot.
-                paths.AddRange(Workflows.WithModel.Select(workflow => $"{path}.{workflow}"));
+                // agent_models: any subagent name; the screen edits it as one map.
+                paths.Add(path);
+            }
+            else if (propertyType == typeof(Dictionary<string, ModelSetting>))
+            {
+                // models: the resolver accepts exactly the workflows that run Copilot, and fix_rounds only for two.
+                foreach (var workflow in Workflows.WithModel)
+                {
+                    var keys = workflow is Workflows.Implement or Workflows.Fix
+                        ? ModelSetting.Keys
+                        : ModelSetting.Keys.Where(key => key != ModelSetting.FixRoundsKey);
+                    paths.AddRange(keys.Select(key => $"{path}.{workflow}.{key}"));
+                }
             }
             else if (IsGeneric(propertyType, typeof(Dictionary<,>)))
             {

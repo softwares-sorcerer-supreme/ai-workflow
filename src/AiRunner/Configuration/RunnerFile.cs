@@ -20,6 +20,13 @@ internal sealed class RunnerFile
     public AttachmentsConfig Attachments { get; set; } = new();
     public DashboardConfig Dashboard { get; set; } = new();
     public GitConfig Git { get; set; } = new();
+
+    /// <summary>When not empty, every model of the file, an agent file and an issue override must be one of these.</summary>
+    public List<string> AllowedModels { get; set; } = [];
+
+    /// <summary>Model per subagent name, written into the installed copy of its agent file.</summary>
+    public Dictionary<string, string> AgentModels { get; set; } = [];
+
     public SettingsFile Defaults { get; set; } = new();
     public Dictionary<string, ProjectFile> Projects { get; set; } = [];
 
@@ -51,7 +58,7 @@ internal class SettingsFile
     public string? TriggerLabel { get; set; }
     public string? TriggerKeyword { get; set; }
     public List<string>? Workflows { get; set; }
-    public Dictionary<string, string>? Models { get; set; }
+    public Dictionary<string, ModelSetting>? Models { get; set; }
     public LimitsFile? Limits { get; set; }
     public ImplementFile? Implement { get; set; }
     public ReviewFile? Review { get; set; }

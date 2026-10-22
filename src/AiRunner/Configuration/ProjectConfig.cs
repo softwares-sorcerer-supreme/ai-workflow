@@ -150,7 +150,7 @@ public sealed class ProjectSettings
     public string TriggerKeyword { get; set; } = "@ai";
 
     public List<string> Workflows { get; set; } = [.. AiRunner.Configuration.Workflows.All];
-    public Dictionary<string, string> Models { get; set; } = [];
+    public Dictionary<string, ModelSetting> Models { get; set; } = [];
     public LimitsConfig Limits { get; set; } = new();
     public ImplementConfig Implement { get; set; } = new();
     public ReviewConfig Review { get; set; } = new();
@@ -165,9 +165,8 @@ public sealed class ProjectSettings
 
     public bool IsEnabled(string workflow) => Workflows.Contains(workflow, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Model for a workflow, or null for the Copilot default.</summary>
-    public string? ModelFor(string workflow) =>
-        Models.TryGetValue(workflow, out var model) && !string.IsNullOrWhiteSpace(model) ? model : null;
+    /// <summary>The model setting of a workflow, or null when none is written (Copilot's default).</summary>
+    public ModelSetting? ModelSettingFor(string workflow) => Models.GetValueOrDefault(workflow);
 }
 
 /// <summary>

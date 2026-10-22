@@ -15,7 +15,11 @@ public sealed record CodeLabelResponse(string Code, string Label)
 /// </summary>
 public sealed record ActionResponse(string Code, string Label, bool NeedsText)
 {
-    public static ActionResponse From(IssueAction action) => new(action.Code, action.Label, action.NeedsText);
+    /// <summary>The user picks a workflow and a model for this action; <c>GET /api/model-options</c> lists them.</summary>
+    public bool NeedsModel { get; init; }
+
+    public static ActionResponse From(IssueAction action) =>
+        new(action.Code, action.Label, action.NeedsText) { NeedsModel = action.NeedsModel };
 
     public static List<ActionResponse> ListOf(IEnumerable<IssueAction> actions) =>
         actions

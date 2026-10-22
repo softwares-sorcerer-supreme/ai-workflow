@@ -18,7 +18,9 @@ public sealed record JobRecord(
     string? LogDir,
     string? Result,
     string? Detail,
-    int? CopilotCalls = null);
+    int? CopilotCalls = null,
+    string? Model = null,
+    string? ModelReason = null);
 
 /// <summary>Filters and the page of a job history read. <c>Repos</c> null = every repo, empty = none.</summary>
 public sealed record JobQuery(

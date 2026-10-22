@@ -241,7 +241,12 @@ public sealed class FakeCodeHost : ICodeHost
         RepoCalls.Add(("issue-read", repo));
         IssueReads.Add(number);
 
-        return Task.FromResult(Issues[number]);
+        if (!Issues.TryGetValue(number, out var issue))
+        {
+            throw new CodeHostException(System.Net.HttpStatusCode.NotFound, $"issue {number} not found");
+        }
+
+        return Task.FromResult(issue);
     }
 
     public Task<IReadOnlyList<HostComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)

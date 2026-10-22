@@ -8,7 +8,7 @@ namespace AiRunner.Configuration;
 /// (<c>*</c> = any project or component name, <c>[]</c> = any entry of the old repos list); <see cref="Key"/> is the
 /// same key inside its scope's object, so one form serves defaults and every project.
 /// </summary>
-/// <param name="Type"><c>string</c>, <c>integer</c>, <c>boolean</c> or <c>string-list</c>.</param>
+/// <param name="Type"><c>string</c>, <c>integer</c>, <c>boolean</c>, <c>string-list</c> or <c>string-map</c>.</param>
 public sealed record SettingDefinition(string Path, string Key, string Scope, string Type, string Help)
 {
     /// <summary>The only values the resolver accepts (for a list: for each entry); empty = any.</summary>
@@ -86,6 +86,50 @@ public static class SettingsSchema
     private static SettingDefinition Global(string key, string type, string help) =>
         new(key, key, SettingScopes.Global, type, help);
 
+    /// <summary>
+    /// The keys of <c>models.&lt;workflow&gt;</c>. In the file the value may also be one plain name, which means
+    /// <c>default</c>; the screen edits the object form.
+    /// </summary>
+    private static IEnumerable<SettingDefinition> ModelKeys(string workflow)
+    {
+        var breakdownNote = workflow == Workflows.Analyze
+            ? " The breakdown uses the analysis, so this also picks its model."
+            : "";
+        var canHaveFixRounds = workflow is Workflows.Implement or Workflows.Fix;
+
+        yield return new SettingDefinition(
+            $"models.{workflow}.{ModelSetting.DefaultKey}",
+            $"models.{workflow}.{ModelSetting.DefaultKey}",
+            "",
+            Text,
+            $"Copilot model of the {workflow} workflow, e.g. claude-sonnet-5.5; empty = Copilot's default." +
+            breakdownNote);
+
+        yield return new SettingDefinition(
+            $"models.{workflow}.{ModelSetting.SimpleKey}",
+            $"models.{workflow}.{ModelSetting.SimpleKey}",
+            "",
+            Text,
+            $"Model of the {workflow} workflow for an issue analysed as simple (a sub-issue reads its parent).");
+
+        yield return new SettingDefinition(
+            $"models.{workflow}.{ModelSetting.ComplexKey}",
+            $"models.{workflow}.{ModelSetting.ComplexKey}",
+            "",
+            Text,
+            $"Model of the {workflow} workflow for an issue analysed as complex (a sub-issue reads its parent).");
+
+        if (canHaveFixRounds)
+        {
+            yield return new SettingDefinition(
+                $"models.{workflow}.{ModelSetting.FixRoundsKey}",
+                $"models.{workflow}.{ModelSetting.FixRoundsKey}",
+                "",
+                Text,
+                $"Model of the Copilot runs after round 1 of the {workflow} workflow (the fix rounds).");
+        }
+    }
+
     private static JsonNode? Json(object? value) => JsonSerializer.SerializeToNode(value, DefaultJson);
 
     private static IEnumerable<SettingDefinition> GlobalKeys()
@@ -114,6 +158,22 @@ public static class SettingsSchema
                 "Kept for old setups; the Setup page is preferred (a saved one wins over this one).") with
             {
                 IsSecret = true, IsRestartNeeded = true,
+            },
+            Global(
+                "allowed_models",
+                TextList,
+                "When not empty, every model in models, agent_models, an agent file and an issue override must be " +
+                "one of these. Empty = no check.") with
+            {
+                Default = Json(file.AllowedModels),
+            },
+            Global(
+                "agent_models",
+                "string-map",
+                "Model per subagent, e.g. code-scout: claude-haiku-5.5. Written into the installed copy under " +
+                "~/.copilot/agents (the file in this repo is not changed); one folder serves every project.") with
+            {
+                Default = Json(file.AgentModels),
             },
             Global(
                 "poll_interval_seconds",
@@ -251,11 +311,7 @@ public static class SettingsSchema
 
         SettingDefinition Setting(string key, string type, string help) => new("", key, "", type, help);
 
-        var models = Workflows.WithModel.Select(workflow => Setting(
-            $"models.{workflow}",
-            Text,
-            $"Copilot model of the {workflow} workflow, e.g. claude-sonnet-5.5; empty = Copilot's default." +
-            (workflow == Workflows.Analyze ? " The breakdown uses the analysis, so this also picks its model." : "")));
+        var models = Workflows.WithModel.SelectMany(ModelKeys);
 
         return
         [

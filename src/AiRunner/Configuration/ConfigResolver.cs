@@ -16,6 +16,7 @@ internal static partial class ConfigResolver
 {
     private static readonly IDeserializer Reader = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .WithTypeConverter(new ModelSetting.YamlConverter())
         .Build();
 
     /// <summary>Keys that moved: the hint says where they live now.</summary>
@@ -60,6 +61,8 @@ internal static partial class ConfigResolver
             Attachments = file.Attachments,
             Git = file.Git,
             Dashboard = file.Dashboard,
+            AllowedModels = [.. file.AllowedModels],
+            AgentModels = new Dictionary<string, string>(file.AgentModels),
         };
 
         foreach (var (name, projectFile) in file.Projects)
@@ -201,7 +204,8 @@ internal static partial class ConfigResolver
 
             foreach (var (workflow, model) in layer.Models ?? [])
             {
-                settings.Models[workflow] = model;
+                var earlier = settings.Models.GetValueOrDefault(workflow) ?? new ModelSetting();
+                settings.Models[workflow] = earlier.MergedWith(model);
             }
 
             var limits = layer.Limits;
@@ -255,6 +259,14 @@ internal static partial class ConfigResolver
             throw new InvalidOperationException($"dashboard.port {port} is not a port. Use 1 to 65535.");
         }
 
+        foreach (var (agent, model) in config.AgentModels)
+        {
+            if (!ModelSetting.IsAllowed(config.AllowedModels, model))
+            {
+                throw new InvalidOperationException($"agent_models.{agent} names '{model}', which is not in allowed_models.");
+            }
+        }
+
         var projectNames = new HashSet<string>(StringComparer.Ordinal);
         var repoOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -267,7 +279,7 @@ internal static partial class ConfigResolver
             }
 
             ValidateName(project.Name, $"project '{project.Name}'");
-            ValidateSettings(project);
+            ValidateSettings(project, config.AllowedModels);
             ValidateComponents(project);
 
             foreach (var repo in project.Repos)
@@ -293,7 +305,7 @@ internal static partial class ConfigResolver
         }
     }
 
-    private static void ValidateSettings(ProjectConfig project)
+    private static void ValidateSettings(ProjectConfig project, IReadOnlyCollection<string> allowedModels)
     {
         var settings = project.Settings;
 
@@ -310,6 +322,23 @@ internal static partial class ConfigResolver
                 $"Project '{project.Name}': models.{unknownModel} is not a workflow that runs Copilot " +
                 "(the breakdown table comes from the analysis, so models.analyze picks its model). " +
                 $"Use: {string.Join(", ", Workflows.WithModel)}");
+        }
+
+        foreach (var (workflow, model) in settings.Models)
+        {
+            var canHaveFixRounds = workflow is Workflows.Implement or Workflows.Fix;
+            if (model.FixRounds is not null && !canHaveFixRounds)
+            {
+                throw new InvalidOperationException(
+                    $"Project '{project.Name}': models.{workflow}.fix_rounds only exists for " +
+                    $"{Workflows.Implement} and {Workflows.Fix} (the workflows that run Copilot again after round 1).");
+            }
+
+            foreach (var name in model.AllModels().Where(name => !ModelSetting.IsAllowed(allowedModels, name)))
+            {
+                throw new InvalidOperationException(
+                    $"Project '{project.Name}': models.{workflow} names '{name}', which is not in allowed_models.");
+            }
         }
 
         if (settings.Limits.MaxReviews < 1)

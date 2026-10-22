@@ -41,7 +41,14 @@ public sealed record ReviewState(string HeadSha, long? CommentId, string Result)
 }
 
 /// <summary>How a job ended, as the dashboard reads it from the job row.</summary>
-public sealed record JobResult(string Result, string Detail, int? CopilotCalls = null);
+/// <param name="Model">The model of the job's first Copilot run (null = Copilot default or no run).</param>
+/// <param name="ModelReason">Why that model was chosen; null when the job ran no Copilot.</param>
+public sealed record JobResult(
+    string Result,
+    string Detail,
+    int? CopilotCalls = null,
+    string? Model = null,
+    string? ModelReason = null);
 
 /// <param name="Usage">
 /// Tokens and credits from the run's usage files (with their run, agent and model parts), or null when there were none.
@@ -55,7 +62,9 @@ public sealed record CostEntry(
     string Result,
     string Detail,
     int? CopilotCalls = null,
-    JobUsage? Usage = null);
+    JobUsage? Usage = null,
+    string? Model = null,
+    string? ModelReason = null);
 
 /// <summary>
 /// Small local state (design doc section 10). Deleting the file is safe: the runner reads
@@ -140,6 +149,10 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
         AddColumnIfMissing("jobs", "result", "TEXT");
         AddColumnIfMissing("jobs", "detail", "TEXT");
         AddColumnIfMissing("jobs", "copilot_calls", "INTEGER");
+        AddColumnIfMissing("jobs", "model", "TEXT");
+        AddColumnIfMissing("jobs", "model_reason", "TEXT");
+        AddColumnIfMissing("cost_log", "model", "TEXT");
+        AddColumnIfMissing("cost_log", "model_reason", "TEXT");
         AddColumnIfMissing("cost_log", "copilot_calls", "INTEGER");
         AddColumnIfMissing("review_state", "reviewed_sha", "TEXT");
         AddColumnIfMissing("review_state", "review_count", "INTEGER");
@@ -347,6 +360,8 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
             ("$result", entry.Result),
             ("$detail", entry.Detail),
             ("$calls", entry.CopilotCalls),
+            ("$model", entry.Model),
+            ("$modelReason", entry.ModelReason),
             .. usageParameters,
         ];
 
@@ -357,8 +372,9 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
             connection,
             $"""
             INSERT INTO cost_log (at, repo, number, workflow, duration_s, result, detail, copilot_calls,
-                {UsageColumnList})
-            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls, {UsageParameterList});
+                model, model_reason, {UsageColumnList})
+            VALUES ($at, $repo, $number, $wf, $d, $result, $detail, $calls, $model, $modelReason,
+                {UsageParameterList});
             SELECT last_insert_rowid();
             """,
             parameters);
@@ -427,14 +443,16 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
         using var command = Command(
             connection,
             $"""
-            SELECT at, repo, number, workflow, duration_s, copilot_calls, id, {UsageColumnList}
+            SELECT at, repo, number, workflow, duration_s, copilot_calls, id, model, model_reason, {UsageColumnList}
             FROM cost_log ORDER BY id
             """);
         using var reader = command.ExecuteReader();
 
         // Ordinals of the SELECT above.
         const int costIdOrdinal = 6;
-        const int firstUsageOrdinal = 7;
+        const int modelOrdinal = 7;
+        const int modelReasonOrdinal = 8;
+        const int firstUsageOrdinal = 9;
         var records = new List<CostRecord>();
         while (reader.Read())
         {
@@ -451,6 +469,8 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
                 usage)
             {
                 Parts = partsByCost.GetValueOrDefault(costId) ?? [],
+                Model = reader.IsDBNull(modelOrdinal) ? null : reader.GetString(modelOrdinal),
+                ModelReason = reader.IsDBNull(modelReasonOrdinal) ? null : reader.GetString(modelReasonOrdinal),
             });
         }
 
@@ -489,11 +509,17 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
 
     public void SetJobResult(long id, JobResult jobResult) =>
         Execute(
-            "UPDATE jobs SET result = $result, detail = $detail, copilot_calls = $calls WHERE id = $id",
+            """
+            UPDATE jobs SET result = $result, detail = $detail, copilot_calls = $calls, model = $model,
+                model_reason = $modelReason
+            WHERE id = $id
+            """,
             ("$id", id),
             ("$result", jobResult.Result),
             ("$detail", jobResult.Detail),
-            ("$calls", jobResult.CopilotCalls));
+            ("$calls", jobResult.CopilotCalls),
+            ("$model", jobResult.Model),
+            ("$modelReason", jobResult.ModelReason));
 
     public IReadOnlyList<JobRecord> ListQueue() =>
         QueryRecords("WHERE j.status = 'pending' ORDER BY j.id");
@@ -554,7 +580,7 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
     {
         var sql = $"""
             SELECT j.id, j.type, j.repo, j.number, j.status, j.attempts, j.created_at, j.started_at, j.finished_at,
-                j.error, j.log_dir, j.result, j.detail, j.copilot_calls
+                j.error, j.log_dir, j.result, j.detail, j.copilot_calls, j.model, j.model_reason
             FROM jobs j {tail}
             """;
 
@@ -579,7 +605,9 @@ public sealed partial class SqliteStateStore : IStateStore, IJobReader, IJobStep
                 reader.IsDBNull(10) ? null : reader.GetString(10),
                 reader.IsDBNull(11) ? null : reader.GetString(11),
                 reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+                reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                reader.IsDBNull(15) ? null : reader.GetString(15)));
         }
 
         return records;

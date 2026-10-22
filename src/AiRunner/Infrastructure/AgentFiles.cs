@@ -20,6 +20,9 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
     /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
     private RunnerConfig Config => configSource.Current;
 
+    /// <summary>The models an agent file may name (empty = no check); live, so a save checks the current list.</summary>
+    public IReadOnlyCollection<string> AllowedModels => Config.AllowedModels;
+
     /// <summary>The folders the installer copies.</summary>
     public static readonly string[] SharedFolders = AgentPaths.AllFolders[..2];
 
@@ -90,11 +93,41 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
     }
 
     /// <summary>Content hash of every file the installer copies, by path with "/" separators.</summary>
-    private IReadOnlyDictionary<string, string> SourceHashes() => HashesOfRoot(path => Config.ResolvePath(path));
+    private IReadOnlyDictionary<string, string> SourceHashes() =>
+        HashesOfRoot(path => Config.ResolvePath(path), InstalledForm);
+
+    /// <summary>
+    /// The bytes the installer writes for a source file: the file itself, except that an agent with an
+    /// <c>agent_models</c> entry gets its model line. Drift compares against this, so a model set from the config is
+    /// not reported as a difference.
+    /// </summary>
+    private byte[] InstalledForm(string path, byte[] bytes)
+    {
+        const string agentsPrefix = "agents/";
+        const string agentSuffix = ".agent.md";
+
+        var isAgent = path.StartsWith(agentsPrefix, StringComparison.Ordinal) &&
+                      path.EndsWith(agentSuffix, StringComparison.Ordinal);
+        if (!isAgent)
+        {
+            return bytes;
+        }
+
+        var agent = path[agentsPrefix.Length..^agentSuffix.Length];
+        if (!Config.AgentModels.TryGetValue(agent, out var model) ||
+            !ModelSetting.IsAllowed(Config.AllowedModels, model))
+        {
+            return bytes;
+        }
+
+        var text = Encoding.UTF8.GetString(bytes);
+
+        return Encoding.UTF8.GetBytes(AgentFrontmatter.WithModel(text, model));
+    }
 
     /// <summary>The same for the copy under the Copilot home.</summary>
     private IReadOnlyDictionary<string, string> InstalledHashes() =>
-        HashesOfRoot(folder => Path.Combine(copilotHome.Path, folder));
+        HashesOfRoot(folder => Path.Combine(copilotHome.Path, folder), (_, bytes) => bytes);
 
     /// <summary>The sync state of one file (hashes only that file and its copy).</summary>
     public string SyncStateOf(string path)
@@ -106,7 +139,7 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
             return AgentStates.Missing;
         }
 
-        var sourceHash = HashOf(File.ReadAllBytes(file));
+        var sourceHash = HashOf(InstalledForm(path, File.ReadAllBytes(file)));
         var installedHash = HashOf(File.ReadAllBytes(installedFile));
 
         return sourceHash == installedHash ? AgentStates.InSync : AgentStates.Differs;
@@ -249,12 +282,14 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         }
     }
 
-    private static IReadOnlyDictionary<string, string> HashesOfRoot(Func<string, string> folderOf)
+    private static IReadOnlyDictionary<string, string> HashesOfRoot(
+        Func<string, string> folderOf,
+        Func<string, byte[], byte[]> formOf)
     {
         var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var folder in SharedFolders)
         {
-            foreach (var (path, hash) in HashesOf(folderOf(folder), folder))
+            foreach (var (path, hash) in HashesOf(folderOf(folder), folder, formOf))
             {
                 hashes[path] = hash;
             }
@@ -263,12 +298,15 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         return hashes;
     }
 
-    private static Dictionary<string, string> HashesOf(string directory, string folder)
+    private static Dictionary<string, string> HashesOf(
+        string directory,
+        string folder,
+        Func<string, byte[], byte[]> formOf)
     {
         var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (path, file) in FilesOf(directory, folder))
         {
-            hashes[path] = HashOf(File.ReadAllBytes(file));
+            hashes[path] = HashOf(formOf(path, File.ReadAllBytes(file)));
         }
 
         return hashes;
