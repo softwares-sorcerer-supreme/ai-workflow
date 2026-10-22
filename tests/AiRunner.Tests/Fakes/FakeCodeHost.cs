@@ -51,7 +51,8 @@ public sealed class FakeCodeHost : ICodeHost
     public CodeHostCapabilities Capabilities { get; set; } = new(KeepsLabelsOnCreate: false);
 
     /// <summary>GitBucket's _attached links on the kit's base URL.</summary>
-    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) => AttachmentLinks.Find(text, JobTestKit.BaseUrl);
+    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) =>
+        GitBucketAttachmentLinks.Find(text, JobTestKit.BaseUrl);
 
     // ---- arrange helpers ----
 
@@ -75,7 +76,8 @@ public sealed class FakeCodeHost : ICodeHost
 
     public HostComment AddHumanComment(int number, string body, string user = "alice") => AddRaw(number, body, user);
 
-    public HostComment AddBotComment(int number, string body) => AddRaw(number, BotComments.Marker + "\n" + body, Login);
+    public HostComment AddBotComment(int number, string body) =>
+        AddRaw(number, BotComments.Marker + "\n" + body, Login);
 
     public HostPull AddPull(
         int number,
@@ -249,7 +251,10 @@ public sealed class FakeCodeHost : ICodeHost
         return Task.FromResult(issue);
     }
 
-    public Task<IReadOnlyList<HostComment>> ListCommentsAsync(string repo, int number, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<HostComment>> ListCommentsAsync(
+        string repo,
+        int number,
+        CancellationToken cancellationToken)
     {
         CommentListCalls++;
         RepoCalls.Add(("comments-read", repo));

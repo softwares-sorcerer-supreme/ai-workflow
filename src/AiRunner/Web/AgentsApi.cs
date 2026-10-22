@@ -68,7 +68,9 @@ public static class AgentsApi
         writes.MapPut("/agents/file", SaveAsync)
             .WithTags("Agents")
             .WithName("saveAgentFile")
-            .WithSummary("Save an existing agent or skill file. 409 when it changed since it was read, 400 when it breaks the rules.");
+            .WithSummary(
+                "Save an existing agent or skill file. 409 when it changed since it was read, "
+                + "400 when it breaks the rules.");
 
         writes.MapPost("/agents/revert", RevertAsync)
             .WithTags("Agents")
@@ -100,7 +102,11 @@ public static class AgentsApi
             return TypedResults.NotFound(new ApiError(AgentPaths.NotSharedMessage));
         }
 
-        return TypedResults.Ok(new AgentFileDetailResponse(ToResponse(detail.Info), detail.Text, detail.Hash, detail.Diff));
+        return TypedResults.Ok(new AgentFileDetailResponse(
+            ToResponse(detail.Info),
+            detail.Text,
+            detail.Hash,
+            detail.Diff));
     }
 
     private static async Task<AgentWriteKind> SaveAsync(

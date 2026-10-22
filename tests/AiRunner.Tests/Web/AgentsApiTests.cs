@@ -53,7 +53,11 @@ public sealed class AgentsApiTests : IAsyncDisposable
         var commands = new RunnerCommands();
         var installer = new AgentInstaller(RunnerConfigSource.Fixed(_config), NullLogger<AgentInstaller>.Instance);
         var sync = new AgentSync(installer, home, commands, NullLogger<AgentSync>.Instance);
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, Path.Combine(_root, "wwwroot"))
+        var options = new DashboardAppOptions(
+            RunnerConfigSource.Fixed(_config),
+            _status,
+            _time,
+            Path.Combine(_root, "wwwroot"))
         {
             Agents = new RunnerAgents(files, sync, NullLogger<RunnerAgents>.Instance),
             Commands = commands,
@@ -104,12 +108,16 @@ public sealed class AgentsApiTests : IAsyncDisposable
         var body = await BodyOf(response);
         Assert.True(body.GetProperty("isOutOfSync").GetBoolean());
         Assert.Contains("code change", body.GetProperty("templatesNote").GetString());
-        var agent = body.GetProperty("files").EnumerateArray().Single(file => file.GetProperty("kind").GetString() == "agent");
+        var agent = body.GetProperty("files")
+            .EnumerateArray()
+            .Single(file => file.GetProperty("kind").GetString() == "agent");
         Assert.Equal("agents/scout.agent.md", agent.GetProperty("path").GetString());
         Assert.Equal("missing", agent.GetProperty("syncState").GetString());
         Assert.Equal("Not installed", agent.GetProperty("syncStateLabel").GetString());
         Assert.Equal("unknown", agent.GetProperty("gitState").GetString());
-        var template = body.GetProperty("files").EnumerateArray().Single(file => file.GetProperty("kind").GetString() == "template");
+        var template = body.GetProperty("files")
+            .EnumerateArray()
+            .Single(file => file.GetProperty("kind").GetString() == "template");
         Assert.False(template.GetProperty("isEditable").GetBoolean());
     }
 

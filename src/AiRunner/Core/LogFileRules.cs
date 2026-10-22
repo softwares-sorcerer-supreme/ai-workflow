@@ -9,7 +9,9 @@ public static class LogFileRules
     /// <summary>Largest part of a file the viewer returns; the rest is cut with a note.</summary>
     public const int MaxBytes = 2 * 1024 * 1024;
 
-    /// <summary>End of the name of a file the runner appends to while Copilot runs ("round-2-copilot-live.txt").</summary>
+    /// <summary>
+    /// End of the name of a file the runner appends to while Copilot runs ("round-2-copilot-live.txt").
+    /// </summary>
     public const string LiveFileSuffix = "-live.txt";
 
     /// <summary>True for a file that grows while its job runs, so the dashboard tails it.</summary>

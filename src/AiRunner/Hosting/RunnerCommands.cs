@@ -55,7 +55,9 @@ public sealed class RunnerCommands
     /// <summary>Asks the poller for a poll now; a poll that is running finishes first.</summary>
     public void WakePoller() => _wakes.Writer.TryWrite(true);
 
-    /// <summary>Completes on the next <see cref="WakePoller"/> (or one that came before and was not read yet).</summary>
+    /// <summary>
+    /// Completes on the next <see cref="WakePoller"/> (or one that came before and was not read yet).
+    /// </summary>
     public Task WaitForWakeAsync(CancellationToken cancellationToken) =>
         _wakes.Reader.ReadAsync(cancellationToken).AsTask();
 
@@ -96,8 +98,8 @@ public sealed class RunnerCommands
     }
 
     /// <summary>
-    /// The worker takes the slot for the whole of one job, so work that must not overlap a job (an agent sync) waits for
-    /// the job to end and then runs before the next one. Dispose the result to give the slot back.
+    /// The worker takes the slot for the whole of one job, so work that must not overlap a job (an agent sync) waits
+    /// for the job to end and then runs before the next one. Dispose the result to give the slot back.
     /// </summary>
     public async Task<IDisposable> HoldJobSlotAsync(CancellationToken cancellationToken)
     {
@@ -106,7 +108,9 @@ public sealed class RunnerCommands
         return new SlotHolder(_jobSlot);
     }
 
-    /// <summary>Runs <paramref name="work"/> when no job holds the slot (at once when idle, else right after the job).</summary>
+    /// <summary>
+    /// Runs <paramref name="work"/> when no job holds the slot (at once when idle, else right after the job).
+    /// </summary>
     public async Task RunBetweenJobsAsync(Action work, CancellationToken cancellationToken)
     {
         using var slot = await HoldJobSlotAsync(cancellationToken);
@@ -127,7 +131,9 @@ public sealed class RunnerCommands
         }
     }
 
-    /// <summary>The worker starts a job; <paramref name="source"/> is the job's timeout source, which cancel uses too.</summary>
+    /// <summary>
+    /// The worker starts a job; <paramref name="source"/> is the job's timeout source, which cancel uses too.
+    /// </summary>
     public void RunStarted(long jobId, CancellationTokenSource source)
     {
         lock (_lock)

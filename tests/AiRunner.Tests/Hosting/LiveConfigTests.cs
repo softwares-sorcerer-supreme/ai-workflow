@@ -57,7 +57,9 @@ public sealed class LiveConfigTests : IDisposable
         public List<int> SeenPollSeconds { get; } = [];
     }
 
-    /// <summary>A job that reads its config at the end of its run, after the first one was held while a new config came.</summary>
+    /// <summary>
+    /// A job that reads its config at the end of its run, after the first one was held while a new config came.
+    /// </summary>
     private sealed class ProbeJob(RunnerConfig config, Probe probe) : IJob
     {
         public JobType Type => JobType.AnalyzeIssue;

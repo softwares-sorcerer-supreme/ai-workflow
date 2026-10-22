@@ -21,7 +21,9 @@ internal sealed class RunnerFile
     public DashboardConfig Dashboard { get; set; } = new();
     public GitConfig Git { get; set; } = new();
 
-    /// <summary>When not empty, every model of the file, an agent file and an issue override must be one of these.</summary>
+    /// <summary>
+    /// When not empty, every model of the file, an agent file and an issue override must be one of these.
+    /// </summary>
     public List<string> AllowedModels { get; set; } = [];
 
     /// <summary>Model per subagent name, written into the installed copy of its agent file.</summary>

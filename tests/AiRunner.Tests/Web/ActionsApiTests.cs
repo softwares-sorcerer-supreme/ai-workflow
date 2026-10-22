@@ -64,7 +64,11 @@ public sealed class ActionsApiTests : IAsyncDisposable
             _commands,
             _time,
             NullLogger<RunnerActions>.Instance);
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(
+            RunnerConfigSource.Fixed(_config),
+            status,
+            _time,
+            Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
             Snapshot = _store,
@@ -424,12 +428,44 @@ public sealed class ActionsApiTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_pull_action_route_is_behind_the_write_guard()
+    {
+        _host.AddPull(50, "feature/x", "main", repo: BackendRepo, labels: "ai");
+        var client = await StartAsync();
+
+        var withoutHeader = Post($"api/pulls/{BackendRepo}/50/actions/review-full");
+        withoutHeader.Headers.Remove(WriteGuard.HeaderName);
+        var guarded = await SendAsync(client, withoutHeader);
+        var wrongMethod = new HttpRequestMessage(HttpMethod.Put, $"api/pulls/{BackendRepo}/50/actions/review-full");
+        using var wrongMethodAnswer = await client.SendAsync(wrongMethod);
+
+        Assert.Equal(HttpStatusCode.Forbidden, guarded.Status);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, wrongMethodAnswer.StatusCode);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task An_issue_the_code_host_does_not_have_is_a_404()
+    {
+        var client = await StartAsync();
+
+        var (status, message) = await IssueActionAsync(client, 404, "implement");
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Contains("not found", message);
+        Assert.False(IsPollerWoken());
+        AssertNothingWritten();
+    }
+
+    [Fact]
     public async Task The_issue_list_and_the_detail_carry_the_actions_of_each_issue_and_pull()
     {
         _store.SaveIssues(
         [
-            new IssueSnapshot(IssuesRepo, 7, "mbh", "Add login", "open", [Labels.Ready, Labels.Simple, "ai"], [], Seen, Seen),
-            new IssueSnapshot(IssuesRepo, 8, "mbh", "Ready", "open", [Labels.Ready, Labels.Simple, "ai"], [], Seen, Seen),
+            new IssueSnapshot(
+                IssuesRepo, 7, "mbh", "Add login", "open", [Labels.Ready, Labels.Simple, "ai"], [], Seen, Seen),
+            new IssueSnapshot(
+                IssuesRepo, 8, "mbh", "Ready", "open", [Labels.Ready, Labels.Simple, "ai"], [], Seen, Seen),
             new IssueSnapshot(IssuesRepo, 9, "mbh", "Broke", "open", [Labels.Failed, "ai"], [], Seen, Seen),
         ]);
         _store.SavePulls(

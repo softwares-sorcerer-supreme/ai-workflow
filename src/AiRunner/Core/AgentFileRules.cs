@@ -82,7 +82,10 @@ public static class AgentFileRules
 
     }
 
-    private static void CheckModel(YamlMappingNode root, IReadOnlyCollection<string>? allowedModels, List<string> reasons)
+    private static void CheckModel(
+        YamlMappingNode root,
+        IReadOnlyCollection<string>? allowedModels,
+        List<string> reasons)
     {
         var model = ScalarOf(root, "model");
         var hasAllowList = allowedModels is { Count: > 0 };

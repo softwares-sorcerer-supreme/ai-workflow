@@ -12,7 +12,9 @@ public static partial class Markers
     public const string Review = "REVIEW";
     public const string ReviewFix = "REVIEW_FIX";
 
-    /// <summary>Name of the one-line tag that carries issue settings (<c>&lt;!-- AI_SETTINGS key=value --&gt;</c>).</summary>
+    /// <summary>
+    /// Name of the one-line tag that carries issue settings (<c>&lt;!-- AI_SETTINGS key=value --&gt;</c>).
+    /// </summary>
     public const string Settings = "AI_SETTINGS";
 
     private static string Start(string name) => $"<!-- {name}_START -->";
@@ -57,7 +59,9 @@ public static partial class Markers
         return text.Contains(start, StringComparison.Ordinal);
     }
 
-    /// <summary>One settings tag line. The caller has checked that key and value hold no space or <c>-</c><c>-&gt;</c>.</summary>
+    /// <summary>
+    /// One settings tag line. The caller has checked that key and value hold no space or <c>-</c><c>-&gt;</c>.
+    /// </summary>
     public static string SettingTag(string key, string value) => $"<!-- {Settings} {key}={value} -->";
 
     /// <summary>

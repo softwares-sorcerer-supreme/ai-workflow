@@ -59,7 +59,7 @@ public sealed record SetupResponse(
     };
 
     private static string? TokenNoteOf(string source) => source == CredentialSource.Environment
-        ? "This token comes from the GITBUCKET_TOKEN (or GitBucket__Token) environment variable and can only be " +
+        ? $"This token comes from the {CredentialEnvironment.TokenVariables} environment variable and can only be " +
           "changed or removed there. A token saved here is used instead of it."
         : null;
 
@@ -192,13 +192,14 @@ public sealed class NoSetup : IRunnerSetup
         WebPasswordSource: CredentialSource.None,
         SecretsFile: "");
 
-    public Task<SetupResult> SaveTokenAsync(string token, CancellationToken cancellationToken) => Refused();
+    public Task<SetupResult> SaveTokenAsync(string token, CancellationToken cancellationToken) => NotAvailable();
 
-    public Task<SetupResult> RemoveTokenAsync(CancellationToken cancellationToken) => Refused();
+    public Task<SetupResult> RemoveTokenAsync(CancellationToken cancellationToken) => NotAvailable();
 
-    public Task<SetupResult> SaveWebPasswordAsync(string password, CancellationToken cancellationToken) => Refused();
+    public Task<SetupResult> SaveWebPasswordAsync(string password, CancellationToken cancellationToken) =>
+        NotAvailable();
 
-    public Task<SetupResult> RemoveWebPasswordAsync(CancellationToken cancellationToken) => Refused();
+    public Task<SetupResult> RemoveWebPasswordAsync(CancellationToken cancellationToken) => NotAvailable();
 
-    private static Task<SetupResult> Refused() => Task.FromResult(new SetupResult(SetupOutcome.Conflict, Message));
+    private static Task<SetupResult> NotAvailable() => Task.FromResult(new SetupResult(SetupOutcome.Conflict, Message));
 }

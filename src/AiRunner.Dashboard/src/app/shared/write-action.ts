@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, inject, signal } from '@angular/core';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { CommandResponse } from '../api/models/command-response';
@@ -60,4 +61,34 @@ export function writeAction(options: WriteActionOptions): WriteAction {
   };
 
   return { isBusy: isBusy.asReadonly(), run };
+}
+
+/**
+ * Why the runner refused a save of an editor screen (Agents, Settings): `conflict` the file changed since it was read
+ * (409, the person reloads), `invalid` the runner's checks refused the text (400). `body` is the answer as sent, for a
+ * screen that shows more of it (the reasons of an agent file).
+ */
+export interface SaveRefusal {
+  kind: 'conflict' | 'invalid';
+  message: string;
+  body: unknown;
+}
+
+/** The refusal in a failed save, or undefined when it failed another way (the snack bar already says so). */
+export function saveRefusal(failure: unknown, fallback: string): SaveRefusal | undefined {
+  if (!(failure instanceof HttpErrorResponse)) {
+    return undefined;
+  }
+
+  const message = describeError(failure, fallback);
+
+  if (failure.status === 409) {
+    return { kind: 'conflict', message, body: failure.error };
+  }
+
+  if (failure.status === 400) {
+    return { kind: 'invalid', message, body: failure.error };
+  }
+
+  return undefined;
 }

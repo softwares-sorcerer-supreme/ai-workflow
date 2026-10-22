@@ -59,7 +59,9 @@ public static class CodeHostModelExtensions
     /// </summary>
     public static string Fingerprint(this HostIssue issue)
     {
-        var updatedAt = issue.UpdatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        var updatedAt = issue.UpdatedAt
+            .ToUniversalTime()
+            .ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         var labelNames = issue.LabelNames().Select(label => label.ToLowerInvariant()).Order(StringComparer.Ordinal);
         var joinedLabels = string.Join(",", labelNames);
 
@@ -102,3 +104,10 @@ public static class CodeHostModelExtensions
     private static HashSet<string> Names(List<HostLabel>? labels) =>
         (labels ?? []).Select(label => label.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
+
+/// <summary>A file linked from issue or PR text (found by <c>ICodeHost.FindAttachments</c>).</summary>
+/// <param name="Url">Absolute URL on the code host.</param>
+/// <param name="Id">The host's id of the file (GitBucket: the part after <c>_attached/</c>).</param>
+/// <param name="Name">The link text from the markdown, or the id when the link has none.</param>
+/// <param name="IsImage">The text embeds it as an image (<c>![x](...)</c> or an img tag).</param>
+public sealed record AttachmentRef(string Url, string Id, string Name, bool IsImage);

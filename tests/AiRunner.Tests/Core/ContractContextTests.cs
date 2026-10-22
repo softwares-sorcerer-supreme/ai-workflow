@@ -79,7 +79,12 @@ public class ContractContextTests
     [Fact]
     public void A_pr_of_a_simple_issue_keeps_the_plain_spec_heading()
     {
-        var pull = new HostPull(30, "T", new HostRef("ai/issue-12", "sha"), new HostRef("main", "b"), DateTimeOffset.UtcNow);
+        var pull = new HostPull(
+            30,
+            "T",
+            new HostRef("ai/issue-12", "sha"),
+            new HostRef("main", "b"),
+            DateTimeOffset.UtcNow);
         var linked = new LinkedIssue(12, null, "the spec");
 
         var text = ContextBuilder.ForPull(pull, [], linked);

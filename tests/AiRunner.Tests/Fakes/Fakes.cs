@@ -428,7 +428,9 @@ public sealed class JobTestKit : IDisposable
         return (worker, queue, logs);
     }
 
-    /// <summary>A worker over this kit whose jobs run in <paramref name="scopes"/> (see <see cref="JobScopes"/>).</summary>
+    /// <summary>
+    /// A worker over this kit whose jobs run in <paramref name="scopes"/> (see <see cref="JobScopes"/>).
+    /// </summary>
     public (JobWorker Worker, JobQueue Queue) NewWorker(
         RunnerConfigSource configSource,
         IServiceScopeFactory scopes,

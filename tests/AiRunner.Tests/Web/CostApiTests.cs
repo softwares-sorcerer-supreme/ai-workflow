@@ -55,7 +55,11 @@ public sealed class CostApiTests : IAsyncDisposable
     private async Task<HttpClient> StartAsync()
     {
         var status = new RunnerStatus("laptop-1", "repos.yml", _time);
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(
+            RunnerConfigSource.Fixed(_config),
+            status,
+            _time,
+            Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
             Snapshot = _store,

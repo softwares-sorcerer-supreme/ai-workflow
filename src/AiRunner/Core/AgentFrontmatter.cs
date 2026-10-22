@@ -11,7 +11,9 @@ public static partial class AgentFrontmatter
     [GeneratedRegex(@"^model:.*$", RegexOptions.Multiline)]
     private static partial Regex ModelLine();
 
-    /// <summary>The text with <c>model: X</c> in its front matter; a text without front matter comes back as it is.</summary>
+    /// <summary>
+    /// The text with <c>model: X</c> in its front matter; a text without front matter comes back as it is.
+    /// </summary>
     public static string WithModel(string text, string model)
     {
         var newline = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";

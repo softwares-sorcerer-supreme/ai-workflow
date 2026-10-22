@@ -1,15 +1,19 @@
 namespace AiRunner.Core;
 
-/// <summary>One note about a clone, shown inline on the Workspaces screen. The code is stable, the message is the text.</summary>
+/// <summary>
+/// One note about a clone, shown inline on the Workspaces screen. The code is stable, the message is the text.
+/// </summary>
 public sealed record WorkspaceWarning(string Code, string Message);
 
 /// <summary>What <see cref="WorkspaceChecks"/> needs to know about one clone, read from disk by the caller.</summary>
-/// <param name="Exists">False when the clone is not on disk yet (the next job clones it).</param>
+/// <param name="IsOnDisk">False when the clone is not on disk yet (the next job clones it).</param>
 /// <param name="ChangedPaths">Paths that differ from HEAD; there should be none between jobs.</param>
 /// <param name="RepoAgentFiles">File names in the clone's .github/agents folder.</param>
-/// <param name="MissingInstructions">Instruction files named in repos.yml that are not in the clone, as "component: path".</param>
+/// <param name="MissingInstructions">
+/// Instruction files named in repos.yml that are not in the clone, as "component: path".
+/// </param>
 public sealed record CloneFacts(
-    bool Exists,
+    bool IsOnDisk,
     IReadOnlyList<string> ChangedPaths,
     IReadOnlyList<string> RepoAgentFiles,
     IReadOnlyList<string> MissingInstructions);
@@ -30,7 +34,7 @@ public static class WorkspaceChecks
     /// <param name="installedAgents">File names of the shared agents the runner installs (agents/*.agent.md).</param>
     public static IReadOnlyList<WorkspaceWarning> For(CloneFacts facts, IReadOnlyCollection<string> installedAgents)
     {
-        if (!facts.Exists)
+        if (!facts.IsOnDisk)
         {
             return [];
         }

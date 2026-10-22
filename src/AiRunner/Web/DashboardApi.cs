@@ -128,7 +128,8 @@ public static class DashboardApi
         var isCancelled = commands.TryCancel(id);
         if (!isCancelled)
         {
-            return TypedResults.Conflict(new ApiError($"Job {id} is not running. Pause the runner to hold queued jobs."));
+            return TypedResults.Conflict(
+                new ApiError($"Job {id} is not running. Pause the runner to hold queued jobs."));
         }
 
         return AcceptedWith($"Job {id} is being cancelled. Its issue or PR gets the failure comment.");

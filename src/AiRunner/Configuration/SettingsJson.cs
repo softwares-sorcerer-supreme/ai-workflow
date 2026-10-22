@@ -7,7 +7,10 @@ namespace AiRunner.Configuration;
 
 /// <summary>A value of a project setting and where it comes from, with the text the screen shows for that.</summary>
 /// <param name="Value">The value as written in repos.yml (JSON); null = not set anywhere (no built-in value).</param>
-/// <param name="Source"><c>project</c>, <c>defaults</c> or <c>default</c> (built in).</param>
+/// <param name="Source">
+/// <c>project</c>, <c>defaults</c> or <c>default</c> (built in); <c>project</c> also when the project's plain model
+/// name replaces the whole <c>models.&lt;workflow&gt;</c> entry, so nothing of it is inherited.
+/// </param>
 public sealed record SourcedValue(JsonNode? Value, string Source, string SourceLabel);
 
 /// <summary>
@@ -18,6 +21,9 @@ public sealed record EffectiveValue(string Key, SourcedValue Effective, SourcedV
 
 /// <summary>The merged settings of one project, key by key.</summary>
 public sealed record ProjectEffective(string Project, IReadOnlyList<EffectiveValue> Values);
+
+/// <summary>What the Settings screen reads: the file as JSON and the merged settings of every project.</summary>
+public sealed record SettingsFileView(JsonObject File, IReadOnlyList<ProjectEffective> Effective);
 
 /// <summary>
 /// repos.yml as the Settings screen edits it: the raw file as snake_case JSON (only what is written, secrets as
@@ -45,25 +51,40 @@ public static class SettingsJson
     private static readonly JsonObject BuiltInSettings =
         JsonSerializer.SerializeToNode(new ProjectSettings(), FileJson)!.AsObject();
 
+    public const string BuiltInLabel = "Built-in default";
+    public const string NotSetLabel = "Not set.";
+
     private static readonly Dictionary<string, string> SourceLabels = new()
     {
         [FromProject] = "Set in this project",
         [FromDefaults] = "Inherited from defaults",
-        [BuiltIn] = "Built-in default",
+        [BuiltIn] = BuiltInLabel,
     };
 
-    /// <summary>The file as JSON, every secret masked. Throws <see cref="InvalidOperationException"/> on a bad file.</summary>
-    public static JsonObject Read(string yaml)
+    private const string ReplacedByPlainModel = "Not inherited (this project names one model for the workflow)";
+
+    /// <summary>
+    /// The file as JSON, every secret masked. Throws <see cref="InvalidOperationException"/> on a bad file.
+    /// </summary>
+    public static JsonObject Read(string yaml) => ReadView(yaml).File;
+
+    /// <summary>
+    /// The file as JSON (every secret masked) and the merged settings of every project (<see cref="Effective"/>), from
+    /// one read of the text. Throws <see cref="InvalidOperationException"/> on a bad file.
+    /// </summary>
+    public static SettingsFileView ReadView(string yaml)
     {
-        var file = ConfigResolver.Deserialize(yaml);
-        var json = ToJson(file);
+        var runnerFile = ConfigResolver.Deserialize(yaml);
+        var json = ToJson(runnerFile);
 
         foreach (var secret in SettingsSchema.All.Where(entry => entry.IsSecret))
         {
             MaskSecret(json, secret.Path);
         }
 
-        return json;
+        var effective = Effective(runnerFile, json);
+
+        return new SettingsFileView(json, effective);
     }
 
     /// <summary>
@@ -87,6 +108,7 @@ public static class SettingsJson
 
         var text = incoming.ToJsonString(Indented);
         var runnerFile = ConfigResolver.Deserialize(text);
+        KeepPlainModels(runnerFile, currentFile);
         var resolved = ConfigResolver.Resolve(runnerFile);
         RunnerConfig.RequireBaseUrl(resolved.Config, "the new settings");
 
@@ -102,11 +124,17 @@ public static class SettingsJson
     }
 
     /// <summary>
-    /// Per project of <c>projects:</c> in a file from <see cref="Read"/>, every setting of
-    /// <see cref="SettingsSchema.ProjectSettings"/>: the project's own value, else the one of <c>defaults:</c>, else the
-    /// built-in one (key by key, like the resolver merges).
+    /// Per project of <c>projects:</c> in repos.yml, every setting of <see cref="SettingsSchema.ProjectSettings"/>: the
+    /// project's own value, else the one of <c>defaults:</c>, else the built-in one (key by key, like the resolver
+    /// merges). A plain model name of the project replaces the whole entry, so its other keys inherit nothing.
     /// </summary>
-    public static IReadOnlyList<ProjectEffective> Effective(JsonObject file)
+    public static IReadOnlyList<ProjectEffective> Effective(string yaml) => ReadView(yaml).Effective;
+
+    /// <summary>
+    /// The plain names come from <paramref name="runnerFile"/>: the JSON of <paramref name="file"/> always holds the
+    /// object form of a model setting.
+    /// </summary>
+    private static IReadOnlyList<ProjectEffective> Effective(RunnerFile runnerFile, JsonObject file)
     {
         var defaults = file["defaults"] as JsonObject ?? [];
         var projects = file["projects"] as JsonObject ?? [];
@@ -114,7 +142,8 @@ public static class SettingsJson
 
         foreach (var (name, node) in projects)
         {
-            var layers = new SettingLayers(node as JsonObject ?? [], defaults, BuiltInSettings);
+            var plainModels = PlainModelsOf(runnerFile.Projects[name].Models);
+            var layers = new SettingLayers(node as JsonObject ?? [], defaults, BuiltInSettings, plainModels);
             var values = SettingsSchema.ProjectSettings
                 .Select(entry => Effective(entry.Key, layers))
                 .ToList();
@@ -152,9 +181,13 @@ public static class SettingsJson
 
     private static EffectiveValue Effective(string key, SettingLayers layers)
     {
-        var (project, defaults, builtIn) = layers;
+        var (project, defaults, builtIn, plainModels) = layers;
         SourcedValue inherited;
-        if (Find(defaults, key) is { } shared)
+        if (IsReplacedByPlainModel(key, plainModels))
+        {
+            inherited = new SourcedValue(null, FromProject, ReplacedByPlainModel);
+        }
+        else if (Find(defaults, key) is { } shared)
         {
             inherited = Sourced(shared.DeepClone(), FromDefaults);
         }
@@ -278,8 +311,93 @@ public static class SettingsJson
         }
     }
 
+    /// <summary>
+    /// The workflows whose <c>models</c> entry is a plain model name: in the merge it replaces the entry of
+    /// <c>defaults:</c> instead of merging key by key.
+    /// </summary>
+    private static HashSet<string> PlainModelsOf(Dictionary<string, ModelSetting>? models)
+    {
+        var plain = (models ?? [])
+            .Where(entry => entry.Value.IsPlainString)
+            .Select(entry => entry.Key);
+
+        return [.. plain];
+    }
+
+    /// <summary>
+    /// <c>models.&lt;workflow&gt;.&lt;key&gt;</c> other than <c>default</c> of a workflow in the set.
+    /// </summary>
+    private static bool IsReplacedByPlainModel(string key, HashSet<string> plainModels)
+    {
+        if (plainModels.Count == 0)
+        {
+            return false;
+        }
+
+        var parts = key.Split('.');
+
+        return parts.Length == 3 &&
+            parts[0] == "models" &&
+            parts[2] != ModelSetting.DefaultKey &&
+            plainModels.Contains(parts[1]);
+    }
+
+    /// <summary>
+    /// The screen edits every model setting in the object form, so a plain <c>implement: x</c> comes back as
+    /// <c>{ default: x }</c>. Written like that it would merge with <c>defaults:</c> key by key instead of replacing
+    /// it, and a save would change which model runs. An entry that still holds only <c>default</c> and was a plain
+    /// name in the file stays one.
+    /// </summary>
+    private static void KeepPlainModels(RunnerFile edited, RunnerFile current)
+    {
+        KeepPlain(edited.Defaults.Models, current.Defaults.Models);
+
+        foreach (var (name, project) in edited.Projects)
+        {
+            if (current.Projects.TryGetValue(name, out var before))
+            {
+                KeepPlain(project.Models, before.Models);
+            }
+        }
+
+        var currentRepos = current.Repos ?? [];
+        foreach (var repo in edited.Repos ?? [])
+        {
+            var before = currentRepos.FirstOrDefault(entry => entry.Owner == repo.Owner && entry.Name == repo.Name);
+            if (before is not null)
+            {
+                KeepPlain(repo.Models, before.Models);
+            }
+        }
+    }
+
+    private static void KeepPlain(Dictionary<string, ModelSetting>? edited, Dictionary<string, ModelSetting>? current)
+    {
+        if (edited is null || current is null)
+        {
+            return;
+        }
+
+        foreach (var (workflow, setting) in edited.ToList())
+        {
+            // Record equality covers every key, also one added later.
+            var isOnlyDefault = setting.Default is not null &&
+                setting == new ModelSetting { Default = setting.Default };
+            var wasPlain = current.TryGetValue(workflow, out var before) && before.IsPlainString;
+
+            if (isOnlyDefault && wasPlain)
+            {
+                edited[workflow] = setting with { IsPlainString = true };
+            }
+        }
+    }
+
     /// <summary>Where a project's setting may come from, first match wins.</summary>
-    private sealed record SettingLayers(JsonObject Project, JsonObject Defaults, JsonObject BuiltIn);
+    private sealed record SettingLayers(
+        JsonObject Project,
+        JsonObject Defaults,
+        JsonObject BuiltIn,
+        HashSet<string> PlainModels);
 
     private static bool IsSameConfig(ConfigFile left, ConfigFile right)
     {

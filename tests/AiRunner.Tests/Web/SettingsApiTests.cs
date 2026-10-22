@@ -122,7 +122,9 @@ public sealed class SettingsApiTests : IAsyncDisposable
         Assert.True(port["isRestartNeeded"]!.GetValue<bool>());
         Assert.Equal(5180, port["default"]!.GetValue<int>());
         Assert.Equal("global", port["scope"]!.GetValue<string>());
-        Assert.Contains(entries, entry => entry!["path"]!.GetValue<string>() == "projects.*.components.*.commands.build");
+        Assert.Contains(
+            entries,
+            entry => entry!["path"]!.GetValue<string>() == "projects.*.components.*.commands.build");
     }
 
     [Fact]

@@ -34,7 +34,7 @@ public sealed class GitBucketCodeHost(
     public CodeHostCapabilities Capabilities { get; } = new(KeepsLabelsOnCreate: false);
 
     /// <summary>GitBucket's JSON has no attachment list: the _attached links in the text are all there is.</summary>
-    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) => AttachmentLinks.Find(text, baseUrl);
+    public IReadOnlyList<AttachmentRef> FindAttachments(string? text) => GitBucketAttachmentLinks.Find(text, baseUrl);
 
     // ---- read ----
 

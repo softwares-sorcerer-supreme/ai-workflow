@@ -46,7 +46,9 @@ public sealed class ComponentDeliveryTests
         // The issue, its label and its comments stay in the issues repo.
         Assert.Empty(kit.CodeHost.ReposOf("create-issue"));
         Assert.Contains(kit.Project.IssuesRepo, kit.CodeHost.ReposOf("comment"));
-        Assert.DoesNotContain(second.Repo == kit.Project.IssuesRepo ? "-" : second.Repo, kit.CodeHost.ReposOf("comment"));
+        Assert.DoesNotContain(
+            second.Repo == kit.Project.IssuesRepo ? "-" : second.Repo,
+            kit.CodeHost.ReposOf("comment"));
     }
 
     [Theory]
@@ -223,7 +225,11 @@ public sealed class ComponentDeliveryTests
                 labels.Add(Labels.Implementing);
             }
 
-            kit.CodeHost.AddIssue(number, $"#12.{index + 1}", SubIssueBodyFor(12, index + 1, components[index]), [.. labels]);
+            kit.CodeHost.AddIssue(
+                number,
+                $"#12.{index + 1}",
+                SubIssueBodyFor(12, index + 1, components[index]),
+                [.. labels]);
         }
 
         kit.CodeHost.AddBotComment(12, SubIssueBody.ListMarker(numbers));
@@ -250,7 +256,9 @@ public sealed class ComponentDeliveryTests
         Assert.False(kit.CodeHost.Issues[20].IsOpen());
         Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(20));
         Assert.Contains("is merged into `feat/issue-12`", kit.CodeHost.CommentsOf(20).Last().Body);
-        Assert.Contains(JobSupport.PullRef(50, kit.Project.IssuesRepo, first.Repo), kit.CodeHost.CommentsOf(20).Last().Body);
+        Assert.Contains(
+            JobSupport.PullRef(50, kit.Project.IssuesRepo, first.Repo),
+            kit.CodeHost.CommentsOf(20).Last().Body);
         Assert.Equal([kit.Project.IssuesRepo], kit.CodeHost.ReposOf("close-issue"));
 
         Assert.Contains(Labels.Implement, kit.CodeHost.LabelsOf(21));
@@ -314,7 +322,10 @@ public sealed class ComponentDeliveryTests
         Assert.All(finalPulls, pull => Assert.DoesNotContain("Closes", pull.Body));
 
         // One parent comment lists all the final PRs.
-        var listComments = kit.CodeHost.CommentsOf(12).Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker)).ToList();
+        var listComments = kit.CodeHost
+            .CommentsOf(12)
+            .Where(comment => comment.Body!.Contains(SubIssueBody.FinalPrsMarker))
+            .ToList();
         var list = Assert.Single(listComments).Body!;
         Assert.All(finalPulls, pull => Assert.Contains($"#{pull.Number}", list));
 
@@ -389,7 +400,9 @@ public sealed class ComponentDeliveryTests
         Assert.Equal(0, outcome.CopilotCalls);
         Assert.False(kit.CodeHost.Issues[12].IsOpen());
         Assert.DoesNotContain(Labels.Implementing, kit.CodeHost.LabelsOf(12));
-        Assert.Contains(JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo), kit.CodeHost.CommentsOf(12).Last().Body);
+        Assert.Contains(
+            JobSupport.PullRef(30, kit.Project.IssuesRepo, second.Repo),
+            kit.CodeHost.CommentsOf(12).Last().Body);
         Assert.Equal([kit.Project.IssuesRepo], kit.CodeHost.ReposOf("close-issue"));
     }
 

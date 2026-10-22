@@ -8,9 +8,13 @@ namespace AiRunner.Hosting;
 /// What the Settings screen shows: repos.yml as JSON (secrets as <c>{ isSet }</c>), the hash a save must start from,
 /// and what the runner made of it.
 /// </summary>
-/// <param name="File">The applied (last good) file; when the one on disk is broken, <see cref="Error"/> says why.</param>
+/// <param name="File">
+/// The applied (last good) file; when the one on disk is broken, <see cref="Error"/> says why.
+/// </param>
 /// <param name="Hash">Hash of the file on disk now: a save is refused when it changed since this read.</param>
-/// <param name="HasComments">The file has comments, which a save drops (the screen warns before the first save).</param>
+/// <param name="HasComments">
+/// The file has comments, which a save drops (the screen warns before the first save).
+/// </param>
 /// <param name="RestartNeeded">Keys saved but applied only at the next start.</param>
 public sealed record SettingsView(
     JsonObject? File,
@@ -73,8 +77,7 @@ public sealed class RunnerSettings(
         logger.LogReload(reload);
 
         var state = configSource.State;
-        var file = SettingsJson.Read(state.Text);
-        var effective = SettingsJson.Effective(file);
+        var (file, effective) = SettingsJson.ReadView(state.Text);
         var hasComments = SettingsJson.HasComments(state.Text);
 
         return new SettingsView(

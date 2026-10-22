@@ -11,7 +11,13 @@ public sealed class WaitingOnTests
     private static readonly CodeLabel RunningBadge = new(IssueMarks.Running, "Running");
 
     private static HostPull Pull(int number, bool isOpen = true) =>
-        new(number, "t", new HostRef("ai/issue-7", "s"), new HostRef("main", "b"), Now, State: isOpen ? "open" : "closed");
+        new(
+            number,
+            "t",
+            new HostRef("ai/issue-7", "s"),
+            new HostRef("main", "b"),
+            Now,
+            State: isOpen ? "open" : "closed");
 
     private static IssueSnapshot Issue(bool isOpen = true, params string[] labels) =>
         SnapshotRules.IssueRow(TestProjects.SeparateIssuesRepo(), Samples.Issue(7, labels) with

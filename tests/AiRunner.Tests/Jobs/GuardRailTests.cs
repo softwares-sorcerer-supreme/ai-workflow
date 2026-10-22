@@ -109,7 +109,15 @@ public sealed class ReviewGuardRailTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private ReviewPullRequestJob Job =>
-        new(_kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Attachments);
+        new(
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Copilot,
+            _kit.State,
+            _kit.Attachments);
 
     public void Dispose() => _kit.Dispose();
 

@@ -114,8 +114,12 @@ public sealed class AgentFilesTests : IDisposable
         var listing = await _agents.ListAsync(default);
 
         Assert.Equal(AgentStates.Modified, listing.Files.Single(file => file.Path == "agents/scout.agent.md").GitState);
-        Assert.Equal(AgentStates.Untracked, listing.Files.Single(file => file.Path == "skills/checklist/extra.md").GitState);
-        Assert.Equal(AgentStates.Unchanged, listing.Files.Single(file => file.Path == "skills/checklist/SKILL.md").GitState);
+        Assert.Equal(
+            AgentStates.Untracked,
+            listing.Files.Single(file => file.Path == "skills/checklist/extra.md").GitState);
+        Assert.Equal(
+            AgentStates.Unchanged,
+            listing.Files.Single(file => file.Path == "skills/checklist/SKILL.md").GitState);
         Assert.True(listing.Files.Single(file => file.Path == "agents/scout.agent.md").CanRevert);
         Assert.False(listing.Files.Single(file => file.Path == "skills/checklist/SKILL.md").CanRevert);
     }
@@ -128,7 +132,10 @@ public sealed class AgentFilesTests : IDisposable
         {
             Directory.CreateDirectory(Path.Combine(plainRoot, "agents"));
             File.WriteAllText(Path.Combine(plainRoot, "agents", "scout.agent.md"), Agent);
-            var files = new AgentFiles(RunnerConfigSource.Fixed(new RunnerConfig { RootDir = plainRoot }), new CopilotHome(_home), _processRunner);
+            var files = new AgentFiles(
+                RunnerConfigSource.Fixed(new RunnerConfig { RootDir = plainRoot }),
+                new CopilotHome(_home),
+                _processRunner);
 
             var states = await files.GitStatesAsync(["agents/scout.agent.md"], default);
 

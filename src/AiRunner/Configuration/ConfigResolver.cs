@@ -46,7 +46,9 @@ internal static partial class ConfigResolver
         }
     }
 
-    /// <summary>The config, and beside it the web password, which must stay out of it (<see cref="ConfigFile"/>).</summary>
+    /// <summary>
+    /// The config, and beside it the web password, which must stay out of it (<see cref="ConfigFile"/>).
+    /// </summary>
     public static ConfigFile Resolve(RunnerFile file)
     {
         var (codeHost, webPassword) = ResolveCodeHost(file);

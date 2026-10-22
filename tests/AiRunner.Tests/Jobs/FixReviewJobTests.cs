@@ -8,7 +8,15 @@ public sealed class FixReviewJobTests : IDisposable
 {
     private readonly JobTestKit _kit = new();
     private FixReviewJob Job =>
-        new(_kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.State, _kit.Attachments);
+        new(
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Session,
+            _kit.State,
+            _kit.Attachments);
 
     public FixReviewJobTests() => _kit.Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
 

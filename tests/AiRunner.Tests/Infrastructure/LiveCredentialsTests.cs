@@ -111,7 +111,10 @@ public class LiveCredentialsTests
             code_host: { kind: gitbucket, base_url: "http://gb.test/" }
             """);
         var credentials = RunnerCredentials.Of(token: "old-token");
-        var remote = new GitBucketGitRemote(RunnerConfigSource.Fixed(config), new RunnerIdentity { Login = "bot" }, credentials);
+        var remote = new GitBucketGitRemote(
+            RunnerConfigSource.Fixed(config),
+            new RunnerIdentity { Login = "bot" },
+            credentials);
 
         var before = remote.AuthorizationHeader();
         credentials.Apply(RunnerCredentials.Of(token: "new-token").Current);

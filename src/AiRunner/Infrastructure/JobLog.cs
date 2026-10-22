@@ -18,13 +18,19 @@ public sealed class JobRun(string directory, ILogger logger)
 
     public string Dir { get; } = directory;
 
-    /// <summary>The model of the job's first Copilot run (null = Copilot's default); null reason = not recorded.</summary>
+    /// <summary>
+    /// The model of the job's first Copilot run (null = Copilot's default); null reason = not recorded.
+    /// </summary>
     public string? Model { get; private set; }
 
-    /// <summary>Why <see cref="Model"/> was chosen ("issue override", "default", ...); the worker stores both.</summary>
+    /// <summary>
+    /// Why <see cref="Model"/> was chosen ("issue override", "default", ...); the worker stores both.
+    /// </summary>
     public string? ModelReason { get; private set; }
 
-    /// <summary>Records the model of the first Copilot run; later runs (fix rounds) only appear in their round line.</summary>
+    /// <summary>
+    /// Records the model of the first Copilot run; later runs (fix rounds) only appear in their round line.
+    /// </summary>
     public void RecordModel(ModelChoice choice)
     {
         if (ModelReason is not null)
@@ -152,7 +158,9 @@ public sealed class JobRun(string directory, ILogger logger)
 
 public sealed class JobLog(RunnerConfigSource configSource, ILogger<JobLog> logger)
 {
-    /// <summary>The logs folder needs a restart; log_retention_days is read once, when the old logs are cleaned up.</summary>
+    /// <summary>
+    /// The logs folder needs a restart; log_retention_days is read once, when the old logs are cleaned up.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     private string Root => Config.JobLogsFolder;

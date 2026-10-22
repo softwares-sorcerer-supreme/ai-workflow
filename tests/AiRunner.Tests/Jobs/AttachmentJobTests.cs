@@ -217,7 +217,14 @@ public sealed class AttachmentJobTests : IDisposable
         _kit.CodeHost.AddHumanComment(30, $"It should look like ![mockup]({Base}mock1)", "pm");
         _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
         var job = new ReviewPullRequestJob(
-            _kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Attachments);
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Copilot,
+            _kit.State,
+            _kit.Attachments);
         var jobRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha1");
 
         await job.RunAsync(jobRequest, _kit.Run, default);
@@ -236,7 +243,14 @@ public sealed class AttachmentJobTests : IDisposable
         var earlier = _kit.CodeHost.AddBotComment(30, Markers.Wrap(Samples.Review(), Markers.Review));
         _kit.Copilot.StdOut = Markers.Wrap(Samples.Review(), Markers.Review);
         var job = new ReviewPullRequestJob(
-            _kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Copilot, _kit.State, _kit.Attachments);
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Copilot,
+            _kit.State,
+            _kit.Attachments);
         var jobRequest = _kit.Request(JobType.ReviewPullRequest, 30, "sha1");
 
         await job.RunAsync(jobRequest, _kit.Run, default);
@@ -275,7 +289,14 @@ public sealed class AttachmentJobTests : IDisposable
         var trigger = _kit.CodeHost.AddHumanComment(30, $"@ai the error looks like this ![]({Base}err1)");
         _kit.Copilot.FilesToWrite["PR_BODY.md"] = Samples.PrBody();
         var job = new FixReviewJob(
-            _kit.Config, _kit.CodeHost, _kit.Loader, _kit.Workspace, _kit.Git, _kit.Session, _kit.State, _kit.Attachments);
+            _kit.Config,
+            _kit.CodeHost,
+            _kit.Loader,
+            _kit.Workspace,
+            _kit.Git,
+            _kit.Session,
+            _kit.State,
+            _kit.Attachments);
         var jobRequest = _kit.Request(JobType.FixReview, 30, trigger.Id.ToString());
 
         await job.RunAsync(jobRequest, _kit.Run, default);

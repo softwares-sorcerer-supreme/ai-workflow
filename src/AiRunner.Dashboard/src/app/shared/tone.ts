@@ -204,3 +204,33 @@ export const AGENT_STATE_TONES: Readonly<Record<string, Tone>> = {
 export function agentStateTone(code: string): Tone {
   return AGENT_STATE_TONES[code] ?? 'neutral';
 }
+
+/**
+ * Color per token source code (C# `CredentialSource`: `user-secrets`, `environment`, `none`). Only the style: the label
+ * and the "change it there" note come from the server. No token stops the runner, so `none` is a warning.
+ */
+const TOKEN_SOURCE_TONES: Readonly<Record<string, Tone>> = {
+  'user-secrets': 'success',
+  environment: 'info',
+  none: 'warning',
+};
+
+/**
+ * Color per web password source code (`user-secrets`, `repos-yml`, `none`). No web password only stops closing issues
+ * after a merge, so `none` is neutral.
+ */
+const WEB_PASSWORD_SOURCE_TONES: Readonly<Record<string, Tone>> = {
+  'user-secrets': 'success',
+  'repos-yml': 'info',
+  none: 'neutral',
+};
+
+/** The color of a token source code, neutral for an unknown one. */
+export function tokenSourceTone(code: string): Tone {
+  return TOKEN_SOURCE_TONES[code] ?? 'neutral';
+}
+
+/** The color of a web password source code, neutral for an unknown one. */
+export function webPasswordSourceTone(code: string): Tone {
+  return WEB_PASSWORD_SOURCE_TONES[code] ?? 'neutral';
+}

@@ -65,7 +65,9 @@ public sealed record DashboardAppOptions(
     /// </summary>
     public IRunnerSettings Settings { get; init; } = NoSettings.Instance;
 
-    /// <summary>The runner's login on the code host, for the scope of the PR actions; a login, never a secret.</summary>
+    /// <summary>
+    /// The runner's login on the code host, for the scope of the PR actions; a login, never a secret.
+    /// </summary>
     public RunnerIdentity Identity { get; init; } = new();
 }
 

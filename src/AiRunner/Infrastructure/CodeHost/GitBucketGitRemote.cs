@@ -14,7 +14,9 @@ public sealed class GitBucketGitRemote(
     RunnerCredentials credentials)
     : IGitRemote
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     public string UrlOf(string repo) => $"{Config.CodeHost.BaseUrl.TrimEnd('/')}/git/{repo}.git";

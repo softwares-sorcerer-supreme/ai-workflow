@@ -41,12 +41,7 @@ builder.Logging.AddSimpleConsole(options =>
 
 // The secrets: user secrets first, then the environment (GitBucket__Token is the .NET name of the config key),
 // the web password last from repos.yml. With none, the loop waits in setup mode; every other mode stops.
-// Read from the process environment itself, not from builder.Configuration: in the Development environment the host
-// adds user secrets on its own, and a user secret must never count as an environment value.
-var environmentToken = Environment.GetEnvironmentVariable("GitBucket__Token")
-    ?? Environment.GetEnvironmentVariable("GITBUCKET_TOKEN");
-var environmentGitPassword = Environment.GetEnvironmentVariable("GitBucket__GitPassword");
-var environment = new CredentialEnvironment(environmentToken, environmentGitPassword);
+var environment = CredentialEnvironment.FromProcess();
 var secretsStore = UserSecretsStore.ForAssembly(typeof(Program).Assembly);
 var credentialSources = new CredentialSources(secretsStore, environment, configSource.StartupWebPassword);
 var credentialValues = credentialSources.Load();

@@ -198,9 +198,7 @@ public class SettingsJsonTests
                 components: { c: { repo: o/r } }
             """;
 
-        var file = SettingsJson.Read(yaml);
-
-        var effective = SettingsJson.Effective(file).Single();
+        var effective = SettingsJson.Effective(yaml).Single();
         var byKey = effective.Values.ToDictionary(value => value.Key);
 
         Assert.Equal("p", effective.Project);
@@ -210,15 +208,71 @@ public class SettingsJsonTests
         var implementModel = byKey["models.implement.default"];
 
         Assert.Equal("4", maxReviews.Effective.Value!.ToJsonString());
-        Assert.Equal(("project", "Set in this project"), (maxReviews.Effective.Source, maxReviews.Effective.SourceLabel));
+        Assert.Equal(
+            ("project", "Set in this project"),
+            (maxReviews.Effective.Source, maxReviews.Effective.SourceLabel));
         Assert.Equal("3", maxReviews.Inherited.Value!.ToJsonString());
         Assert.Equal("default", maxReviews.Inherited.Source);
         Assert.Equal("900", maxDiffLines.Effective.Value!.ToJsonString());
-        Assert.Equal(("defaults", "Inherited from defaults"), (maxDiffLines.Effective.Source, maxDiffLines.Effective.SourceLabel));
+        Assert.Equal(
+            ("defaults", "Inherited from defaults"),
+            (maxDiffLines.Effective.Source, maxDiffLines.Effective.SourceLabel));
         Assert.Same(maxDiffLines.Effective, maxDiffLines.Inherited);
         Assert.Equal("15", maxChangedFiles.Effective.Value!.ToJsonString());
-        Assert.Equal(("default", "Built-in default"), (maxChangedFiles.Effective.Source, maxChangedFiles.Effective.SourceLabel));
+        Assert.Equal(
+            ("default", "Built-in default"),
+            (maxChangedFiles.Effective.Source, maxChangedFiles.Effective.SourceLabel));
         Assert.Null(implementModel.Effective.Value);
+    }
+
+    private const string PlainModelShape = """
+        code_host: { kind: gitbucket, base_url: http://host }
+        defaults:
+          models: { implement: { complex: big-model } }
+        projects:
+          p:
+            models: { implement: small-model }
+            components: { c: { repo: o/r } }
+        """;
+
+    [Fact]
+    public void A_plain_model_name_still_replaces_the_defaults_entry_after_a_save()
+    {
+        var saved = RoundTrip(PlainModelShape);
+
+        var implement = RunnerConfig.Parse(saved).Projects[0].Settings.ModelSettingFor(Workflows.Implement);
+
+        Assert.Equal(Resolved(PlainModelShape), Resolved(saved));
+        Assert.Equal("small-model", implement!.Default);
+        Assert.Null(implement.Complex);
+    }
+
+    [Fact]
+    public void A_plain_model_name_with_a_key_added_becomes_the_object_form()
+    {
+        var file = SettingsJson.Read(PlainModelShape);
+        file["projects"]!["p"]!["models"]!["implement"]!["fix_rounds"] = "fix-model";
+
+        var saved = SettingsJson.Write(file, PlainModelShape);
+
+        var implement = RunnerConfig.Parse(saved).Projects[0].Settings.ModelSettingFor(Workflows.Implement);
+        Assert.Equal(
+            ("small-model", "big-model", "fix-model"),
+            (implement!.Default, implement.Complex, implement.FixRounds));
+    }
+
+    [Fact]
+    public void A_plain_model_name_inherits_none_of_the_other_keys()
+    {
+        var effective = SettingsJson.Effective(PlainModelShape).Single();
+        var byKey = effective.Values.ToDictionary(value => value.Key);
+
+        var complex = byKey["models.implement.complex"];
+        var implementDefault = byKey["models.implement.default"];
+
+        Assert.Null(complex.Inherited.Value);
+        Assert.Equal("project", complex.Inherited.Source);
+        Assert.Equal("small-model", implementDefault.Effective.Value!.GetValue<string>());
     }
 
     [Fact]

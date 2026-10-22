@@ -5,6 +5,7 @@ import { IssueRowResponse } from '../api/models/issue-row-response';
 import { JobResponse } from '../api/models/job-response';
 import { JobStepResponse } from '../api/models/job-step-response';
 import { PullResponse } from '../api/models/pull-response';
+import { SettingDefinition } from '../api/models/setting-definition';
 import { SetupResponse } from '../api/models/setup-response';
 import { PollResource } from './poll-resource';
 import { Clock } from './time/clock';
@@ -239,4 +240,11 @@ export function sampleClone(overrides: Partial<CloneResponse> = {}): CloneRespon
     warnings: [],
     ...overrides,
   };
+}
+
+/** A settings schema entry; the label follows the API's rule (`Built-in default` with a default, else `Not set.`). */
+export function sampleDefinition(overrides: Partial<SettingDefinition> = {}): SettingDefinition {
+  const defaultLabel = overrides.default === undefined ? 'Not set.' : 'Built-in default';
+
+  return { path: '', key: '', scope: 'global', type: 'string', help: '', defaultLabel, ...overrides };
 }

@@ -7,7 +7,36 @@ namespace AiRunner.Infrastructure;
 /// <param name="Token">GitBucket__Token, else GITBUCKET_TOKEN; null when neither is set.</param>
 public sealed record CredentialEnvironment(string? Token, string? GitPassword)
 {
+    public const string TokenVariable = "GITBUCKET_TOKEN";
+    public const string TokenConfigVariable = "GitBucket__Token";
+    public const string GitPasswordVariable = "GitBucket__GitPassword";
+    public const string WebPasswordVariable = "GitBucket__WebPassword";
+
+    /// <summary>
+    /// The names of the token variables as messages show them; one place, so every message names both.
+    /// </summary>
+    public const string TokenVariables = $"{TokenVariable} or {TokenConfigVariable}";
+
+    /// <summary>
+    /// Every variable that holds one of these secrets: <c>ProcessRunner</c> removes them from every child.
+    /// </summary>
+    public static readonly string[] AllVariables =
+        [TokenVariable, TokenConfigVariable, GitPasswordVariable, WebPasswordVariable];
+
     public static CredentialEnvironment None { get; } = new(null, null);
+
+    /// <summary>
+    /// The process environment itself, not the host's configuration: in the Development environment the host adds
+    /// user secrets on its own, and a user secret must never count as an environment value.
+    /// </summary>
+    public static CredentialEnvironment FromProcess()
+    {
+        var token = Environment.GetEnvironmentVariable(TokenConfigVariable)
+            ?? Environment.GetEnvironmentVariable(TokenVariable);
+        var gitPassword = Environment.GetEnvironmentVariable(GitPasswordVariable);
+
+        return new CredentialEnvironment(token, gitPassword);
+    }
 }
 
 /// <summary>

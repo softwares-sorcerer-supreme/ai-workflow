@@ -5,7 +5,8 @@ namespace AiRunner.Tests.Core;
 
 public class AgentFileRulesTests
 {
-    private const string GoodAgent = "---\nname: my-agent\ndescription: Does a thing.\ntools: [\"read\"]\n---\n\n# Body\n";
+    private const string GoodAgent =
+        "---\nname: my-agent\ndescription: Does a thing.\ntools: [\"read\"]\n---\n\n# Body\n";
 
     [Fact]
     public void A_valid_agent_has_no_reasons()

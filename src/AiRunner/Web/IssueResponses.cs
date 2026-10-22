@@ -15,7 +15,9 @@ public sealed record CodeLabelResponse(string Code, string Label)
 /// </summary>
 public sealed record ActionResponse(string Code, string Label, bool NeedsText)
 {
-    /// <summary>The user picks a workflow and a model for this action; <c>GET /api/model-options</c> lists them.</summary>
+    /// <summary>
+    /// The user picks a workflow and a model for this action; <c>GET /api/model-options</c> lists them.
+    /// </summary>
     public bool NeedsModel { get; init; }
 
     public static ActionResponse From(IssueAction action) =>

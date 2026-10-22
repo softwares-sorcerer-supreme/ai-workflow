@@ -44,7 +44,9 @@ public interface IGitClient
     /// <summary>git add -A, then the staged changes per file.</summary>
     Task<IReadOnlyList<DiffStat>> StageAllAsync(string directory, CancellationToken cancellationToken);
 
-    /// <summary>Commits the staged changes as <paramref name="author"/>: the job's config, never changed mid-job.</summary>
+    /// <summary>
+    /// Commits the staged changes as <paramref name="author"/>: the job's config, never changed mid-job.
+    /// </summary>
     Task CommitAsync(string directory, string message, GitConfig author, CancellationToken cancellationToken);
 
     /// <summary>Push source (a ref or sha) to the branch on origin. Never forced.</summary>
@@ -82,7 +84,9 @@ public interface IGitClient
 
 /// <summary>The commit a clone stands on.</summary>
 /// <param name="Branch">The local branch, or null when HEAD is detached.</param>
-/// <param name="DetachedAt">A remote branch at the same commit (e.g. "origin/main") when HEAD is detached, else null.</param>
+/// <param name="DetachedAt">
+/// A remote branch at the same commit (e.g. "origin/main") when HEAD is detached, else null.
+/// </param>
 public sealed record CloneHead(
     string Sha,
     string Subject,
@@ -102,7 +106,9 @@ public sealed class GitClient(
     IGitRemote remote,
     IProcessRunner processRunner) : IGitClient
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
@@ -470,6 +476,10 @@ public sealed class GitClient(
         var environment = new Dictionary<string, string>
         {
             ["GIT_TERMINAL_PROMPT"] = "0",
+
+            // A read (diff, status) never refreshes the index, so it takes no index.lock: the Workspaces page reads a
+            // clone without the project lock, and a job may start on it in that moment.
+            ["GIT_OPTIONAL_LOCKS"] = "0",
             ["GIT_CONFIG_COUNT"] = settings.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 

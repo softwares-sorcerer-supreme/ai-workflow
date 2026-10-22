@@ -6,7 +6,9 @@ using AiRunner.Tests.Fakes;
 
 namespace AiRunner.Tests.Hosting;
 
-/// <summary>The dashboard's runtime controls inside the runner: cancel the running job, pause and resume, poll now.</summary>
+/// <summary>
+/// The dashboard's runtime controls inside the runner: cancel the running job, pause and resume, poll now.
+/// </summary>
 public sealed class RuntimeControlTests : IDisposable
 {
     private readonly JobTestKit _kit = new(settings => settings.ClaimEnabled = true);

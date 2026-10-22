@@ -15,7 +15,9 @@ namespace AiRunner.Web;
 
 public sealed record WarningResponse(string Code, string Message);
 
-/// <summary>One clone. Times are UTC; <c>SizeBytes</c> is null until the background walk of the folder is done.</summary>
+/// <summary>
+/// One clone. Times are UTC; <c>SizeBytes</c> is null until the background walk of the folder is done.
+/// </summary>
 public sealed record CloneResponse(
     string Repo,
     string Folder,
@@ -99,7 +101,7 @@ public static class WorkspacesApi
         return new CloneResponse(
             clone.Repo,
             clone.Folder,
-            clone.Exists,
+            clone.IsOnDisk,
             clone.Components,
             head?.Sha,
             head?.Subject,

@@ -6,7 +6,9 @@ using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Tests.Infrastructure;
 
-/// <summary>GitBucketCodeHost.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.</summary>
+/// <summary>
+/// GitBucketCodeHost.DownloadAttachmentAsync against canned HTTP answers: host pin, redirects, size cap.
+/// </summary>
 public sealed class AttachmentDownloadTests : IDisposable
 {
     private const string Url = "http://gb/james/demo/_attached/abc123";

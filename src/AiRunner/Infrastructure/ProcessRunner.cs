@@ -56,7 +56,7 @@ public sealed class ProcessRunner(TimeSpan? drainTimeout = null) : IProcessRunne
     /// </summary>
     private static readonly string[] SecretVars =
     [
-        "GITBUCKET_TOKEN", "GitBucket__Token", "GitBucket__GitPassword", "GitBucket__WebPassword",
+        .. CredentialEnvironment.AllVariables,
         "GH_TOKEN", "GITHUB_TOKEN", "AIRUNNER_GITHUB_TOKEN",
     ];
 
@@ -240,7 +240,9 @@ internal sealed class LiveOutput : IDisposable
         }
     }
 
-    /// <summary>Appends one line (null = the stream ended, nothing to write); stdout and stderr share the writer.</summary>
+    /// <summary>
+    /// Appends one line (null = the stream ended, nothing to write); stdout and stderr share the writer.
+    /// </summary>
     public void WriteLine(string? line)
     {
         lock (_lock)

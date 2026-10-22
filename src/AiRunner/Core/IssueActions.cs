@@ -8,7 +8,9 @@ namespace AiRunner.Core;
 /// </summary>
 public sealed record IssueAction(string Code, string Label, bool NeedsText)
 {
-    /// <summary>The user picks a workflow and a model (set-model); <c>/api/model-options</c> lists the choices.</summary>
+    /// <summary>
+    /// The user picks a workflow and a model (set-model); <c>/api/model-options</c> lists the choices.
+    /// </summary>
     public bool NeedsModel { get; init; }
 }
 
@@ -243,7 +245,9 @@ public static class IssueActions
         }
     }
 
-    /// <summary>The override comment; null without a workflow, or with a model name that cannot go into a tag.</summary>
+    /// <summary>
+    /// The override comment; null without a workflow, or with a model name that cannot go into a tag.
+    /// </summary>
     private static ActionWrite? ModelWrite(ActionWriteContext context)
     {
         var (target, _, _, runnerName) = context;

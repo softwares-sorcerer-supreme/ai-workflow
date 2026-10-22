@@ -1,3 +1,4 @@
+using System.Net;
 using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
@@ -120,6 +121,11 @@ public sealed class RunnerActions(
         try
         {
             return await locked(project, request, cancellationToken);
+        }
+        catch (CodeHostException exception) when (exception.Status == HttpStatusCode.NotFound)
+        {
+            // The fresh read found no such issue or PR: a wrong number, not a code host failure.
+            return new ActionReply(ActionOutcome.NotFound, $"{request.Item} was not found on the code host.");
         }
         catch (CodeHostException exception)
         {

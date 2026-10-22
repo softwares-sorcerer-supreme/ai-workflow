@@ -5,30 +5,40 @@ using AiRunner.Infrastructure.CodeHost;
 
 namespace AiRunner.Jobs;
 
-/// <summary>What the model of a Copilot run depends on besides the project's settings (see <see cref="ModelResolver"/>).</summary>
+/// <summary>
+/// What the model of a Copilot run depends on besides the project's settings (see <see cref="ModelResolver"/>).
+/// </summary>
 public sealed record ModelContext(string? IssueOverride, ModelComplexity Complexity)
 {
     public static readonly ModelContext None = new(null, ModelComplexity.Unknown);
 
-    /// <summary>The model for a Copilot run of <paramref name="setting"/> (null = none written) in this context.</summary>
+    /// <summary>
+    /// The model for a Copilot run of <paramref name="setting"/> (null = none written) in this context.
+    /// </summary>
     public ModelChoice Choose(ModelSetting? setting, bool isFixRound) =>
         ModelResolver.Resolve(new ModelInput(setting, IssueOverride, Complexity, isFixRound));
 }
+
+/// <summary>Which issue and workflow to read the model settings of, and the models the job's config allows.</summary>
+public sealed record ModelQuery(IssueRef Issue, string Workflow, IReadOnlyCollection<string> AllowedModels);
 
 /// <summary>
 /// Reads the issue's model override and complexity from the code host, so a job decides on fresh data. A sub-issue
 /// reads its own override first, then its parent's, and takes the complexity label of its parent (the breakdown
 /// puts it there, the sub-issue has none). An unreadable issue only means "no override": the job still runs.
+/// An override outside <c>allowed_models</c> is ignored: the tag is only text in a comment, so the check of the
+/// <c>set-model</c> action alone would not hold it.
 /// </summary>
 public static class ModelLookup
 {
     public static async Task<ModelContext> ReadAsync(
         this ICodeHost codeHost,
-        IssueRef issueRef,
-        string workflow,
+        ModelQuery query,
         JobRun run,
         CancellationToken cancellationToken)
     {
+        var (issueRef, workflow, allowedModels) = query;
+
         try
         {
             var (repo, number) = issueRef;
@@ -46,6 +56,12 @@ public static class ModelLookup
             }
 
             var issueOverride = ModelOverride.For(workflow, ownComments, parentComments);
+            if (issueOverride is not null && !ModelSetting.IsAllowed(allowedModels, issueOverride))
+            {
+                run.Info($"model override {issueOverride} of {issueRef} ignored: not in allowed_models");
+                issueOverride = null;
+            }
+
             var complexity = ComplexityOf(parent ?? issue);
 
             return new ModelContext(issueOverride, complexity);

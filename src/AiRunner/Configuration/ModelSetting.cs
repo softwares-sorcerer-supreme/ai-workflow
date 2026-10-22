@@ -24,8 +24,8 @@ public sealed record ModelSetting
     public string? Default { get; init; }
 
     /// <summary>
-    /// Read from the plain string form. That form replaces whatever an earlier layer wrote for the workflow, as it always
-    /// did, instead of merging key by key like the object form.
+    /// Read from the plain string form. That form replaces whatever an earlier layer wrote for the workflow, as it
+    /// always did, instead of merging key by key like the object form.
     /// </summary>
     [JsonIgnore]
     public bool IsPlainString { get; init; }
@@ -46,7 +46,9 @@ public sealed record ModelSetting
             .Where(model => !string.IsNullOrWhiteSpace(model))
             .Select(model => model!);
 
-    /// <summary>Key by key: what <paramref name="layer"/> writes wins, the rest stays (defaults, then a project).</summary>
+    /// <summary>
+    /// Key by key: what <paramref name="layer"/> writes wins, the rest stays (defaults, then a project).
+    /// </summary>
     public ModelSetting MergedWith(ModelSetting layer)
     {
         if (layer.IsPlainString)

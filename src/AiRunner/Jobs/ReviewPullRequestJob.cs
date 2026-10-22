@@ -155,7 +155,10 @@ public sealed class ReviewPullRequestJob(
         run.Save("diff.patch", diff);
 
         var modelContext = linked.Repo is { } linkedRepo && linked.Number is { } linkedNumber
-            ? await codeHost.ReadAsync(new IssueRef(linkedRepo, linkedNumber), Workflows.Review, run, cancellationToken)
+            ? await codeHost.ReadAsync(
+                new ModelQuery(new IssueRef(linkedRepo, linkedNumber), Workflows.Review, config.AllowedModels),
+                run,
+                cancellationToken)
             : ModelContext.None;
         var reviewSetting = project.Settings.ModelSettingFor(Workflows.Review);
         var modelChoice = modelContext.Choose(reviewSetting, isFixRound: false);

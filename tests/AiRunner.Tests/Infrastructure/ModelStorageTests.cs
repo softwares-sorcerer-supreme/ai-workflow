@@ -4,7 +4,9 @@ using Microsoft.Data.Sqlite;
 
 namespace AiRunner.Tests.Infrastructure;
 
-/// <summary>jobs.model, jobs.model_reason and the same two columns of cost_log, and the upgrade of an old ai-runner.db.</summary>
+/// <summary>
+/// jobs.model, jobs.model_reason and the same two columns of cost_log, and the upgrade of an old ai-runner.db.
+/// </summary>
 public sealed class ModelStorageTests : IDisposable
 {
     private readonly string _folder = Directory.CreateTempSubdirectory("ai-runner-model-").FullName;

@@ -17,8 +17,8 @@ namespace AiRunner.Hosting;
 /// to report it (e.g. VPN down), the next poll plans it again instead of losing the request.
 /// What it lists also goes to the dashboard's snapshot (<see cref="SnapshotRecorder"/>), which never
 /// changes a decision; open PRs are listed for it even when review and fix are off.
-/// Each poll first applies a changed repos.yml (<see cref="RunnerConfigSource.ReloadIfChanged"/>), then works in its own
-/// DI scope, so the whole poll sees one config.
+/// Each poll first applies a changed repos.yml (<see cref="RunnerConfigSource.ReloadIfChanged"/>), then works in its
+/// own DI scope, so the whole poll sees one config.
 /// </summary>
 public sealed class Poller(
     RunnerConfigSource configSource,

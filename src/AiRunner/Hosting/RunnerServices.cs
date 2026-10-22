@@ -54,8 +54,10 @@ public static class RunnerServices
         services.AddSingleton<IStateStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
         services.AddSingleton<IJobReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
         services.AddSingleton<IJobStepLog>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-        services.AddSingleton<ISnapshotStore>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
-        services.AddSingleton<ISnapshotReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
+        services.AddSingleton<ISnapshotStore>(serviceProvider =>
+            serviceProvider.GetRequiredService<SqliteStateStore>());
+        services.AddSingleton<ISnapshotReader>(serviceProvider =>
+            serviceProvider.GetRequiredService<SqliteStateStore>());
         services.AddSingleton<ICostReader>(serviceProvider => serviceProvider.GetRequiredService<SqliteStateStore>());
         services.AddSingleton<ICostLog, CostLog>();
         services.AddSingleton<JobLog>();

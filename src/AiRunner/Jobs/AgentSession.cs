@@ -24,7 +24,9 @@ public sealed record AgentTask(
     /// <summary>Files for the --attachment flag; only round 1 gets them, later rounds can open them from disk.</summary>
     public IReadOnlyList<string> Attachments { get; init; } = [];
 
-    /// <summary>The issue's model override and complexity (see <see cref="ModelLookup"/>); none = project settings only.</summary>
+    /// <summary>
+    /// The issue's model override and complexity (see <see cref="ModelLookup"/>); none = project settings only.
+    /// </summary>
     public ModelContext ModelContext { get; init; } = ModelContext.None;
 }
 

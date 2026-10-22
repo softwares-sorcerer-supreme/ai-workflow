@@ -76,7 +76,9 @@ public sealed class Workspace(
     WorkspaceLocks locks,
     ILogger<Workspace> logger) : IWorkspace
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     private const string RunnerFolder = ".ai-workflow";

@@ -5,7 +5,9 @@ using AiRunner.Tests.Fakes;
 
 namespace AiRunner.Tests.Jobs;
 
-/// <summary>The model each Copilot run gets (<see cref="ModelResolver"/> through the jobs) and what the job records.</summary>
+/// <summary>
+/// The model each Copilot run gets (<see cref="ModelResolver"/> through the jobs) and what the job records.
+/// </summary>
 public sealed class ModelSelectionJobTests : IDisposable
 {
     private readonly JobTestKit _kit;
@@ -132,17 +134,29 @@ public sealed class ModelSelectionJobTests : IDisposable
         var subBody = "Parent: #10\nOrder: 1 of 2\nBase branch: feat/issue-10\nComponent: demo\n\nScope";
         _kit.CodeHost.AddIssue(11, "#10.1 Part", subBody, "ai", Labels.SubIssue);
 
-        var withOverride = await _kit.CodeHost.ReadAsync(
-            new IssueRef("james/demo", 11), Workflows.Implement, _kit.Run, default);
+        var query = new ModelQuery(new IssueRef("james/demo", 11), Workflows.Implement, []);
+        var withOverride = await _kit.CodeHost.ReadAsync(query, _kit.Run, default);
 
         Assert.Equal("m-parent", withOverride.IssueOverride);
         Assert.Equal(ModelComplexity.Complex, withOverride.Complexity);
 
         _kit.CodeHost.AddBotComment(11, Markers.SettingTag("models.implement", "m-own"));
 
-        var withOwn = await _kit.CodeHost.ReadAsync(
-            new IssueRef("james/demo", 11), Workflows.Implement, _kit.Run, default);
+        var withOwn = await _kit.CodeHost.ReadAsync(query, _kit.Run, default);
 
         Assert.Equal("m-own", withOwn.IssueOverride);
+    }
+
+    [Fact]
+    public async Task An_override_outside_allowed_models_is_ignored()
+    {
+        // The tag is text in a comment: anyone can paste the marker, so the job checks the list again.
+        _kit.CodeHost.AddIssue(12, "Export CSV", "body", "ai");
+        _kit.CodeHost.AddBotComment(12, Markers.SettingTag("models.implement", "m-pasted"));
+
+        var query = new ModelQuery(new IssueRef("james/demo", 12), Workflows.Implement, ["m-default"]);
+        var context = await _kit.CodeHost.ReadAsync(query, _kit.Run, default);
+
+        Assert.Null(context.IssueOverride);
     }
 }

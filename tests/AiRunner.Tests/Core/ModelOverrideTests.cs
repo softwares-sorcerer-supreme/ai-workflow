@@ -2,7 +2,9 @@ using AiRunner.Core;
 
 namespace AiRunner.Tests.Core;
 
-/// <summary>The AI_SETTINGS tag: bot comments only, the newest wins, empty removes, a sub-issue falls back to its parent.</summary>
+/// <summary>
+/// The AI_SETTINGS tag: bot comments only, the newest wins, empty removes, a sub-issue falls back to its parent.
+/// </summary>
 public sealed class ModelOverrideTests
 {
     private static HostComment BotTag(long id, string workflow, string model) =>

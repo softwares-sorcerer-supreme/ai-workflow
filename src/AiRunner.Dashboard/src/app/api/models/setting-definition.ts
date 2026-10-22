@@ -5,6 +5,7 @@ import { JsonNode } from '../models/json-node';
 export interface SettingDefinition {
   allowedValues?: Array<string>;
   default?: (null | JsonNode);
+  defaultLabel?: (string | null);
   help: string;
   isRestartNeeded?: boolean;
   isSecret?: boolean;

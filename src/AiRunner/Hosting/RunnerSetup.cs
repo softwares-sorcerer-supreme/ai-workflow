@@ -72,7 +72,9 @@ public sealed class RunnerSetup(
     RunnerCommands commands,
     ILogger<RunnerSetup> logger) : IRunnerSetup
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     /// <summary>One change at a time: two pages saving at once must not interleave check, save and swap.</summary>
@@ -134,14 +136,34 @@ public sealed class RunnerSetup(
                 "Setup: GitBucket token saved in user secrets; the runner works as {Login}.",
                 answer.Login);
 
-            return new SetupResult(
-                SetupOutcome.Saved,
-                $"Token accepted for {answer.Login} and saved in user secrets. Polling starts now.");
+            var saved = $"Token accepted for {answer.Login} and saved in user secrets. Polling starts now.";
+
+            return new SetupResult(SetupOutcome.Saved, saved + GitPasswordNote(previousLogin, answer.Login));
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// A git password set apart from the token belongs to a user too, and a token of another user does not replace it:
+    /// git would keep signing in as the old one. Said once on the save, never changed silently.
+    /// </summary>
+    private string GitPasswordNote(string previousLogin, string newLogin)
+    {
+        var values = credentials.Current;
+        var hasOwnGitPassword = values.GitSecret != values.Token;
+        var isOtherUser = previousLogin.Length > 0 &&
+            !string.Equals(previousLogin, newLogin, StringComparison.OrdinalIgnoreCase);
+
+        if (!hasOwnGitPassword || !isOtherUser)
+        {
+            return "";
+        }
+
+        return $" Git still signs in with the separate git password ({UserSecretsStore.GitPasswordKey}); change it " +
+            $"if it belongs to {previousLogin}.";
     }
 
     public async Task<SetupResult> RemoveTokenAsync(CancellationToken cancellationToken)
@@ -154,7 +176,7 @@ public sealed class RunnerSetup(
             {
                 return new SetupResult(
                     SetupOutcome.Conflict,
-                    "The token comes from the environment (GITBUCKET_TOKEN or GitBucket__Token), so it cannot be " +
+                    $"The token comes from the environment ({CredentialEnvironment.TokenVariables}), so it cannot be " +
                     "removed here. Remove the variable and restart the runner.");
             }
 

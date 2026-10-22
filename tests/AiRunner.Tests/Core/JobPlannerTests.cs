@@ -478,7 +478,14 @@ public class ContextBuilderTests
     [Fact]
     public void Issue_context_keeps_only_the_newest_analysis_and_spec_in_full()
     {
-        var issue = new HostIssue(7, "Export", "Please export CSV", new HostUser("alice"), [], DateTimeOffset.UtcNow, null);
+        var issue = new HostIssue(
+            7,
+            "Export",
+            "Please export CSV",
+            new HostUser("alice"),
+            [],
+            DateTimeOffset.UtcNow,
+            null);
         var at = DateTimeOffset.UtcNow;
 
         HostComment Block(int id, string text, string marker) =>

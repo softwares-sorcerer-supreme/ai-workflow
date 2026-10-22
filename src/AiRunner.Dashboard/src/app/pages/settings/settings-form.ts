@@ -338,7 +338,7 @@ export function cloneFile(file: object | null | undefined): JsonMap {
 /**
  * The line under a field that says what applies when the scope does not write the key. A project key shows the API's
  * inherited value (what applies without the project's own one, also right after an unsaved reset) with its label.
- * Everything else shows the schema's built-in value.
+ * Everything else shows the schema's built-in value with the schema's label (the API words both labels).
  */
 export function fallbackNote(definition: SettingDefinition, effective: EffectiveValue | undefined): string {
   if (effective !== undefined) {
@@ -347,11 +347,12 @@ export function fallbackNote(definition: SettingDefinition, effective: Effective
     return `${inherited.sourceLabel}: ${formatValue(inherited.value as JsonValue)}`;
   }
 
+  const label = definition.defaultLabel ?? '';
   if (definition.default === undefined || definition.default === null) {
-    return 'Not set.';
+    return label;
   }
 
-  return `Built-in default: ${formatValue(definition.default as JsonValue)}`;
+  return `${label}: ${formatValue(definition.default as JsonValue)}`;
 }
 
 /** The value a toggle shows when the key is not written: the effective one, else the built-in one. */

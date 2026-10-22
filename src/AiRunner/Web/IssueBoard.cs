@@ -25,7 +25,9 @@ public sealed record IssueBoard(
     /// <summary>"owner/repo#n" keys compare like repo names: case-insensitive.</summary>
     public static StringComparer KeyComparer { get; } = StringComparer.OrdinalIgnoreCase;
 
-    /// <summary>The runner's login on the code host: the PRs it opened itself are in the scope of the PR actions.</summary>
+    /// <summary>
+    /// The runner's login on the code host: the PRs it opened itself are in the scope of the PR actions.
+    /// </summary>
     public string BotLogin { get; init; } = "";
 
     /// <summary>"owner/repo#n" of every issue or PR this runner has a job queued or running for.</summary>

@@ -17,7 +17,15 @@ public sealed record SettingDefinition(string Path, string Key, string Scope, st
     /// <summary>The built-in value when the key is not written; null = none (for a model: Copilot's default).</summary>
     public JsonNode? Default { get; init; }
 
-    /// <summary>Saved, but applied only at the next start (<see cref="RunnerConfigSource"/> keeps the old one).</summary>
+    /// <summary>
+    /// What the screen writes under a field the scope does not set: <c>Built-in default</c> (the screen adds the
+    /// value), or <c>Not set.</c> when there is no built-in value. Sent, so the UI builds no label of its own.
+    /// </summary>
+    public string DefaultLabel => Default is null ? SettingsJson.NotSetLabel : SettingsJson.BuiltInLabel;
+
+    /// <summary>
+    /// Saved, but applied only at the next start (<see cref="RunnerConfigSource"/> keeps the old one).
+    /// </summary>
     public bool IsRestartNeeded { get; init; }
 
     /// <summary>Never sent to the browser: the file shows <c>{ "isSet": true|false }</c> instead.</summary>
@@ -38,7 +46,8 @@ public static class SettingScopes
 
 /// <summary>
 /// Every key repos.yml accepts, with its help text (the comments of today's file, which a save drops), its type,
-/// allowed values and built-in default. The Settings screen is built from it, so a new key needs no change of the screen;
+/// allowed values and built-in default. The Settings screen is built from it, so a new key needs no change of the
+/// screen;
 /// <c>SettingsSchemaTests</c> fails when a key of the file types has no entry here.
 /// </summary>
 public static class SettingsSchema
@@ -80,7 +89,10 @@ public static class SettingsSchema
     }
 
     /// <summary>The same keys placed in one scope: the path is the scope's prefix plus the key.</summary>
-    private static IEnumerable<SettingDefinition> Under(IEnumerable<SettingDefinition> keys, string prefix, string scope) =>
+    private static IEnumerable<SettingDefinition> Under(
+        IEnumerable<SettingDefinition> keys,
+        string prefix,
+        string scope) =>
         keys.Select(key => key with { Path = prefix + key.Key, Scope = scope });
 
     private static SettingDefinition Global(string key, string type, string help) =>
@@ -143,7 +155,10 @@ public static class SettingsSchema
 
         return
         [
-            Global("code_host.kind", Text, "Which provider talks to the code host. The only one so far: gitbucket.") with
+            Global(
+                "code_host.kind",
+                Text,
+                "Which provider talks to the code host. The only one so far: gitbucket.") with
             {
                 AllowedValues = CodeHostKinds.All, IsRestartNeeded = true,
             },
@@ -387,7 +402,8 @@ public static class SettingsSchema
                 "scoped = PRs labelled with trigger_label + PRs this runner opened from ai/* or feat/issue-*; " +
                 "all = every open PR.") with
             {
-                AllowedValues = [ReviewConfig.ScopedValue, ReviewConfig.AllValue], Default = Json(settings.Review.Scope),
+                AllowedValues = [ReviewConfig.ScopedValue, ReviewConfig.AllValue],
+                Default = Json(settings.Review.Scope),
             },
             Setting(
                 "review.skip_paths",

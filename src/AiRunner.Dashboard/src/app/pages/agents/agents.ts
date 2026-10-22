@@ -1,4 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -13,6 +12,7 @@ import { saveAgentFile } from '../../api/fn/agents/save-agent-file';
 import { syncAgents } from '../../api/fn/agents/sync-agents';
 import { AgentFileDetailResponse } from '../../api/models/agent-file-detail-response';
 import { AgentFileResponse } from '../../api/models/agent-file-response';
+import { AgentValidationError } from '../../api/models/agent-validation-error';
 import { HealthStore } from '../../layout/health-store';
 import { confirmWrite } from '../../shared/confirm-dialog/confirm-dialog';
 import { InlineNote } from '../../shared/inline-note/inline-note';
@@ -21,7 +21,7 @@ import { describeError, pollResource } from '../../shared/poll-resource';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { agentStateTone } from '../../shared/tone';
 import { ViewState } from '../../shared/view-state/view-state';
-import { writeAction } from '../../shared/write-action';
+import { saveRefusal, writeAction } from '../../shared/write-action';
 import { AgentDiff } from './agent-diff';
 
 /** One group of the file list: the API's `kind` code and the heading the screen shows for it. */
@@ -278,24 +278,13 @@ export class Agents {
    * Reload button. The snack bar shows the message as for every write.
    */
   private noteSaveFailure(failure: unknown): void {
-    if (!(failure instanceof HttpErrorResponse)) {
-      return;
-    }
+    const refusal = saveRefusal(failure, 'The runner did not save the file.');
 
-    const message = describeError(failure, 'The runner did not save the file.');
-
-    if (failure.status === 409) {
-      this.conflict.set(message);
-
-      return;
-    }
-
-    const reasons = (failure.error as { reasons?: unknown } | null)?.reasons;
-    if (failure.status === 400) {
-      const reasonList = Array.isArray(reasons)
-        ? reasons.filter((reason) => typeof reason === 'string')
-        : [];
-      this.validation.set({ message, reasons: reasonList });
+    if (refusal?.kind === 'conflict') {
+      this.conflict.set(refusal.message);
+    } else if (refusal?.kind === 'invalid') {
+      const body = refusal.body as Partial<AgentValidationError> | null;
+      this.validation.set({ message: refusal.message, reasons: body?.reasons ?? [] });
     }
   }
 

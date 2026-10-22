@@ -3013,6 +3013,12 @@
               }
             ]
           },
+          "defaultLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "isRestartNeeded": {
             "type": "boolean"
           },

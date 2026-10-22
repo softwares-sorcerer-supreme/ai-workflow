@@ -3,7 +3,9 @@ using AiRunner.Core;
 
 namespace AiRunner.Tests.Core;
 
-/// <summary>The order of <see cref="ModelResolver"/>: issue override, fix rounds, simple/complex, default, none.</summary>
+/// <summary>
+/// The order of <see cref="ModelResolver"/>: issue override, fix rounds, simple/complex, default, none.
+/// </summary>
 public sealed class ModelResolverTests
 {
     private static readonly ModelSetting Full = new()
@@ -22,10 +24,22 @@ public sealed class ModelResolverTests
         { Full, null, ModelComplexity.Complex, false, "m-complex", ModelResolver.ReasonComplex },
         { Full, null, ModelComplexity.Simple, false, "m-simple", ModelResolver.ReasonSimple },
         { Full, null, ModelComplexity.Unknown, false, "m-default", ModelResolver.ReasonDefault },
-        { new ModelSetting { Default = "m-default" }, null, ModelComplexity.Complex, false, "m-default", ModelResolver.ReasonDefault },
-        { new ModelSetting { Default = "m-default" }, null, ModelComplexity.Simple, true, "m-default", ModelResolver.ReasonDefault },
-        { new ModelSetting { Complex = "m-complex" }, null, ModelComplexity.Simple, false, null, ModelResolver.ReasonNone },
-        { new ModelSetting { FixRounds = "m-fix" }, null, ModelComplexity.Unknown, false, null, ModelResolver.ReasonNone },
+        {
+            new ModelSetting { Default = "m-default" },
+            null, ModelComplexity.Complex, false, "m-default", ModelResolver.ReasonDefault
+        },
+        {
+            new ModelSetting { Default = "m-default" },
+            null, ModelComplexity.Simple, true, "m-default", ModelResolver.ReasonDefault
+        },
+        {
+            new ModelSetting { Complex = "m-complex" },
+            null, ModelComplexity.Simple, false, null, ModelResolver.ReasonNone
+        },
+        {
+            new ModelSetting { FixRounds = "m-fix" },
+            null, ModelComplexity.Unknown, false, null, ModelResolver.ReasonNone
+        },
         { null, null, ModelComplexity.Unknown, false, null, ModelResolver.ReasonNone },
         { null, "m-override", ModelComplexity.Unknown, false, "m-override", ModelResolver.ReasonOverride },
         { Full, "  ", ModelComplexity.Unknown, false, "m-default", ModelResolver.ReasonDefault },

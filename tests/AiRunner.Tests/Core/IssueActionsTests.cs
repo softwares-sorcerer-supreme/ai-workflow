@@ -2,7 +2,9 @@ using AiRunner.Tests.Fakes;
 
 namespace AiRunner.Tests.Core;
 
-/// <summary>Table tests of <see cref="IssueActions"/>: what is offered, what is not, and the write of each action.</summary>
+/// <summary>
+/// Table tests of <see cref="IssueActions"/>: what is offered, what is not, and the write of each action.
+/// </summary>
 public sealed class IssueActionsTests
 {
     private static readonly DateTimeOffset Now = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
@@ -264,7 +266,11 @@ public sealed class IssueActionsTests
     public void Set_model_writes_a_bot_comment_with_the_tag_and_refuses_a_missing_workflow_or_bad_name()
     {
         var target = new IssueRef("o/r", 7);
-        var context = new ActionWriteContext(target, null, Settings(), "laptop") { Workflow = "implement", Model = "m-1" };
+        var context = new ActionWriteContext(target, null, Settings(), "laptop")
+        {
+            Workflow = "implement",
+            Model = "m-1",
+        };
 
         var write = IssueActions.WriteOf(ActionCodes.SetModel, context)!;
 

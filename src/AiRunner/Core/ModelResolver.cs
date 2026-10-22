@@ -14,13 +14,20 @@ public enum ModelComplexity
 /// <param name="Setting"><c>models.&lt;workflow&gt;</c> of the project, or null when none is written.</param>
 /// <param name="IssueOverride">The model of the issue's override tag (its own, else its parent's), or null.</param>
 /// <param name="IsFixRound">A Copilot run after round 1 of implement or fix.</param>
-public sealed record ModelInput(ModelSetting? Setting, string? IssueOverride, ModelComplexity Complexity, bool IsFixRound);
+public sealed record ModelInput(
+    ModelSetting? Setting,
+    string? IssueOverride,
+    ModelComplexity Complexity,
+    bool IsFixRound);
 
-/// <summary>The model to pass to Copilot (null = Copilot's default) and why, in words the dashboard shows as they are.</summary>
+/// <summary>
+/// The model to pass to Copilot (null = Copilot's default) and why, in words the dashboard shows as they are.
+/// </summary>
 public sealed record ModelChoice(string? Model, string Reason);
 
 /// <summary>
-/// Picks the model of one Copilot run. First match wins: issue override, <c>fix_rounds</c> (fix round), <c>simple</c> or
+/// Picks the model of one Copilot run. First match wins: issue override, <c>fix_rounds</c> (fix round), <c>simple</c>
+/// or
 /// <c>complex</c>, <c>default</c> (the string form), none. Pure, so the order is a table test; the jobs only call it.
 /// </summary>
 public static class ModelResolver

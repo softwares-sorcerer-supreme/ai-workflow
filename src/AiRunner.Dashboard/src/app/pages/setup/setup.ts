@@ -19,28 +19,9 @@ import { InlineNote } from '../../shared/inline-note/inline-note';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { pollResource } from '../../shared/poll-resource';
 import { StatusChip } from '../../shared/status-chip/status-chip';
-import { Tone } from '../../shared/tone';
+import { tokenSourceTone, webPasswordSourceTone } from '../../shared/tone';
 import { ViewState } from '../../shared/view-state/view-state';
 import { writeAction } from '../../shared/write-action';
-
-/**
- * The chip tone of a secret source code (`tokenSource`, `webPasswordSource`). Only the style: the label and the
- * "change it there" note come from the server (`*SourceLabel`, `*Note`). An unknown code is neutral.
- */
-const SOURCE_TONES: Readonly<Record<string, Tone>> = {
-  'user-secrets': 'success',
-  environment: 'info',
-  'repos-yml': 'info',
-};
-
-/** A missing token stops the runner (warning); a missing web password only stops closing issues (neutral). */
-function sourceTone(code: string, isRequired: boolean): Tone {
-  if (code === 'none') {
-    return isRequired ? 'warning' : 'neutral';
-  }
-
-  return SOURCE_TONES[code] ?? 'neutral';
-}
 
 export const REMOVE_TOKEN_MESSAGE =
   'The runner deletes the token from the user secrets file. Unless the GITBUCKET_TOKEN environment variable is ' +
@@ -102,8 +83,8 @@ export class Setup {
     after: () => this.reload(),
   });
 
-  protected readonly tokenTone = (code: string) => sourceTone(code, true);
-  protected readonly webPasswordTone = (code: string) => sourceTone(code, false);
+  protected readonly tokenTone = tokenSourceTone;
+  protected readonly webPasswordTone = webPasswordSourceTone;
 
   protected setToken(event: Event): void {
     this.token.set((event.target as HTMLInputElement).value);

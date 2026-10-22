@@ -9,7 +9,9 @@ namespace AiRunner.Tests.Configuration;
 /// </summary>
 public class SettingsSchemaTests
 {
-    /// <summary>Every key path the strict reader accepts, from the raw file types (internal, so found by name).</summary>
+    /// <summary>
+    /// Every key path the strict reader accepts, from the raw file types (internal, so found by name).
+    /// </summary>
     private static List<string> AcceptedPaths()
     {
         var fileType = typeof(RunnerConfig).Assembly.GetType("AiRunner.Configuration.RunnerFile", throwOnError: true)!;
@@ -146,6 +148,21 @@ public class SettingsSchemaTests
             .ToHashSet();
 
         Assert.All(defaultKeys, key => Assert.Contains(key, projectKeys));
-        Assert.Equal(15, SettingsSchema.ProjectSettings.Single(entry => entry.Key == "limits.max_changed_files").Default!.GetValue<int>());
+        Assert.Equal(
+            15,
+            SettingsSchema.ProjectSettings
+                .Single(entry => entry.Key == "limits.max_changed_files")
+                .Default!
+                .GetValue<int>());
+    }
+
+    [Fact]
+    public void A_setting_names_its_fallback_so_the_screen_writes_no_label_of_its_own()
+    {
+        var withDefault = SettingsSchema.All.Single(entry => entry.Path == "poll_interval_seconds");
+        var withoutDefault = SettingsSchema.All.Single(entry => entry.Path == "code_host.base_url");
+
+        Assert.Equal("Built-in default", withDefault.DefaultLabel);
+        Assert.Equal("Not set.", withoutDefault.DefaultLabel);
     }
 }

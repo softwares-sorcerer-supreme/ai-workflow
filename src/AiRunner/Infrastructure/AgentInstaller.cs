@@ -3,7 +3,9 @@ using AiRunner.Core;
 
 namespace AiRunner.Infrastructure;
 
-/// <summary>The folder Copilot CLI reads its agents and skills from (<c>~/.copilot</c>); tests pass a temp folder.</summary>
+/// <summary>
+/// The folder Copilot CLI reads its agents and skills from (<c>~/.copilot</c>); tests pass a temp folder.
+/// </summary>
 public sealed record CopilotHome(string Path)
 {
     public static CopilotHome FromUserProfile() =>
@@ -18,7 +20,9 @@ public sealed record CopilotHome(string Path)
 /// </summary>
 public sealed class AgentInstaller(RunnerConfigSource configSource, ILogger<AgentInstaller> logger)
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     public void Install(string copilotHome)

@@ -1,21 +1,15 @@
 using System.Text.RegularExpressions;
+using AiRunner.Core;
 
-namespace AiRunner.Core;
-
-/// <summary>A file linked from issue or PR text through GitBucket's <c>_attached</c> route.</summary>
-/// <param name="Url">Absolute URL on the GitBucket host.</param>
-/// <param name="Id">The part after <c>_attached/</c>.</param>
-/// <param name="Name">The link text from the markdown, or the id when the link has none.</param>
-/// <param name="IsImage">The text embeds it as an image (<c>![x](...)</c> or an img tag).</param>
-public sealed record AttachmentRef(string Url, string Id, string Name, bool IsImage);
+namespace AiRunner.Infrastructure.CodeHost;
 
 /// <summary>
 /// Finds attachments in the markdown of an issue, comment or PR. GitBucket's JSON has no attachment list,
 /// so the links in the text are all there is. Only links on the GitBucket host count: the runner sends its
-/// token there and nowhere else. Pure parsing, so it lives in Core; only the GitBucket provider calls it
-/// (ICodeHost.FindAttachments).
+/// token there and nowhere else. Pure parsing, but of GitBucket's route, so it lives with the provider (ADR 0004)
+/// and is reached through ICodeHost.FindAttachments.
 /// </summary>
-public static class AttachmentLinks
+public static class GitBucketAttachmentLinks
 {
     private const string UrlCharacters = @"[^\s)""'<>\]]";
     private const string SegmentCharacters = @"[^\s)""'<>\]/?#]";

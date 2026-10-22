@@ -16,7 +16,11 @@ public static class FileSystem
         try
         {
             // Links are skipped: a junction inside the folder must not lead this loop to files outside it.
-            var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
             foreach (var file in Directory.EnumerateFiles(directory, "*", options))
             {
                 File.SetAttributes(file, FileAttributes.Normal);
@@ -31,7 +35,9 @@ public static class FileSystem
         }
     }
 
-    /// <summary>True when the folder is a link (symlink or junction), which must never be walked or deleted through.</summary>
+    /// <summary>
+    /// True when the folder is a link (symlink or junction), which must never be walked or deleted through.
+    /// </summary>
     public static bool IsLink(string directory) =>
         new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint);
 

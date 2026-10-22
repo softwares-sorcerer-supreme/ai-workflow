@@ -1,5 +1,4 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
@@ -19,7 +18,7 @@ import { InlineNote } from '../../shared/inline-note/inline-note';
 import { PageHeader } from '../../shared/page-header/page-header';
 import { describeError, pollResource } from '../../shared/poll-resource';
 import { ViewState } from '../../shared/view-state/view-state';
-import { writeAction } from '../../shared/write-action';
+import { saveRefusal, writeAction } from '../../shared/write-action';
 import { SettingFieldEditor } from './setting-field';
 import { confirmSettingsSave } from './settings-diff-dialog';
 import {
@@ -337,16 +336,12 @@ export class Settings {
 
   /** Keeps the runner's refusal next to the form: the resolver's message of a 400, the message of a 409. */
   private noteSaveFailure(failure: unknown): void {
-    if (!(failure instanceof HttpErrorResponse)) {
-      return;
-    }
+    const refusal = saveRefusal(failure, 'The runner did not save the settings.');
 
-    const message = describeError(failure, 'The runner did not save the settings.');
-
-    if (failure.status === 409) {
-      this.conflict.set(message);
-    } else if (failure.status === 400) {
-      this.saveError.set(message);
+    if (refusal?.kind === 'conflict') {
+      this.conflict.set(refusal.message);
+    } else if (refusal?.kind === 'invalid') {
+      this.saveError.set(refusal.message);
     }
   }
 }

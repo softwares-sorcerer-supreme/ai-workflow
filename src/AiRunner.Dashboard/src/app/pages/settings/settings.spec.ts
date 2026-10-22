@@ -14,11 +14,11 @@ import { SaveSettings$Params, saveSettings } from '../../api/fn/settings/save-se
 import { SettingDefinition } from '../../api/models/setting-definition';
 import { SettingsResponse } from '../../api/models/settings-response';
 import { HealthStore } from '../../layout/health-store';
-import { FakeApi, fakePollResource, sampleHealth, settle } from '../../shared/testing';
+import { FakeApi, fakePollResource, sampleDefinition, sampleHealth, settle } from '../../shared/testing';
 import { Settings } from './settings';
 
 function definition(overrides: Partial<SettingDefinition>): SettingDefinition {
-  return { path: '', key: '', scope: 'global', type: 'string', help: 'Help text.', ...overrides };
+  return sampleDefinition({ help: 'Help text.', ...overrides });
 }
 
 const SCHEMA: SettingDefinition[] = [

@@ -2,7 +2,9 @@ using AiRunner.Configuration;
 
 namespace AiRunner.Hosting;
 
-/// <summary>One log line per change of repos.yml, the same from the poller and from the Settings screen's read.</summary>
+/// <summary>
+/// One log line per change of repos.yml, the same from the poller and from the Settings screen's read.
+/// </summary>
 public static class ConfigReloadLog
 {
     public static void LogReload(this ILogger logger, ConfigReload reload)

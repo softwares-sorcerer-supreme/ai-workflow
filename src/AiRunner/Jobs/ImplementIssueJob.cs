@@ -257,7 +257,9 @@ public sealed class ImplementIssueJob(
         {
             Attachments = implementation.Attachments,
             ModelContext = await codeHost.ReadAsync(
-                new IssueRef(issueRepo, issue.Number), Workflows.Implement, run, cancellationToken),
+                new ModelQuery(new IssueRef(issueRepo, issue.Number), Workflows.Implement, config.AllowedModels),
+                run,
+                cancellationToken),
         };
         var context = new AgentRunContext(project, target, prepared, run);
         var result = await session.RunAsync(task, context, cancellationToken);

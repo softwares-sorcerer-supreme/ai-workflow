@@ -17,8 +17,12 @@ public sealed record ConfigReload(bool IsChanged, string? Error, int Version);
 /// <param name="Version">1 at the start, one more for every config applied since.</param>
 /// <param name="Error">Why the file on disk is not applied; null when it is.</param>
 /// <param name="Text">The text of the applied config (the last good file).</param>
-/// <param name="FileHash">Hash of the file last read from disk (or saved), applied or not: a save starts from it.</param>
-/// <param name="RestartNeeded">Keys whose new value waits for a restart (schema paths, e.g. <c>dashboard.port</c>).</param>
+/// <param name="FileHash">
+/// Hash of the file last read from disk (or saved), applied or not: a save starts from it.
+/// </param>
+/// <param name="RestartNeeded">
+/// Keys whose new value waits for a restart (schema paths, e.g. <c>dashboard.port</c>).
+/// </param>
 public sealed record ConfigState(
     RunnerConfig Config,
     int Version,
@@ -154,10 +158,10 @@ public sealed class RunnerConfigSource
     }
 
     /// <summary>
-    /// Replaces repos.yml with <paramref name="text"/> (a dashboard save) and applies it, all under the reload lock: only
-    /// when the file on disk still has <paramref name="baseHash"/> (else false and nothing is written, so a hand edit
-    /// is never overwritten), and only after the text was checked (an <see cref="InvalidOperationException"/> leaves
-    /// the file untouched). <paramref name="writeFile"/> does the write (backup, temp file, move).
+    /// Replaces repos.yml with <paramref name="text"/> (a dashboard save) and applies it, all under the reload lock:
+    /// only when the file on disk still has <paramref name="baseHash"/> (else false and nothing is written, so a hand
+    /// edit is never overwritten), and only after the text was checked (an <see cref="InvalidOperationException"/>
+    /// leaves the file untouched). <paramref name="writeFile"/> does the write (backup, temp file, move).
     /// </summary>
     public bool TryReplace(string baseHash, string text, Action<string> writeFile)
     {

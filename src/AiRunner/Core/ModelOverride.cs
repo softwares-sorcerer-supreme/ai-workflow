@@ -4,9 +4,10 @@ namespace AiRunner.Core;
 
 /// <summary>
 /// The model a person picked for one issue (dashboard action <c>set-model</c>): a bot comment holding
-/// <c>&lt;!-- AI_SETTINGS models.implement=claude-opus-5.5 --&gt;</c>. Only bot comments count, so nobody can fake it
-/// by typing the tag; the newest tag of a key wins and an empty value removes the override. A sub-issue reads its own
-/// tags, then its parent's.
+/// <c>&lt;!-- AI_SETTINGS models.implement=claude-opus-5.5 --&gt;</c>. Only bot comments count (like claims: the bot
+/// marker, not the author, since the runner posts with a person's token), so typing the tag alone does nothing; a
+/// pasted marker still could, which is why the job checks <c>allowed_models</c> again (<c>ModelLookup</c>). The newest
+/// tag of a key wins and an empty value removes the override. A sub-issue reads its own tags, then its parent's.
 /// </summary>
 public static partial class ModelOverride
 {

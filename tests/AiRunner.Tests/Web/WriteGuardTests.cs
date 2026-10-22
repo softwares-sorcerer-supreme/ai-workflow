@@ -9,6 +9,8 @@ using AiRunner.Web;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Routing;
 
 namespace AiRunner.Tests.Web;
 
@@ -46,7 +48,10 @@ public sealed class WriteGuardTests : IAsyncDisposable
 
     private async Task<HttpClient> StartAsync()
     {
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, _webRoot) { Commands = _commands };
+        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, _webRoot)
+        {
+            Commands = _commands,
+        };
         var builder = DashboardApp.CreateBuilder(options);
         builder.WebHost.UseTestServer();
         _app = DashboardApp.Build(builder, options);
@@ -99,21 +104,65 @@ public sealed class WriteGuardTests : IAsyncDisposable
         Assert.False(IsWakePending());
     }
 
+    /// <summary>
+    /// Every write route, as mapped and as a request to send. <see cref="Every_write_route_has_a_guard_test"/> fails
+    /// when a route is mapped in the writes group and missing here, so a new one cannot skip the guard test.
+    /// </summary>
+    private static readonly (string Method, string Pattern, string Path)[] WriteRoutes =
+    [
+        ("POST", "/api/runner/poll", "api/runner/poll"),
+        ("POST", "/api/runner/pause", "api/runner/pause"),
+        ("POST", "/api/runner/resume", "api/runner/resume"),
+        ("POST", "/api/jobs/{id:long}/cancel", "api/jobs/12/cancel"),
+        ("PUT", "/api/setup/token", "api/setup/token"),
+        ("DELETE", "/api/setup/token", "api/setup/token"),
+        ("PUT", "/api/setup/web-password", "api/setup/web-password"),
+        ("DELETE", "/api/setup/web-password", "api/setup/web-password"),
+        ("POST", "/api/issues/{owner}/{repo}/{number:int}/actions/{code}", "api/issues/org/repo/7/actions/set-model"),
+        ("POST", "/api/pulls/{owner}/{repo}/{number:int}/actions/{code}", "api/pulls/org/repo/50/actions/review-full"),
+        ("POST", "/api/workspaces/{project}/{repo}/fetch", "api/workspaces/mbh/backend/fetch"),
+        ("POST", "/api/workspaces/{project}/{repo}/reclone", "api/workspaces/mbh/backend/reclone"),
+        ("DELETE", "/api/workspaces/orphans/{folder}", "api/workspaces/orphans/old-project"),
+        ("PUT", "/api/agents/file", "api/agents/file?path=agents/a.agent.md"),
+        ("POST", "/api/agents/revert", "api/agents/revert?path=agents/a.agent.md"),
+        ("POST", "/api/agents/sync", "api/agents/sync"),
+        ("PUT", "/api/settings", "api/settings"),
+    ];
+
+    public static TheoryData<string, string> WriteRequests()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (method, _, path) in WriteRoutes)
+        {
+            data.Add(method, path);
+        }
+
+        return data;
+    }
+
+    [Fact]
+    public async Task Every_write_route_has_a_guard_test()
+    {
+        await StartAsync();
+        var endpoints = _app!.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+
+        var mapped = endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<WriteRoute>() is not null)
+            .SelectMany(endpoint => endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods
+                .Select(method => $"{method} {endpoint.RoutePattern.RawText}"))
+            .Order()
+            .ToList();
+        var tested = WriteRoutes
+            .Select(route => $"{route.Method} {route.Pattern}")
+            .Order()
+            .ToList();
+
+        Assert.Equal(tested, mapped);
+    }
+
     [Theory]
-    [InlineData("PUT", "api/setup/token")]
-    [InlineData("DELETE", "api/setup/token")]
-    [InlineData("PUT", "api/setup/web-password")]
-    [InlineData("DELETE", "api/setup/web-password")]
-    [InlineData("POST", "api/runner/pause")]
-    [InlineData("POST", "api/runner/resume")]
-    [InlineData("POST", "api/jobs/12/cancel")]
-    [InlineData("POST", "api/workspaces/mbh/backend/fetch")]
-    [InlineData("POST", "api/workspaces/mbh/backend/reclone")]
-    [InlineData("DELETE", "api/workspaces/orphans/old-project")]
-    [InlineData("PUT", "api/agents/file?path=agents/a.agent.md")]
-    [InlineData("POST", "api/agents/revert?path=agents/a.agent.md")]
-    [InlineData("POST", "api/agents/sync")]
-    [InlineData("POST", "api/issues/org/repo/7/actions/set-model")]
+    [MemberData(nameof(WriteRequests))]
     public async Task Every_write_route_without_the_header_is_403(string method, string path)
     {
         var client = await StartAsync();

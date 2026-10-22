@@ -65,7 +65,11 @@ public sealed class JobsApiTests : IAsyncDisposable
 
     private async Task<HttpClient> StartAsync()
     {
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), _status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(
+            RunnerConfigSource.Fixed(_config),
+            _status,
+            _time,
+            Path.Combine(_folder, "wwwroot"))
         {
             Jobs = _store,
         };
@@ -374,7 +378,9 @@ public sealed class JobsApiTests : IAsyncDisposable
         var doneJob = await GetJsonAsync(client, $"api/jobs/{done}");
 
         var liveByName = files.GetProperty("files").EnumerateArray()
-            .ToDictionary(file => file.GetProperty("name").GetString()!, file => file.GetProperty("isLive").GetBoolean());
+            .ToDictionary(
+                file => file.GetProperty("name").GetString()!,
+                file => file.GetProperty("isLive").GetBoolean());
         Assert.True(liveByName["round-1-copilot-live.txt"]);
         Assert.False(liveByName["job.log"]);
         Assert.True(runningJob.GetProperty("isRunning").GetBoolean());

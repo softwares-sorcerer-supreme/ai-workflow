@@ -170,7 +170,10 @@ public sealed class FixReviewJob(
         {
             Attachments = fetched.ForCopilot,
             ModelContext = linked.Repo is { } linkedRepo && linked.Number is { } linkedNumber
-                ? await codeHost.ReadAsync(new IssueRef(linkedRepo, linkedNumber), Workflows.Fix, run, cancellationToken)
+                ? await codeHost.ReadAsync(
+                    new ModelQuery(new IssueRef(linkedRepo, linkedNumber), Workflows.Fix, config.AllowedModels),
+                    run,
+                    cancellationToken)
                 : ModelContext.None,
         };
         var context = new AgentRunContext(project, target, prepared, run)

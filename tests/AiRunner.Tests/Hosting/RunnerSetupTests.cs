@@ -191,6 +191,33 @@ public sealed class RunnerSetupTests : IDisposable
         Assert.Equal("git-pass", _fixture.Credentials.Current.GitSecret);
     }
 
+    [Fact]
+    public async Task A_token_of_another_user_says_the_separate_git_password_is_still_used()
+    {
+        Use(new SetupFixture(seed: store => store.Set(UserSecretsStore.GitPasswordKey, "git-pass")));
+        var identity = new RunnerIdentity { Login = "bob" };
+        var setup = _fixture.CreateSetup(identity);
+
+        var result = await setup.SaveTokenAsync(NewToken, default);
+
+        Assert.Equal(SetupOutcome.Saved, result.Outcome);
+        Assert.Contains(UserSecretsStore.GitPasswordKey, result.Message);
+        Assert.Contains("bob", result.Message);
+        Assert.DoesNotContain("git-pass", result.Message);
+    }
+
+    [Fact]
+    public async Task A_token_of_the_same_user_says_nothing_about_the_git_password()
+    {
+        Use(new SetupFixture(seed: store => store.Set(UserSecretsStore.GitPasswordKey, "git-pass")));
+        var identity = new RunnerIdentity { Login = "alice" };
+        var setup = _fixture.CreateSetup(identity);
+
+        var result = await setup.SaveTokenAsync(NewToken, default);
+
+        Assert.DoesNotContain(UserSecretsStore.GitPasswordKey, result.Message);
+    }
+
     // ---- web password ----
 
     [Fact]
@@ -219,7 +246,9 @@ public sealed class RunnerSetupTests : IDisposable
         Assert.Contains("did not accept the web sign-in of alice", wrong.Message);
         Assert.False(wrongState.IsWebPasswordSet);
         Assert.Equal(SetupOutcome.Saved, right.Outcome);
-        Assert.Equal(SetupFixture.RightWebPassword, _fixture.Store.Read().GetValueOrDefault(UserSecretsStore.WebPasswordKey));
+        Assert.Equal(
+            SetupFixture.RightWebPassword,
+            _fixture.Store.Read().GetValueOrDefault(UserSecretsStore.WebPasswordKey));
         Assert.Equal(SetupFixture.RightWebPassword, _fixture.Credentials.Current.WebPassword);
         Assert.Equal(CredentialSource.UserSecrets, setup.Read().WebPasswordSource);
     }

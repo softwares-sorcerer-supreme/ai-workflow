@@ -71,7 +71,9 @@ public sealed record CostRow(
 
     public int JobsWithoutUsage { get; init; }
 
-    /// <summary>The models the group's jobs started with and why; rows from before model selection add nothing.</summary>
+    /// <summary>
+    /// The models the group's jobs started with and why; rows from before model selection add nothing.
+    /// </summary>
     public IReadOnlyList<ModelUse> Models { get; init; } = [];
 }
 

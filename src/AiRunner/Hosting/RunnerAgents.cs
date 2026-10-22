@@ -17,7 +17,9 @@ public enum AgentOutcome
     /// <summary>The file changed since it was read; nothing was written (a 409).</summary>
     Stale,
 
-    /// <summary>The text failed <see cref="AgentFileRules"/>; <see cref="AgentReply.Reasons"/> says why (a 400).</summary>
+    /// <summary>
+    /// The text failed <see cref="AgentFileRules"/>; <see cref="AgentReply.Reasons"/> says why (a 400).
+    /// </summary>
     Invalid,
 }
 
@@ -38,7 +40,9 @@ public sealed record AgentFileInfo(
     bool IsEditable,
     bool CanRevert);
 
-/// <param name="BaseHash">The hash of the file when the editor opened it; a different hash on disk means a stale save.</param>
+/// <param name="BaseHash">
+/// The hash of the file when the editor opened it; a different hash on disk means a stale save.
+/// </param>
 public sealed record AgentSave(string Path, string Text, string BaseHash);
 
 /// <param name="Extra">Files in the Copilot home the repo does not have; never deleted.</param>
@@ -58,7 +62,9 @@ public interface IRunnerAgents
     /// <summary>Null when the path is not a shared file or the file does not exist.</summary>
     Task<AgentFileDetail?> ReadAsync(string path, CancellationToken cancellationToken);
 
-    /// <summary>Checks the text, writes it when the save's base hash is still the file's hash, and asks for a sync.</summary>
+    /// <summary>
+    /// Checks the text, writes it when the save's base hash is still the file's hash, and asks for a sync.
+    /// </summary>
     Task<AgentReply> SaveAsync(AgentSave save, CancellationToken cancellationToken);
 
     /// <summary>Restores the file from git HEAD and asks for a sync.</summary>
@@ -181,7 +187,9 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
         logger.LogInformation("Reverted {Path} to git HEAD from the dashboard", path);
         _ = sync.Request();
 
-        return new AgentReply(AgentOutcome.Done, "Restored from git. A sync to ~/.copilot is queued for after the running job.");
+        return new AgentReply(
+            AgentOutcome.Done,
+            "Restored from git. A sync to ~/.copilot is queued for after the running job.");
     }
 
     public AgentReply RequestSync()
@@ -191,7 +199,9 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
         return new AgentReply(AgentOutcome.Done, "Sync queued: it runs now, or right after the running job.");
     }
 
-    /// <summary>The reply for a path the screen may not edit (not a shared file, or a template); null when it may.</summary>
+    /// <summary>
+    /// The reply for a path the screen may not edit (not a shared file, or a template); null when it may.
+    /// </summary>
     private static AgentReply? RejectionOf(string path)
     {
         if (AgentPaths.KindOf(path) is null)
@@ -220,7 +230,9 @@ public sealed class RunnerAgents(AgentFiles files, AgentSync sync, ILogger<Runne
     }
 }
 
-/// <summary>The agents of a web app that runs without a runner (the OpenAPI export): nothing to show or change.</summary>
+/// <summary>
+/// The agents of a web app that runs without a runner (the OpenAPI export): nothing to show or change.
+/// </summary>
 public sealed class NoAgents : IRunnerAgents
 {
     private static readonly AgentReply Refused =

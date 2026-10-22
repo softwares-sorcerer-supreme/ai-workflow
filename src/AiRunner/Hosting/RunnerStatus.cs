@@ -34,16 +34,22 @@ public sealed record RunnerStatusSnapshot(
     IReadOnlyList<ProjectPollError> Errors,
     RunningJob? Running = null)
 {
-    /// <summary>The worker is paused from the dashboard; set from <see cref="RunnerCommands"/>, which owns it.</summary>
+    /// <summary>
+    /// The worker is paused from the dashboard; set from <see cref="RunnerCommands"/>, which owns it.
+    /// </summary>
     public bool IsPaused { get; init; }
 
     /// <summary>No code-host token yet (setup mode); set from <see cref="IRunnerSetup"/>, which owns it.</summary>
     public bool IsSetupNeeded { get; init; }
 
-    /// <summary>~/.copilot/ differs from agents/ and skills/ (a file differs or is not installed); see <c>AgentDrift</c>.</summary>
+    /// <summary>
+    /// ~/.copilot/ differs from agents/ and skills/ (a file differs or is not installed); see <c>AgentDrift</c>.
+    /// </summary>
     public bool HasAgentDrift { get; init; }
 
-    /// <summary>Why repos.yml on disk is not applied (the runner keeps its config); set from <see cref="RunnerConfigSource"/>.</summary>
+    /// <summary>
+    /// Why repos.yml on disk is not applied (the runner keeps its config); set from <see cref="RunnerConfigSource"/>.
+    /// </summary>
     public string? ConfigError { get; init; }
 
     /// <summary>A poll has started and not finished yet.</summary>

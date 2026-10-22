@@ -17,10 +17,14 @@ public sealed record AgentFileContent(string Text, string Hash);
 /// </summary>
 public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copilotHome, IProcessRunner processRunner)
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
-    /// <summary>The models an agent file may name (empty = no check); live, so a save checks the current list.</summary>
+    /// <summary>
+    /// The models an agent file may name (empty = no check); live, so a save checks the current list.
+    /// </summary>
     public IReadOnlyCollection<string> AllowedModels => Config.AllowedModels;
 
     /// <summary>The folders the installer copies.</summary>
@@ -44,7 +48,9 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
             .ToList();
     }
 
-    /// <summary>The full path of an existing managed file, or null when the path is not one or the file is missing.</summary>
+    /// <summary>
+    /// The full path of an existing managed file, or null when the path is not one or the file is missing.
+    /// </summary>
     public string? FileOf(string path)
     {
         var segments = AgentPaths.SegmentsOf(path);
@@ -75,7 +81,8 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
 
     /// <summary>
     /// Replaces an existing file (temp file in the same folder, then replace), so a crash never leaves half a file.
-    /// A file with Windows line endings keeps them: a browser textarea sends "\n", and git would show every line changed.
+    /// A file with Windows line endings keeps them: a browser textarea sends "\n", and git would show every line
+    /// changed.
     /// </summary>
     public async Task WriteAsync(string path, string text, CancellationToken cancellationToken)
     {
@@ -152,7 +159,9 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
 
     public AgentDriftResult CheckDrift() => AgentDrift.Compare(SourceHashes(), InstalledHashes());
 
-    /// <summary>The git state of every path (<see cref="AgentStates"/>); all unknown when the folder is no git repo.</summary>
+    /// <summary>
+    /// The git state of every path (<see cref="AgentStates"/>); all unknown when the folder is no git repo.
+    /// </summary>
     public async Task<IReadOnlyDictionary<string, string>> GitStatesAsync(
         IReadOnlyCollection<string> paths,
         CancellationToken cancellationToken)
@@ -250,7 +259,10 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         return result is { ExitCode: 0 } ? result.StdOut.Trim() : null;
     }
 
-    private async Task<ProcessResult?> GitAsync(string directory, CancellationToken cancellationToken, params string[] args)
+    private async Task<ProcessResult?> GitAsync(
+        string directory,
+        CancellationToken cancellationToken,
+        params string[] args)
     {
         var spec = new ProcessSpec("git", args, directory, GitTimeout) { SetEnv = GitEnvironment };
         try
@@ -264,7 +276,9 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         }
     }
 
-    /// <summary>The paths of <c>git status --porcelain=v1 -z</c>; a rename carries its old path as a second entry.</summary>
+    /// <summary>
+    /// The paths of <c>git status --porcelain=v1 -z</c>; a rename carries its old path as a second entry.
+    /// </summary>
     private static IEnumerable<(string Path, bool IsUntracked)> ParseStatus(string output)
     {
         var entries = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -320,7 +334,9 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
     private static IEnumerable<string> PathsOf(string directory, string folder) =>
         FilesOf(directory, folder).Select(entry => entry.Path);
 
-    /// <summary>Every file under the folder as (path with "/" separators, full path); none when it is missing.</summary>
+    /// <summary>
+    /// Every file under the folder as (path with "/" separators, full path); none when it is missing.
+    /// </summary>
     private static IEnumerable<(string Path, string File)> FilesOf(string directory, string folder)
     {
         if (!Directory.Exists(directory))

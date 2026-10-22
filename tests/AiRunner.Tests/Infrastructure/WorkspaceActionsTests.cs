@@ -45,9 +45,17 @@ public sealed class WorkspaceActionsTests : IDisposable
         File.WriteAllText(Path.Combine(agentsFolder, "implement-issue.agent.md"), "shared");
 
         var identity = new RunnerIdentity { Login = "bot" };
-        var remote = new GitBucketGitRemote(RunnerConfigSource.Fixed(_config), identity, RunnerCredentials.Of(token: "x"));
+        var remote = new GitBucketGitRemote(
+            RunnerConfigSource.Fixed(_config),
+            identity,
+            RunnerCredentials.Of(token: "x"));
         _gitClient = new GitClient(RunnerConfigSource.Fixed(_config), remote, _processRunner);
-        _workspace = new Workspace(RunnerConfigSource.Fixed(_config), _gitClient, remote, _locks, NullLogger<Workspace>.Instance);
+        _workspace = new Workspace(
+            RunnerConfigSource.Fixed(_config),
+            _gitClient,
+            remote,
+            _locks,
+            NullLogger<Workspace>.Instance);
         var inspector = new WorkspaceInspector(RunnerConfigSource.Fixed(_config), _gitClient, _locks, _sizes);
         _workspaces = new RunnerWorkspaces(
             RunnerConfigSource.Fixed(_config),
@@ -100,7 +108,7 @@ public sealed class WorkspaceActionsTests : IDisposable
     {
         var clone = await CloneInfoAsync();
 
-        Assert.False(clone.Exists);
+        Assert.False(clone.IsOnDisk);
         Assert.Null(clone.Head);
         Assert.Empty(clone.Warnings);
         Assert.Equal(["r"], clone.Components.Select(_ => "r"));
@@ -115,7 +123,7 @@ public sealed class WorkspaceActionsTests : IDisposable
 
         var clone = await CloneInfoAsync();
 
-        Assert.True(clone.Exists);
+        Assert.True(clone.IsOnDisk);
         Assert.NotNull(clone.Head);
         Assert.Equal("init", clone.Head.Subject);
         Assert.Equal(40, clone.Head.Sha.Length);
@@ -219,7 +227,7 @@ public sealed class WorkspaceActionsTests : IDisposable
 
         var clone = await CloneInfoAsync();
 
-        Assert.True(clone.Exists);
+        Assert.True(clone.IsOnDisk);
         Assert.NotNull(clone.Head);
     }
 
@@ -406,6 +414,19 @@ public sealed class WorkspaceActionsTests : IDisposable
         var folder = Path.Combine(WorkFolder, "old-project");
         Directory.CreateDirectory(folder);
         using var other = _locks.TryHoldForAction("old-project");
+
+        var reply = await _workspaces.DeleteOrphanAsync("old-project", default);
+
+        Assert.Equal(WorkspaceOutcome.Busy, reply.Outcome);
+        Assert.True(Directory.Exists(folder));
+    }
+
+    [Fact]
+    public async Task Delete_orphan_is_busy_while_a_job_of_a_removed_project_still_runs_in_it()
+    {
+        var folder = Path.Combine(WorkFolder, "old-project");
+        Directory.CreateDirectory(folder);
+        await _locks.HoldForJobAsync("old-project", default);
 
         var reply = await _workspaces.DeleteOrphanAsync("old-project", default);
 

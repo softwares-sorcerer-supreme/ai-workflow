@@ -1,4 +1,5 @@
 import { SettingDefinition } from '../../api/models/setting-definition';
+import { sampleDefinition } from '../../shared/testing';
 import {
   JsonMap,
   buildGroups,
@@ -15,9 +16,7 @@ import {
   withoutValue,
 } from './settings-form';
 
-function definition(overrides: Partial<SettingDefinition>): SettingDefinition {
-  return { path: '', key: '', scope: 'global', type: 'string', help: '', ...overrides };
-}
+const definition = sampleDefinition;
 
 const SCHEMA: SettingDefinition[] = [
   definition({ path: 'code_host.base_url', key: 'code_host.base_url' }),

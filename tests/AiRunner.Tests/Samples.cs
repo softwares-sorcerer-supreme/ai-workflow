@@ -17,7 +17,8 @@ public static class Samples
             "open");
     }
 
-    public static HostComment Human(long id, string body) => new(id, body, new HostUser("alice"), DateTimeOffset.UtcNow);
+    public static HostComment Human(long id, string body) =>
+        new(id, body, new HostUser("alice"), DateTimeOffset.UtcNow);
 
     public static HostComment Bot(long id, string body) =>
         new(id, BotComments.Marker + "\n" + body, new HostUser("bot"), DateTimeOffset.UtcNow);

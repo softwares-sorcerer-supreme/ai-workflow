@@ -77,7 +77,8 @@ public sealed class AnalyzeIssueJob(
         run.Save("context.md", context);
 
         var issueRef = new IssueRef(request.Repo, issue.Number);
-        var modelContext = await codeHost.ReadAsync(issueRef, Workflows.Analyze, run, cancellationToken);
+        var modelQuery = new ModelQuery(issueRef, Workflows.Analyze, config.AllowedModels);
+        var modelContext = await codeHost.ReadAsync(modelQuery, run, cancellationToken);
         var modelChoice = modelContext.Choose(settings.ModelSettingFor(Workflows.Analyze), isFixRound: false);
         run.RecordModel(modelChoice);
         var model = modelChoice.Model;

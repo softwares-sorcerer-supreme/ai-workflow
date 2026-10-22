@@ -28,6 +28,8 @@ public sealed class AgentFrontmatterTests
     public void A_text_without_front_matter_is_left_alone()
     {
         Assert.Equal("Body only", AgentFrontmatter.WithModel("Body only", "m"));
-        Assert.Equal("---\nname: x\nno closing fence", AgentFrontmatter.WithModel("---\nname: x\nno closing fence", "m"));
+        Assert.Equal(
+            "---\nname: x\nno closing fence",
+            AgentFrontmatter.WithModel("---\nname: x\nno closing fence", "m"));
     }
 }

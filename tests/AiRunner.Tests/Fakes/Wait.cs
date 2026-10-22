@@ -1,6 +1,8 @@
 namespace AiRunner.Tests.Fakes;
 
-/// <summary>Waits for a background service (poller, worker) to reach a state, with a deadline instead of a sleep.</summary>
+/// <summary>
+/// Waits for a background service (poller, worker) to reach a state, with a deadline instead of a sleep.
+/// </summary>
 public static class Wait
 {
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);

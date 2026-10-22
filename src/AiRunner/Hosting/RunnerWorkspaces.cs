@@ -12,7 +12,9 @@ public enum WorkspaceOutcome
     /// <summary>No such project, clone or orphan folder.</summary>
     NotFound,
 
-    /// <summary>The request is refused: not a plain folder name, a project folder, a link, a clone not made yet.</summary>
+    /// <summary>
+    /// The request is refused: not a plain folder name, a project folder, a link, a clone not made yet.
+    /// </summary>
     Refused,
 
     /// <summary>A job (or another action) holds the project; nothing was changed (a 409).</summary>
@@ -98,7 +100,9 @@ public sealed class RunnerWorkspaces(
         var directory = WorkspacePaths.CloneOf(Config, target.Project, target.Repo);
         if (!Directory.Exists(Path.Combine(directory, ".git")))
         {
-            return new WorkspaceReply(WorkspaceOutcome.Refused, "This clone does not exist yet; the next job makes it.");
+            return new WorkspaceReply(
+                WorkspaceOutcome.Refused,
+                "This clone does not exist yet; the next job makes it.");
         }
 
         try
@@ -143,7 +147,10 @@ public sealed class RunnerWorkspaces(
             return Reply(WorkspaceOutcome.Failed, discardMessage);
         }
 
-        logger.LogInformation("{Project}: clone of {Repo} deleted from the dashboard", target.Project.Name, target.Repo);
+        logger.LogInformation(
+            "{Project}: clone of {Repo} deleted from the dashboard",
+            target.Project.Name,
+            target.Repo);
 
         return Reply(WorkspaceOutcome.Done, $"Deleted the clone of {target.Repo}; the next job clones it again.");
     }
@@ -175,11 +182,12 @@ public sealed class RunnerWorkspaces(
             return Reply(WorkspaceOutcome.Refused, "The folder is a link; delete it by hand.");
         }
 
-        // No project owns an orphan, so the lock is keyed by the folder: two deletes of it never run together.
+        // No project owns an orphan, so the lock is keyed by the folder: two deletes of it never run together, and a
+        // job of a project just removed from repos.yml still holds its folder name until it ends.
         using var hold = locks.TryHoldForAction(folder);
         if (hold is null)
         {
-            return Reply(WorkspaceOutcome.Busy, "This folder is being deleted already.");
+            return Reply(WorkspaceOutcome.Busy, "This folder is in use (a running job or another delete); try later.");
         }
 
         if (!FileSystem.DeleteDirectory(directory))
@@ -208,7 +216,9 @@ public sealed class RunnerWorkspaces(
     private sealed record CloneTarget(ProjectConfig Project, string Repo);
 }
 
-/// <summary>The workspaces of a web app that runs without a runner (the OpenAPI export): nothing to show or change.</summary>
+/// <summary>
+/// The workspaces of a web app that runs without a runner (the OpenAPI export): nothing to show or change.
+/// </summary>
 public sealed class NoWorkspaces : IRunnerWorkspaces
 {
     private static readonly WorkspaceReply Refused =

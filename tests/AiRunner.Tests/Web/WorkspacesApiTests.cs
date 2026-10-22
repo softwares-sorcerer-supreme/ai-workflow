@@ -46,7 +46,11 @@ public sealed class WorkspacesApiTests : IAsyncDisposable
     private async Task<HttpClient> StartAsync(IRunnerWorkspaces workspaces)
     {
         var status = new RunnerStatus("laptop-1", "repos.yml", _time);
-        var options = new DashboardAppOptions(RunnerConfigSource.Fixed(_config), status, _time, Path.Combine(_folder, "wwwroot"))
+        var options = new DashboardAppOptions(
+            RunnerConfigSource.Fixed(_config),
+            status,
+            _time,
+            Path.Combine(_folder, "wwwroot"))
         {
             Workspaces = workspaces,
         };
@@ -63,7 +67,11 @@ public sealed class WorkspacesApiTests : IAsyncDisposable
 
     private IRunnerWorkspaces Real()
     {
-        var inspector = new WorkspaceInspector(RunnerConfigSource.Fixed(_config), new FakeGit(), _locks, new DirectorySizes(_time));
+        var inspector = new WorkspaceInspector(
+            RunnerConfigSource.Fixed(_config),
+            new FakeGit(),
+            _locks,
+            new DirectorySizes(_time));
 
         return new RunnerWorkspaces(
             RunnerConfigSource.Fixed(_config),

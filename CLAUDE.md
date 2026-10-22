@@ -289,7 +289,8 @@ is one warning, never a stopped runner. The API never calls GitBucket. Every ans
   bot comment tag `<!-- AI_SETTINGS models.<workflow>=<model> -->` (`Markers.SettingTag`, `ModelOverride`; bot comments only). The
   `set-model` action (`IssueAction.NeedsModel`, body `{ workflow, model }`, choices from `GET /api/model-options`) writes it through
   `ICodeHost.AddCommentAsync` (`ActionWriteKind.BotComment`) and is offered on every open issue. Global `allowed_models` (empty = no
-  check) is checked at start, on a settings save, an agent save and the action; global `agent_models` is written into the installed copy
+  check) is checked at start, on a settings save, an agent save, the action and again by each job (`ModelLookup` ignores an
+  override outside it: the bot marker is plain text); global `agent_models` is written into the installed copy
   by `AgentInstaller` (`AgentFrontmatter`) and `AgentFiles` compares drift against that form. `JobRun.RecordModel` keeps the first run's
   model; `JobWorker` stores it in `jobs.model` / `model_reason` and `cost_log.model` / `model_reason` (columns added at startup);
   a fix round with another model says so in its round line. Not in `cost.csv`.

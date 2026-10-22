@@ -17,7 +17,9 @@ public interface ICostLog
 /// </summary>
 public sealed class CostLog(RunnerConfigSource configSource, IStateStore stateStore, ILogger<CostLog> logger) : ICostLog
 {
-    /// <summary>Reads only keys that need a restart (and the root folder), so the live config is always right.</summary>
+    /// <summary>
+    /// Reads only keys that need a restart (and the root folder), so the live config is always right.
+    /// </summary>
     private RunnerConfig Config => configSource.Current;
 
     private const string OldHeader = "date,repo,number,workflow,duration_s,result,detail";

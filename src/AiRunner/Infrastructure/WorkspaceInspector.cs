@@ -11,7 +11,7 @@ namespace AiRunner.Infrastructure;
 public sealed record CloneInfo(
     string Repo,
     string Folder,
-    bool Exists,
+    bool IsOnDisk,
     IReadOnlyList<string> Components,
     CloneHead? Head,
     DateTimeOffset? LastFetchAt,
@@ -98,7 +98,16 @@ public sealed class WorkspaceInspector(
         var warnings = WorkspaceChecks.For(facts, installedAgents);
         var size = sizes.Get(directory);
 
-        return new CloneInfo(repo, folder, true, components, head, LastFetchOf(gitFolder), changedPaths, size, warnings);
+        return new CloneInfo(
+            repo,
+            folder,
+            true,
+            components,
+            head,
+            LastFetchOf(gitFolder),
+            changedPaths,
+            size,
+            warnings);
     }
 
     private async Task<IReadOnlyList<string>> ChangedPathsAsync(string directory, CancellationToken cancellationToken)
@@ -134,7 +143,9 @@ public sealed class WorkspaceInspector(
             .ToList();
     }
 
-    /// <summary>"component: path" for every instruction file of the repo's components that is not in the clone.</summary>
+    /// <summary>
+    /// "component: path" for every instruction file of the repo's components that is not in the clone.
+    /// </summary>
     private static List<string> MissingInstructions(ProjectConfig project, string repo, string cloneFolder)
     {
         var fullClone = Path.GetFullPath(cloneFolder);
