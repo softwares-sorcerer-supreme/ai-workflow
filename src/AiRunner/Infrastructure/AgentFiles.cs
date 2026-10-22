@@ -106,6 +106,11 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         const string agentsPrefix = "agents/";
         const string agentSuffix = ".agent.md";
 
+        if (Config.AgentModels.Count == 0)
+        {
+            return bytes;
+        }
+
         var isAgent = path.StartsWith(agentsPrefix, StringComparison.Ordinal) &&
                       path.EndsWith(agentSuffix, StringComparison.Ordinal);
         if (!isAgent)
@@ -114,8 +119,8 @@ public sealed class AgentFiles(RunnerConfigSource configSource, CopilotHome copi
         }
 
         var agent = path[agentsPrefix.Length..^agentSuffix.Length];
-        if (!Config.AgentModels.TryGetValue(agent, out var model) ||
-            !ModelSetting.IsAllowed(Config.AllowedModels, model))
+        var model = AgentModels.ModelFor(Config, agent);
+        if (model is null)
         {
             return bytes;
         }

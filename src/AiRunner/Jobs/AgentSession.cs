@@ -199,10 +199,8 @@ public sealed class AgentSession(
 
         // Returns the failure instead of throwing: round 1 is the job's call, a failed fix round still ends well.
         var modelSetting = settings.ModelSettingFor(task.Workflow);
-        var firstChoice = ModelResolver.Resolve(new ModelInput(
-            modelSetting, task.ModelContext.IssueOverride, task.ModelContext.Complexity, IsFixRound: false));
-        var laterChoice = ModelResolver.Resolve(new ModelInput(
-            modelSetting, task.ModelContext.IssueOverride, task.ModelContext.Complexity, IsFixRound: true));
+        var firstChoice = task.ModelContext.Choose(modelSetting, isFixRound: false);
+        var laterChoice = task.ModelContext.Choose(modelSetting, isFixRound: true);
         run.RecordModel(firstChoice);
         var allowTools = context.Writable
             .SelectMany(component => AllowTools(component.Commands))
@@ -310,8 +308,7 @@ public sealed class AgentSession(
 
             outputText = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, cancellationToken) : null;
             problems = task.Problems(outputText);
-            var isOtherModel = round > 1 && laterChoice.Model != firstChoice.Model;
-            var modelNote = isOtherModel ? $"model {laterChoice.Model ?? "Copilot default"} ({laterChoice.Reason}); " : "";
+            var modelNote = ModelNote(round, firstChoice, laterChoice);
             rounds.Add($"Round {round} ({(round == 1 ? task.FirstRound : "fix")}): " + modelNote +
                        (fixFailure is null ? "" : $"Copilot failed ({fixFailure}); ") +
                        $"{ChecksSummary(checks)}; " +
@@ -438,6 +435,14 @@ public sealed class AgentSession(
         var summaries = checks.Select(check => $"`{check.Command}` {Status(check.Result)}");
 
         return string.Join(", ", summaries);
+    }
+
+    /// <summary>"model X (reason); " for a fix round on another model than round 1, else nothing.</summary>
+    private static string ModelNote(int round, ModelChoice firstChoice, ModelChoice laterChoice)
+    {
+        var isOtherModel = round > 1 && laterChoice.Model != firstChoice.Model;
+
+        return isOtherModel ? $"model {laterChoice.Model ?? "Copilot default"} ({laterChoice.Reason}); " : "";
     }
 
     /// <summary>"Checks run by ai-runner", "Rounds by ai-runner" and the output file problems left (under problemsTitle), for a PR body or a reply.</summary>

@@ -78,12 +78,7 @@ public sealed class AnalyzeIssueJob(
 
         var issueRef = new IssueRef(request.Repo, issue.Number);
         var modelContext = await codeHost.ReadAsync(issueRef, Workflows.Analyze, run, cancellationToken);
-        var modelInput = new ModelInput(
-            settings.ModelSettingFor(Workflows.Analyze),
-            modelContext.IssueOverride,
-            modelContext.Complexity,
-            IsFixRound: false);
-        var modelChoice = ModelResolver.Resolve(modelInput);
+        var modelChoice = modelContext.Choose(settings.ModelSettingFor(Workflows.Analyze), isFixRound: false);
         run.RecordModel(modelChoice);
         var model = modelChoice.Model;
         var timeout = TimeSpan.FromMinutes(config.Copilot.AnalyzeTimeoutMinutes);

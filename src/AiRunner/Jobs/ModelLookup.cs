@@ -1,3 +1,4 @@
+using AiRunner.Configuration;
 using AiRunner.Core;
 using AiRunner.Infrastructure;
 using AiRunner.Infrastructure.CodeHost;
@@ -8,6 +9,10 @@ namespace AiRunner.Jobs;
 public sealed record ModelContext(string? IssueOverride, ModelComplexity Complexity)
 {
     public static readonly ModelContext None = new(null, ModelComplexity.Unknown);
+
+    /// <summary>The model for a Copilot run of <paramref name="setting"/> (null = none written) in this context.</summary>
+    public ModelChoice Choose(ModelSetting? setting, bool isFixRound) =>
+        ModelResolver.Resolve(new ModelInput(setting, IssueOverride, Complexity, isFixRound));
 }
 
 /// <summary>
@@ -60,15 +65,8 @@ public static class ModelLookup
             return null;
         }
 
-        try
-        {
-            return SubIssueBody.Parse(issue.Body)?.Parent;
-        }
-        catch (FormatException)
-        {
-            // A broken body only means the parent is unknown: the issue's own override and labels are used.
-            return null;
-        }
+        // A broken body only means the parent is unknown: the issue's own override and labels are used.
+        return JobSupport.SubIssueInfoOf(issue)?.Parent;
     }
 
     private static ModelComplexity ComplexityOf(HostIssue issue)

@@ -83,8 +83,6 @@ public sealed record ModelSetting
         _ => throw new InvalidOperationException($"Unknown model key '{key}'. Use: {string.Join(", ", Keys)}"),
     };
 
-    private bool IsDefaultOnly => Simple is null && Complex is null && FixRounds is null;
-
     /// <summary>Reads the scalar or mapping form; an unknown key stops the start.</summary>
     internal sealed class YamlConverter : IYamlTypeConverter
     {
@@ -123,7 +121,7 @@ public sealed record ModelSetting
             var setting = (ModelSetting)value!;
 
             // Only the plain string goes back as a string: the object form must stay an object (it merges).
-            if (setting.IsDefaultOnly && setting.IsPlainString)
+            if (setting.IsPlainString)
             {
                 emitter.Emit(new Scalar(setting.Default ?? ""));
                 return;

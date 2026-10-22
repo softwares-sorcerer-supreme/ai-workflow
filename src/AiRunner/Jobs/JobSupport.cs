@@ -242,7 +242,7 @@ public static class JobSupport
     }
 
     /// <summary>The parsed header of a sub-issue body, or null when it is broken.</summary>
-    private static SubIssueInfo? SubIssueInfoOf(HostIssue issue)
+    public static SubIssueInfo? SubIssueInfoOf(HostIssue issue)
     {
         try
         {
