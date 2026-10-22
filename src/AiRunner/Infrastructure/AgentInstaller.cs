@@ -49,7 +49,8 @@ public sealed class AgentInstaller(RunnerConfigSource configSource, ILogger<Agen
         {
             if (!ModelSetting.IsAllowed(Config.AllowedModels, model))
             {
-                logger.LogWarning("agent_models.{Agent} names {Model}, which is not in allowed_models: skipped", agent, model);
+                logger.LogWarning(
+                    "agent_models.{Agent} names {Model}, which is not in allowed_models: skipped", agent, model);
                 continue;
             }
 

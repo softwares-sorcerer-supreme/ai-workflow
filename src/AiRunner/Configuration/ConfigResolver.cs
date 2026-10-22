@@ -263,7 +263,8 @@ internal static partial class ConfigResolver
         {
             if (!ModelSetting.IsAllowed(config.AllowedModels, model))
             {
-                throw new InvalidOperationException($"agent_models.{agent} names '{model}', which is not in allowed_models.");
+                throw new InvalidOperationException(
+                    $"agent_models.{agent} names '{model}', which is not in allowed_models.");
             }
         }
 

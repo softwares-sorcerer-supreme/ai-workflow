@@ -18,7 +18,8 @@ public static partial class ModelOverride
     public static string KeyOf(string workflow) => KeyPrefix + workflow;
 
     /// <summary>Whether a model name is safe to write into a tag (no space, no <c>--&gt;</c>).</summary>
-    public static bool IsValidName(string model) => NamePattern().IsMatch(model) && !model.Contains("--", StringComparison.Ordinal);
+    public static bool IsValidName(string model) =>
+        NamePattern().IsMatch(model) && !model.Contains("--", StringComparison.Ordinal);
 
     /// <summary>The comment text that sets (or, with an empty model, removes) the override.</summary>
     public static string CommentText(string workflow, string model, string visibleLine)

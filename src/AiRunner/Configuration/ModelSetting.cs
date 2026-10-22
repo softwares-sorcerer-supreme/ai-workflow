@@ -22,6 +22,14 @@ public sealed record ModelSetting
     public static readonly string[] Keys = [DefaultKey, SimpleKey, ComplexKey, FixRoundsKey];
 
     public string? Default { get; init; }
+
+    /// <summary>
+    /// Read from the plain string form. That form replaces whatever an earlier layer wrote for the workflow, as it always
+    /// did, instead of merging key by key like the object form.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsPlainString { get; init; }
+
     public string? Simple { get; init; }
     public string? Complex { get; init; }
 
@@ -39,13 +47,21 @@ public sealed record ModelSetting
             .Select(model => model!);
 
     /// <summary>Key by key: what <paramref name="layer"/> writes wins, the rest stays (defaults, then a project).</summary>
-    public ModelSetting MergedWith(ModelSetting layer) => new()
+    public ModelSetting MergedWith(ModelSetting layer)
     {
-        Default = layer.Default ?? Default,
-        Simple = layer.Simple ?? Simple,
-        Complex = layer.Complex ?? Complex,
-        FixRounds = layer.FixRounds ?? FixRounds,
-    };
+        if (layer.IsPlainString)
+        {
+            return layer with { IsPlainString = false };
+        }
+
+        return new ModelSetting
+        {
+            Default = layer.Default ?? Default,
+            Simple = layer.Simple ?? Simple,
+            Complex = layer.Complex ?? Complex,
+            FixRounds = layer.FixRounds ?? FixRounds,
+        };
+    }
 
     /// <summary>The value of a key by its file name, or null.</summary>
     public string? ValueOf(string key) => key switch
@@ -78,7 +94,7 @@ public sealed record ModelSetting
         {
             if (parser.TryConsume<Scalar>(out var scalar))
             {
-                return new ModelSetting { Default = scalar.Value };
+                return new ModelSetting { Default = scalar.Value, IsPlainString = true };
             }
 
             parser.Consume<MappingStart>();
@@ -106,7 +122,8 @@ public sealed record ModelSetting
         {
             var setting = (ModelSetting)value!;
 
-            if (setting.IsDefaultOnly)
+            // Only the plain string goes back as a string: the object form must stay an object (it merges).
+            if (setting.IsDefaultOnly && setting.IsPlainString)
             {
                 emitter.Emit(new Scalar(setting.Default ?? ""));
                 return;
@@ -141,7 +158,7 @@ internal sealed class ModelSettingJsonConverter : JsonConverter<ModelSetting>
     {
         if (reader.TokenType == JsonTokenType.String)
         {
-            return new ModelSetting { Default = reader.GetString() };
+            return new ModelSetting { Default = reader.GetString(), IsPlainString = true };
         }
 
         var setting = new ModelSetting();

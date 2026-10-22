@@ -70,6 +70,26 @@ public sealed class ModelConfigTests
     }
 
     [Fact]
+    public void A_plain_string_replaces_the_entry_of_defaults_as_it_always_did()
+    {
+        var config = RunnerConfig.Parse("""
+            defaults:
+              models:
+                implement: { default: m-d, complex: m-c }
+            projects:
+              shop:
+                models: { implement: m-plain }
+                components:
+                  web: { repo: o/shop }
+            """);
+
+        var setting = config.Projects.Single().Settings.ModelSettingFor("implement")!;
+
+        Assert.Equal("m-plain", setting.Default);
+        Assert.Null(setting.Complex);
+    }
+
+    [Fact]
     public void An_unknown_key_in_the_object_form_stops_the_start()
     {
         var exception = Fails("defaults:\n  models:\n    implement: { default: a, hard: b }\n" + Projects);
