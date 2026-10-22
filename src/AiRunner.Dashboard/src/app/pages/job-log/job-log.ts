@@ -29,6 +29,7 @@ import { pollResource } from '../../shared/poll-resource';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { DurationPipe } from '../../shared/time/duration.pipe';
 import { AppTime } from '../../shared/time/time';
+import { jobModelText } from '../../shared/model-text';
 import { jobStatusTone } from '../../shared/tone';
 import { ViewState } from '../../shared/view-state/view-state';
 
@@ -135,6 +136,7 @@ export class JobLog {
   protected readonly isMarkdown = computed(() => this.shownFile()?.format === 'markdown');
 
   protected readonly statusTone = jobStatusTone;
+  protected readonly modelText = jobModelText;
 
   constructor() {
     // A new route id: reload everything. A new selection: load that file now instead of at the next poll.

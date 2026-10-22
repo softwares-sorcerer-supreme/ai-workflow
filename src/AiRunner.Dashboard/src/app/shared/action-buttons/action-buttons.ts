@@ -5,10 +5,12 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Api } from '../../api/api';
 import { runIssueAction } from '../../api/fn/issues/run-issue-action';
 import { runPullAction } from '../../api/fn/pulls/run-pull-action';
+import { ActionRequest } from '../../api/models/action-request';
 import { ActionResponse } from '../../api/models/action-response';
 import { CommandResponse } from '../../api/models/command-response';
 import { splitRepo } from '../issue-link';
 import { writeAction } from '../write-action';
+import { ActionModelDialog, ActionModelDialogData } from './action-model-dialog';
 import { ActionTextDialog, ActionTextDialogData } from './action-text-dialog';
 
 /** What the actions act on: an issue or a PR, by its `owner/repo` (as the API sends it) and number. */
@@ -30,8 +32,8 @@ export function pullTarget(row: { repo: string; number: number }): ActionTarget 
 
 /**
  * The actions the API offers for one issue or PR, one button each, in the API's order and with its labels: the API
- * alone decides which exist. An action without text runs at once; one that needs text opens a text box first. One
- * write at a time per group; `after` fires after every answer so the screen reloads (no update by hand).
+ * alone decides which exist. An action without text runs at once; one that needs text opens a text box first, one
+ * that needs a model (set-model) opens the model picker first. One write at a time per group; `after` fires after every answer so the screen reloads (no update by hand).
  */
 @Component({
   selector: 'app-action-buttons',
@@ -77,13 +79,34 @@ export class ActionButtons {
   });
 
   protected start(action: ActionResponse): void {
+    if (action.needsModel) {
+      this.openModelPicker(action);
+
+      return;
+    }
+
     if (action.needsText) {
       this.openTextBox(action);
 
       return;
     }
 
-    void this.send(action, null);
+    void this.send(action, { text: null });
+  }
+
+  private openModelPicker(action: ActionResponse): void {
+    const target = this.target();
+
+    this.dialog.open<ActionModelDialog, ActionModelDialogData, boolean>(ActionModelDialog, {
+      data: {
+        title: action.label,
+        target: `${target.repo} #${target.number}`,
+        isBusy: this.write.isBusy,
+        send: (workflow, model) => this.send(action, { text: null, workflow, model }),
+      },
+      width: 'min(480px, calc(100vw - 32px))',
+      maxWidth: 'calc(100vw - 32px)',
+    });
   }
 
   private openTextBox(action: ActionResponse): void {
@@ -94,23 +117,23 @@ export class ActionButtons {
         title: action.label,
         target: `${target.repo} #${target.number}`,
         isBusy: this.write.isBusy,
-        send: (text) => this.send(action, text),
+        send: (text) => this.send(action, { text }),
       },
       width: 'min(560px, calc(100vw - 32px))',
       maxWidth: 'calc(100vw - 32px)',
     });
   }
 
-  private send(action: ActionResponse, text: string | null): Promise<boolean> {
+  private send(action: ActionResponse, body: ActionRequest): Promise<boolean> {
     this.runningCode.set(action.code);
 
-    return this.write.run(() => this.call(action.code, text));
+    return this.write.run(() => this.call(action.code, body));
   }
 
-  private call(code: string, text: string | null): Promise<CommandResponse> {
+  private call(code: string, body: ActionRequest): Promise<CommandResponse> {
     const target = this.target();
     const [owner, repo] = splitRepo(target.repo);
-    const params = { owner, repo, number: target.number, code, body: { text } };
+    const params = { owner, repo, number: target.number, code, body };
 
     if (target.kind === 'pull') {
       return this.api.invoke(runPullAction, params);

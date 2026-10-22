@@ -91,6 +91,17 @@ pre {
   font: var(--mat-sys-title-small);
 }
 
+// A section of a group (`implement` in Models): a small heading, then its fields.
+.section-title {
+  margin: var(--app-space-5) 0 var(--app-space-3);
+  font: var(--mat-sys-label-large);
+  font-family: var(--app-font-mono);
+}
+
+.group-title + .section-title {
+  margin-top: 0;
+}
+
 .group app-inline-note {
   margin-bottom: var(--app-space-3);
 }

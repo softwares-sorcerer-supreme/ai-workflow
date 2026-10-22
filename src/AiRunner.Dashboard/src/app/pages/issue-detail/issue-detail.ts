@@ -19,6 +19,7 @@ import { StageChip } from '../../shared/stage-chip/stage-chip';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import { DurationPipe } from '../../shared/time/duration.pipe';
 import { AppTime } from '../../shared/time/time';
+import { jobModelText } from '../../shared/model-text';
 import { issueMarkIcon, issueMarkTone, jobStatusTone } from '../../shared/tone';
 import { ViewState } from '../../shared/view-state/view-state';
 
@@ -85,10 +86,12 @@ export class IssueDetail {
     { key: 'duration', header: 'Duration', align: 'end', width: '110px', hideBelow: 'sm' },
     // No cell template: the table shows the number, or "-" for an old row or a failed job (null).
     { key: 'copilotCalls', header: 'Calls', align: 'end', width: '70px', hideBelow: 'sm' },
+    { key: 'model', header: 'Model', width: '200px', hideBelow: 'md' },
     { key: 'startedAt', header: 'Started', align: 'end', width: '170px', hideBelow: 'md' },
     { key: 'log', header: 'Log', width: '90px' },
   ];
 
+  protected readonly modelText = jobModelText;
   protected readonly markTone = issueMarkTone;
   protected readonly markIcon = issueMarkIcon;
   protected readonly statusTone = jobStatusTone;

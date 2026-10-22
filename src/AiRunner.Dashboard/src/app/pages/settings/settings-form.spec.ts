@@ -5,9 +5,11 @@ import {
   diffSettings,
   fallbackNote,
   formatValue,
+  mapRows,
   namesAt,
   parseInteger,
   parseLines,
+  rowsToMap,
   valueAt,
   withValue,
   withoutValue,
@@ -52,6 +54,70 @@ describe('buildGroups', () => {
 
     expect(groups.at(-1)?.title).toBe('Brand new');
     expect(buildGroups(schema, { scope: 'component', root: [] })).toEqual([]);
+  });
+});
+
+describe('buildGroups sections', () => {
+  const models = [
+    definition({ path: 'defaults.models.analyze.default', key: 'models.analyze.default', scope: 'defaults' }),
+    definition({ path: 'defaults.models.implement.default', key: 'models.implement.default', scope: 'defaults' }),
+    definition({ path: 'defaults.models.analyze.complex', key: 'models.analyze.complex', scope: 'defaults' }),
+    definition({
+      path: 'defaults.models.implement.fix_rounds',
+      key: 'models.implement.fix_rounds',
+      scope: 'defaults',
+    }),
+    definition({ path: 'defaults.limits.max_diff_lines', key: 'limits.max_diff_lines', scope: 'defaults' }),
+  ];
+
+  it('puts keys of three parts in one group, one section per second part, in the schema order', () => {
+    const groups = buildGroups(models, { scope: 'defaults', root: ['defaults'] });
+    const modelGroup = groups[0];
+
+    expect(groups.map((group) => group.title)).toEqual(['Models', 'Limits']);
+    expect(modelGroup.sections.map((section) => section.name)).toEqual(['analyze', 'implement']);
+    expect(modelGroup.sections[0].fields.map((field) => field.label)).toEqual(['default', 'complex']);
+    expect(modelGroup.sections[1].fields.map((field) => field.id)).toEqual([
+      'defaults.models.implement.default',
+      'defaults.models.implement.fix_rounds',
+    ]);
+    expect(modelGroup.fields.length).toBe(4);
+  });
+
+  it('keeps keys of two parts in one section without a name', () => {
+    const groups = buildGroups(models, { scope: 'defaults', root: ['defaults'] });
+
+    expect(groups[1].sections).toEqual([{ name: '', fields: groups[1].fields }]);
+  });
+});
+
+describe('string-map rows', () => {
+  it('turns a written map into lines, and nothing written into none', () => {
+    expect(mapRows({ 'code-scout': 'claude-haiku-5.5', 'code-reviewer': 'claude-sonnet-5.5' })).toEqual([
+      { name: 'code-scout', value: 'claude-haiku-5.5' },
+      { name: 'code-reviewer', value: 'claude-sonnet-5.5' },
+    ]);
+    expect(mapRows(undefined)).toEqual([]);
+    expect(mapRows('text')).toEqual([]);
+  });
+
+  it('turns lines into a map: names trimmed, nameless lines left out, none left = not written', () => {
+    expect(
+      rowsToMap([
+        { name: ' code-scout ', value: ' claude-haiku-5.5 ' },
+        { name: '', value: 'claude-opus-5.5' },
+        { name: 'code-reviewer', value: '' },
+      ]),
+    ).toEqual({ 'code-scout': 'claude-haiku-5.5', 'code-reviewer': '' });
+    expect(rowsToMap([{ name: '  ', value: 'x' }])).toBeUndefined();
+    expect(rowsToMap([])).toBeUndefined();
+  });
+
+  it('formats a map as one line', () => {
+    expect(formatValue({ 'code-scout': 'claude-haiku-5.5', reviewer: 'claude-sonnet-5.5' })).toBe(
+      'code-scout: claude-haiku-5.5, reviewer: claude-sonnet-5.5',
+    );
+    expect(formatValue({})).toBe('(empty map)');
   });
 });
 

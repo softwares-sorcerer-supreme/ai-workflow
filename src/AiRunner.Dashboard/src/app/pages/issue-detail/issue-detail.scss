@@ -35,3 +35,8 @@ a.row-link {
   gap: var(--app-space-1);
   min-width: 0;
 }
+
+// Model names are long and have no spaces: they break instead of widening the column.
+.model {
+  overflow-wrap: anywhere;
+}

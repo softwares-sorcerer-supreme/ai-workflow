@@ -177,6 +177,30 @@ describe('Cost', () => {
     expect(firstRow?.textContent).toContain('claude-sonnet-5.5 - code-reviewer');
   });
 
+  it('shows the models of a row as a second line, and none when the row has none', async () => {
+    const { element } = await render(() =>
+      answer({
+        rows: [
+          row({
+            key: 'shop',
+            label: 'shop',
+            models: [
+              { model: 'claude-opus-5.5', reason: 'issue override', jobs: 2 },
+              { model: null, reason: 'Copilot default', jobs: 1 },
+            ],
+          }),
+          row({ key: 'crm', label: 'crm', models: [] }),
+        ],
+      }),
+    );
+
+    const rows = Array.from(element.querySelectorAll('tr.mat-mdc-row'));
+    expect(rows[0].querySelector('[data-testid="cost-models"]')?.textContent?.trim()).toBe(
+      'claude-opus-5.5 (issue override) x2, Copilot default x1',
+    );
+    expect(rows[1].querySelector('[data-testid="cost-models"]')).toBeNull();
+  });
+
   it('passes the chosen days to the API', async () => {
     const { api, fixture, element } = await render();
 

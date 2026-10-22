@@ -28,8 +28,22 @@ export interface SettingField {
   segments: readonly string[];
   /** Stable id for `track` and element ids: the joined path. */
   id: string;
-  /** The key without the group part (`max_diff_lines` in the group `limits`). */
+  /**
+   * The key without the group and section parts (`max_diff_lines` in the group `limits`, `complex` in the section
+   * `implement` of the group `models`).
+   */
   label: string;
+}
+
+/**
+ * The fields of a group that share their second key part, for keys of three or more parts (`models.implement.default`
+ * and `models.implement.complex` form the section `implement` of the group `models`). Keys of two parts are in one
+ * section without a name.
+ */
+export interface SettingSection {
+  /** The second part of the key, or '' for the keys of two parts or less. */
+  name: string;
+  fields: SettingField[];
 }
 
 /** The fields of one group (the first part of the key: `copilot`, `limits`, `commands`...). */
@@ -37,7 +51,16 @@ export interface SettingGroup {
   /** The first part of the key, or `general` for keys without a dot. */
   name: string;
   title: string;
+  /** Every field of the group, in the schema's order. */
   fields: SettingField[];
+  /** The same fields by section, in the order their first key appears. */
+  sections: SettingSection[];
+}
+
+/** One line of the key/value editor of a `string-map` field. */
+export interface MapRow {
+  name: string;
+  value: string;
 }
 
 /** One line of the change list shown before Save. */
@@ -69,21 +92,30 @@ export function buildGroups(
 
     const keyParts = definition.key.split('.');
     const name = keyParts.length > 1 ? keyParts[0] : GENERAL_GROUP;
+    const sectionName = keyParts.length > 2 ? keyParts[1] : '';
+    const labelStart = keyParts.length > 2 ? 2 : 1;
     const segments = [...target.root, ...keyParts];
     const field: SettingField = {
       definition,
       segments,
       id: segments.join('.'),
-      label: keyParts.length > 1 ? keyParts.slice(1).join('.') : definition.key,
+      label: keyParts.length > 1 ? keyParts.slice(labelStart).join('.') : definition.key,
     };
 
     let group = groups.get(name);
     if (group === undefined) {
-      group = { name, title: groupTitle(name), fields: [] };
+      group = { name, title: groupTitle(name), fields: [], sections: [] };
       groups.set(name, group);
     }
 
+    let section = group.sections.find((entry) => entry.name === sectionName);
+    if (section === undefined) {
+      section = { name: sectionName, fields: [] };
+      group.sections.push(section);
+    }
+
     group.fields.push(field);
+    section.fields.push(field);
   }
 
   return [...groups.values()];
@@ -254,7 +286,44 @@ export function formatValue(value: JsonValue | undefined): string {
     return value.length === 0 ? '(empty list)' : value.map((entry) => formatValue(entry)).join(', ');
   }
 
+  if (isMap(value)) {
+    const entries = Object.entries(value);
+
+    return entries.length === 0
+      ? '(empty map)'
+      : entries.map(([key, entry]) => `${key}: ${formatValue(entry)}`).join(', ');
+  }
+
   return JSON.stringify(value);
+}
+
+/** The lines of a `string-map` editor: one per entry of the written map, in the file's order. */
+export function mapRows(value: JsonValue | undefined): MapRow[] {
+  if (!isMap(value)) {
+    return [];
+  }
+
+  return Object.entries(value).map(([name, entry]) => ({
+    name,
+    value: typeof entry === 'string' ? entry : formatValue(entry),
+  }));
+}
+
+/**
+ * The map the editor's lines mean: names trimmed, lines without a name left out (still being typed), a later line
+ * with the same name wins. Undefined when no line is left, so the key is not written (the built-in empty map applies).
+ */
+export function rowsToMap(rows: readonly MapRow[]): JsonMap | undefined {
+  const map: JsonMap = {};
+
+  for (const row of rows) {
+    const name = row.name.trim();
+    if (name !== '') {
+      map[name] = row.value.trim();
+    }
+  }
+
+  return Object.keys(map).length === 0 ? undefined : map;
 }
 
 /** A deep copy of the file the API sent (the draft the form edits). */

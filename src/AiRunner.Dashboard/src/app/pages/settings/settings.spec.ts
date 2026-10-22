@@ -55,13 +55,26 @@ const SCHEMA: SettingDefinition[] = [
   definition({ path: 'projects.*.commands.build', key: 'commands.build', scope: 'project' }),
   definition({ path: 'projects.*.components.*.repo', key: 'repo', scope: 'component' }),
   definition({ path: 'repos[].owner', key: 'owner', scope: 'legacy' }),
+  definition({ path: 'allowed_models', key: 'allowed_models', type: 'string-list', default: [] }),
+  definition({ path: 'agent_models', key: 'agent_models', type: 'string-map', default: {} }),
+  definition({
+    path: 'projects.*.models.implement.default',
+    key: 'models.implement.default',
+    scope: 'project',
+  }),
+  definition({
+    path: 'projects.*.models.implement.fix_rounds',
+    key: 'models.implement.fix_rounds',
+    scope: 'project',
+  }),
 ];
 
 function sampleSettings(overrides: Partial<SettingsResponse> = {}): SettingsResponse {
   return {
     file: {
       code_host: { base_url: 'http://gitbucket.local', web_password: { isSet: true } },
-      defaults: { limits: { max_diff_lines: 800 } },
+      agent_models: { 'code-scout': 'claude-haiku-5.5' },
+      defaults: { limits: { max_diff_lines: 800 }, models: { implement: { default: 'claude-sonnet-5.5' } } },
       projects: {
         shop: { limits: { max_diff_lines: 1200 }, components: { api: { repo: 'team/shop' } } },
         crm: { components: { web: { repo: 'team/crm' } } },
@@ -81,6 +94,11 @@ function sampleSettings(overrides: Partial<SettingsResponse> = {}): SettingsResp
             key: 'limits.max_diff_lines',
             effective: { value: 1200, source: 'project', sourceLabel: 'Set in this project' },
             inherited: { value: 800, source: 'defaults', sourceLabel: 'Inherited from defaults' },
+          },
+          {
+            key: 'models.implement.default',
+            effective: { value: 'claude-sonnet-5.5', source: 'defaults', sourceLabel: 'Inherited from defaults' },
+            inherited: { value: 'claude-sonnet-5.5', source: 'defaults', sourceLabel: 'Inherited from defaults' },
           },
         ],
       },
@@ -371,6 +389,68 @@ describe('Settings', () => {
     expect(text(element.querySelector('[data-testid="config-error"]'))).toContain('unknown key "polll"');
     expect(text(element.querySelector('[data-testid="restart-needed"]'))).toContain('paths.work, dashboard.port');
     expect(element.querySelector('[data-testid="legacy-note"]')).not.toBeNull();
+  });
+
+  it('edits a string-map with add, change and remove lines', async () => {
+    await render();
+
+    const map = () => field('agent_models');
+    const names = () =>
+      [...map().querySelectorAll<HTMLInputElement>('[data-testid="map-name"]')].map((input) => input.value);
+    expect(names()).toEqual(['code-scout']);
+    expect(map().querySelector<HTMLInputElement>('[data-testid="map-value"]')!.value).toBe('claude-haiku-5.5');
+
+    map().querySelector<HTMLButtonElement>('[data-testid="map-add"]')!.click();
+    await settle(fixture);
+    expect(names()).toEqual(['code-scout', '']);
+    // A line without a name is not in the file yet.
+    expect(saveButton().disabled).toBe(true);
+
+    const value = map().querySelectorAll<HTMLInputElement>('[data-testid="map-value"]')[1];
+    value.value = 'claude-sonnet-5.5';
+    value.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    const name = map().querySelectorAll<HTMLInputElement>('[data-testid="map-name"]')[1];
+    name.value = 'code-reviewer';
+    name.dispatchEvent(new Event('change'));
+    await settle(fixture);
+
+    map().querySelector<HTMLButtonElement>('[data-testid="map-remove"]')!.click();
+    await settle(fixture);
+    expect(names()).toEqual(['code-reviewer']);
+
+    api.answer(saveSettings, () => ({ message: 'Saved and applied.', settings: current }));
+    await clickSave();
+
+    expect(diffLines()).toEqual([
+      'agent_models.code-scout: removed (was claude-haiku-5.5)',
+      'agent_models.code-reviewer: added: claude-sonnet-5.5',
+    ]);
+    await confirmDialog();
+
+    const [params] = api.callsOf(saveSettings) as SaveSettings$Params[];
+    expect((params.body.file as Record<string, unknown>)['agent_models']).toEqual({
+      'code-reviewer': 'claude-sonnet-5.5',
+    });
+  });
+
+  it('shows the model keys of a workflow under its heading, with the inherited value', async () => {
+    await render();
+    await openTab('shop');
+
+    const models = element.querySelector('[data-testid="group-models"]')!;
+    expect(text(models.querySelector('[data-testid="section-models-implement"]'))).toBe('implement');
+    const own = field('projects.shop.models.implement.default');
+    expect(text(own.querySelector('.key'))).toBe('default');
+    expect(text(own.querySelector('[data-testid="field-note"]'))).toBe(
+      'Inherited from defaults: claude-sonnet-5.5',
+    );
+
+    await type('projects.shop.models.implement.default', 'claude-opus-5.5');
+    api.answer(saveSettings, () => ({ message: 'Saved and applied.', settings: current }));
+    await clickSave();
+
+    expect(diffLines()).toEqual(['projects.shop.models.implement.default: added: claude-opus-5.5']);
   });
 
   it('shows the error state when the runner sends no file', async () => {

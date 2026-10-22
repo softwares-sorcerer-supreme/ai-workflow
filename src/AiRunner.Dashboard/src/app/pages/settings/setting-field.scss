@@ -48,6 +48,38 @@
   color: var(--mat-sys-on-surface);
 }
 
+// The key/value editor: name and value side by side, one above the other on phones.
+.map {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  max-width: 480px;
+}
+
+.map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--app-space-2);
+  width: 100%;
+}
+
+@media (max-width: 599.98px) {
+  .map-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .map-value {
+    grid-row: 2;
+  }
+}
+
+.map-empty {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+}
+
 .raw {
   margin: 0;
   white-space: pre-wrap;

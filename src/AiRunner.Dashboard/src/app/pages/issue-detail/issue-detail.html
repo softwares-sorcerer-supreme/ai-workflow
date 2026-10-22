@@ -153,6 +153,9 @@
           }
         </ng-template>
         <ng-template appCell="duration" let-row>{{ row.durationSeconds | duration }}</ng-template>
+        <ng-template appCell="model" let-row>
+          <span class="model" data-testid="timeline-model">{{ modelText(row.model, row.modelReason) }}</span>
+        </ng-template>
         <ng-template appCell="startedAt" let-row><app-time [value]="row.startedAt" /></ng-template>
         <ng-template appCell="log" let-row>
           @if (row.hasLog) {

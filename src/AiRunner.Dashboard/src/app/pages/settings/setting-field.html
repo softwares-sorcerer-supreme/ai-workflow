@@ -109,6 +109,51 @@
       <mat-hint>One entry per line.</mat-hint>
     </mat-form-field>
   }
+  @case ('map') {
+    <div class="map" role="group" data-testid="field-map" [attr.aria-labelledby]="field().id + '-label'">
+      @for (row of rows(); track $index) {
+        <div class="map-row" data-testid="map-row">
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="map-name">
+            <mat-label>Name</mat-label>
+            <input
+              matInput
+              type="text"
+              spellcheck="false"
+              data-testid="map-name"
+              [value]="row.name"
+              (change)="setRowName($index, $event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="map-value">
+            <mat-label>Value</mat-label>
+            <input
+              matInput
+              type="text"
+              spellcheck="false"
+              data-testid="map-value"
+              [value]="row.value"
+              (change)="setRowValue($index, $event)"
+            />
+          </mat-form-field>
+          <button
+            mat-icon-button
+            type="button"
+            data-testid="map-remove"
+            [attr.aria-label]="'Remove ' + (row.name || 'this entry')"
+            (click)="removeRow($index)"
+          >
+            <mat-icon aria-hidden="true">delete</mat-icon>
+          </button>
+        </div>
+      } @empty {
+        <p class="app-muted map-empty">No entries.</p>
+      }
+      <button mat-stroked-button type="button" class="map-add" data-testid="map-add" (click)="addRow()">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        Add entry
+      </button>
+    </div>
+  }
   @default {
     <pre class="app-mono raw" data-testid="field-raw">{{ rawJson() }}</pre>
     <p class="app-muted small">This kind of value is edited in repos.yml by hand.</p>

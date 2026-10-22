@@ -69,6 +69,16 @@ describe('JobLog', () => {
     expect(element.querySelector('app-markdown h1')?.textContent).toBe('Context');
   });
 
+  it('shows the model of the job with its reason', async () => {
+    const { element } = await render({
+      job: sampleJob({ model: 'claude-sonnet-5.5', modelReason: 'fix rounds' }),
+    });
+
+    expect(element.querySelector('[data-testid="job-model"]')?.textContent?.trim()).toBe(
+      'claude-sonnet-5.5 - fix rounds',
+    );
+  });
+
   it('loads exactly the file that was selected and shows text in a monospace block', async () => {
     const { api, harness, element } = await render({
       file: (name) =>

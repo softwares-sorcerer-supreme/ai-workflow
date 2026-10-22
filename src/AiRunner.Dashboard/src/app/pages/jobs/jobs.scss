@@ -23,3 +23,8 @@ mat-paginator {
     width: 100%;
   }
 }
+
+// Model names are long and have no spaces: they break instead of widening the column.
+.model {
+  overflow-wrap: anywhere;
+}

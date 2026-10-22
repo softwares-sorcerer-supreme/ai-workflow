@@ -22,7 +22,10 @@ const SIMPLE: IssueDetailResponse = {
     component: 'api',
   },
   subIssues: [],
-  timeline: [sampleJob({ id: 7 }), sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null })],
+  timeline: [
+    sampleJob({ id: 7, model: 'claude-opus-5.5', modelReason: 'complex issue' }),
+    sampleJob({ id: 6, hasLog: false, result: null, detail: null, copilotCalls: null }),
+  ],
 };
 
 const PARENT: IssueDetailResponse = {
@@ -99,6 +102,10 @@ describe('IssueDetail', () => {
     expect(timeline[1].querySelector('a')).toBeNull();
     expect(timeline[0].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('2');
     expect(timeline[1].querySelector('.mat-column-copilotCalls')?.textContent?.trim()).toBe('-');
+    expect(timeline[0].querySelector('.mat-column-model')?.textContent?.trim()).toBe(
+      'claude-opus-5.5 - complex issue',
+    );
+    expect(timeline[1].querySelector('.mat-column-model')?.textContent?.trim()).toBe('-');
   });
 
   it('shows sub-issues with a link to their detail page, stage and PR', async () => {

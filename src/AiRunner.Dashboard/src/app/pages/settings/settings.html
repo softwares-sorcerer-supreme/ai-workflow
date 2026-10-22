@@ -184,16 +184,28 @@
         These commands run on this machine, with your user's rights, in every job of this project.
       </app-inline-note>
     }
-    <div class="fields">
-      @for (field of group.fields; track field.id) {
-        <app-setting-field
-          [field]="field"
-          [value]="valueOf(field)"
-          [effective]="effectiveOf(project, field)"
-          (valueChange)="setValue(field, $event)"
-          (invalidChange)="setInvalid(field, $event)"
-        />
+    @for (section of group.sections; track section.name) {
+      @if (section.name) {
+        <div
+          class="section-title app-mono"
+          role="heading"
+          [attr.aria-level]="level + 1"
+          [attr.data-testid]="'section-' + group.name + '-' + section.name"
+        >
+          {{ section.name }}
+        </div>
       }
-    </div>
+      <div class="fields">
+        @for (field of section.fields; track field.id) {
+          <app-setting-field
+            [field]="field"
+            [value]="valueOf(field)"
+            [effective]="effectiveOf(project, field)"
+            (valueChange)="setValue(field, $event)"
+            (invalidChange)="setInvalid(field, $event)"
+          />
+        }
+      </div>
+    }
   </section>
 </ng-template>

@@ -41,6 +41,9 @@
         <dt>Duration</dt>
         <dd>{{ facts.durationSeconds | duration }}</dd>
 
+        <dt>Model</dt>
+        <dd data-testid="job-model">{{ modelText(facts.model, facts.modelReason) }}</dd>
+
         <dt>Result</dt>
         <dd>{{ facts.result ?? '-' }}</dd>
 

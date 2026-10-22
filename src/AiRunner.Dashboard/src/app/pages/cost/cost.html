@@ -86,6 +86,9 @@
     >
       <ng-template appCell="label" let-row>
         <span class="group" [class.total]="row.isTotal">{{ row.label }}</span>
+        @if (row.modelsText) {
+          <span class="models app-muted" data-testid="cost-models">{{ row.modelsText }}</span>
+        }
       </ng-template>
       <ng-template appCell="calls" let-row>
         <span [class.total]="row.isTotal">{{ row.calls | number }}</span>

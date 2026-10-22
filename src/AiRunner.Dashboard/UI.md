@@ -172,6 +172,7 @@ bundled (`material-symbols` package), so icons work offline; never link a font C
 | `app-markdown` | Markdown text from the API (log files), rendered safely | text that is not Markdown (use `<pre class="app-mono">`) |
 | `app-time` | every point in time | durations |
 | `duration` pipe | every duration in seconds | points in time |
+| `jobModelText`, `modelUsesText` (`shared/model-text.ts`) | the model of a job ("claude-opus-5.5 - issue override", the reason alone without a model, "-" for an old job) and the models of a cost row ("claude-opus-5.5 (issue override) x2"), joined from the API's fields | deciding a model or a reason (the API sends both) |
 | `bytes` pipe (`formatBytes`) | every size in bytes from the API: "512 B", "12.4 KB", "2.1 MB" (`shared/bytes.pipe.ts`) | counts (use `\| number`) |
 | `pollResource` | every API read | one-off actions |
 | `writeAction` | every button that writes: busy state, the runner's message in a snack bar (section 8) | reads |
@@ -284,7 +285,11 @@ keyed state; do not build it inline.
 One `mat-stroked-button` per entry of `actions`, in the API's order, with its `label`; nothing when the list is empty.
 The API alone decides which actions exist: never filter, reorder, rename or add one, and never look at a stage, a
 label or a code to show or hide it. `needsText: false` runs at once (`runIssueAction` / `runPullAction`); `needsText:
-true` opens the text box first (section 8). One `writeAction` per group: while one call runs every button of the group
+true` opens the text box first (section 8); `needsModel: true` (set-model) opens `ActionModelDialog`
+(`shared/action-buttons/action-model-dialog.ts`) first: it reads `GET /api/model-options` once when it opens (loading and
+error with Try again inside the box), offers a workflow select from `workflows` and a model select from `allowedModels`
+(first option "No override (remove it)" = empty) or a text box when that list is empty, and sends `{ text: null, workflow,
+model }` (an empty model removes the override); it closes when the runner accepted, stays open on a refusal. One `writeAction` per group: while one call runs every button of the group
 is disabled and the clicked one shows the spinner. `after` fires after every answer: reload the screen's
 `pollResource`. `compact` (table rows, cards) makes the buttons shorter; they wrap at 360 px. The `actions` attribute
 of `app-page-header`'s slot is also this component's input, so in a page header put it inside `<div actions>`.
@@ -443,10 +448,15 @@ At 900 px and wider the two cards stand side by side (list 260-360 px), below th
 UI change). One card with a `mat-tab-group`: **Global** (scope `global`, file root), **Defaults** (`defaults`, under
 `file.defaults`) and one tab per entry of `file.projects` (scope `project`), with its components below (scope
 `component`, under `components.<name>`). Fields are grouped by the first part of their key (`buildGroups` in
-`settings-form.ts`; keys without a dot go to "General"); `legacy` keys get no form, only a note when the file has
+`settings-form.ts`; keys without a dot go to "General"); keys of three or more parts are also split into sections by
+their second part (`models.implement.default` -> group Models, section `implement`, label `default`), each with a small
+monospace heading; `legacy` keys get no form, only a note when the file has
 `repos` or `git_bucket`. Each field is `app-setting-field` (`pages/settings/setting-field`): string = text or a
 select (`allowedValues`), integer = text with a whole-number check (Save waits while one is invalid), boolean = slide
-toggle, string-list = one entry per line (written on blur) or a multi-select (`allowedValues`); the schema's help,
+toggle, string-list = one entry per line (written on blur) or a multi-select (`allowedValues`), string-map = a key/value
+editor (Name / Value lines with a remove button each and "Add entry"; written on blur; a line without a name is kept on
+screen but not in the file; no line left = key not written; `mapRows` / `rowsToMap`), any other type = its raw JSON with
+"edited in repos.yml by hand"; the schema's help,
 "Restart needed" chip, and a line saying what applies when the key is not written. A project key that the API merges
 (`effective`) shows the API's `inherited` value with its `sourceLabel` ("Inherited from defaults: X" / "Built-in
 default: X"; exact also right after an unsaved reset), never merged or labelled in the UI; a written one has "Reset to inherited" (removes the key and the
@@ -458,6 +468,12 @@ every change first (`diffSettings`: path, added / removed / old -> new; presenta
 400 shows the resolver's message above the form and keeps the edits; a 409 shows the message with Reload (asks
 before it drops edits). Banners on top: the file's `error` (danger), the `restartNeeded` list (info). The
 `commands` group carries a note that these run on this machine.
+
+### Model of a job
+
+The Jobs table (column Model, hidden below 900 px), the issue detail's Job timeline (column Model) and the job page
+(fact Model) show `jobModelText(job.model, job.modelReason)`. The Cost table shows each row's `models` as a muted second
+line under its group (`modelUsesText`), nothing when the list is empty.
 
 ### Health
 

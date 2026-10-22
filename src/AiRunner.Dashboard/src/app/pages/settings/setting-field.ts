@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, linkedSignal, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -11,17 +11,29 @@ import { SETUP_PATH } from '../../layout/nav-items';
 import { StatusChip } from '../../shared/status-chip/status-chip';
 import {
   JsonValue,
+  MapRow,
   SettingField,
   fallbackFlag,
   fallbackNote,
   formatValue,
   isMap,
+  mapRows,
   parseInteger,
   parseLines,
+  rowsToMap,
 } from './settings-form';
 
 /** How a field is edited, from the schema's `type`, `allowedValues` and `isSecret`. */
-type FieldKind = 'secret' | 'select' | 'text' | 'number' | 'toggle' | 'multi-select' | 'lines' | 'unknown';
+type FieldKind =
+  | 'secret'
+  | 'select'
+  | 'text'
+  | 'number'
+  | 'toggle'
+  | 'multi-select'
+  | 'lines'
+  | 'map'
+  | 'unknown';
 
 /**
  * One key of repos.yml: the control for its schema type, its help, what applies when the scope does not write it,
@@ -75,6 +87,8 @@ export class SettingFieldEditor {
         return 'toggle';
       case 'string-list':
         return hasChoices ? 'multi-select' : 'lines';
+      case 'string-map':
+        return 'map';
       default:
         return 'unknown';
     }
@@ -142,6 +156,12 @@ export class SettingFieldEditor {
 
   protected readonly rawJson = computed(() => JSON.stringify(this.value() ?? null));
 
+  /**
+   * The lines of a key/value editor: the written map, plus lines added here that have no name yet (they are not in
+   * the file until they get one). A new value from the draft starts over from the map.
+   */
+  protected readonly rows = linkedSignal<MapRow[]>(() => mapRows(this.value()));
+
   protected onText(event: Event): void {
     const text = (event.target as HTMLInputElement).value;
     this.valueChange.emit(text === '' ? undefined : text);
@@ -167,6 +187,36 @@ export class SettingFieldEditor {
   protected onLines(event: Event): void {
     const text = (event.target as HTMLTextAreaElement).value;
     this.valueChange.emit(parseLines(text));
+  }
+
+  protected addRow(): void {
+    this.rows.update((rows) => [...rows, { name: '', value: '' }]);
+  }
+
+  protected removeRow(index: number): void {
+    this.updateRows(this.rows().filter((_row, position) => position !== index));
+  }
+
+  protected setRowName(index: number, event: Event): void {
+    const name = (event.target as HTMLInputElement).value;
+    this.updateRows(this.rows().map((row, position) => (position === index ? { ...row, name } : row)));
+  }
+
+  protected setRowValue(index: number, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.updateRows(this.rows().map((row, position) => (position === index ? { ...row, value } : row)));
+  }
+
+  /** Keeps the lines and emits the map they mean, but only when it differs, so a line without a name stays. */
+  private updateRows(rows: MapRow[]): void {
+    this.rows.set(rows);
+
+    const next = rowsToMap(rows);
+    const isSame = JSON.stringify(next ?? null) === JSON.stringify(this.value() ?? null);
+
+    if (!isSame) {
+      this.valueChange.emit(next);
+    }
   }
 
   protected reset(): void {
