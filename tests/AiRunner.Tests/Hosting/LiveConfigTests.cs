@@ -118,7 +118,7 @@ public sealed class LiveConfigTests : IDisposable
         await poller.PollOnceAsync(default);
 
         Assert.Equal([JobTestKit.Repo, "o/other"], _kit.CodeHost.ReposOf("issues"));
-        Assert.Null(source.Error);
+        Assert.Null(source.State.Error);
     }
 
     [Fact]
@@ -131,8 +131,8 @@ public sealed class LiveConfigTests : IDisposable
 
         await poller.PollOnceAsync(default);
 
-        Assert.Contains("mystery_key", source.Error);
+        Assert.Contains("mystery_key", source.State.Error);
         Assert.Equal([JobTestKit.Repo], _kit.CodeHost.ReposOf("issues"));
-        Assert.Equal(1, source.Version);
+        Assert.Equal(1, source.State.Version);
     }
 }

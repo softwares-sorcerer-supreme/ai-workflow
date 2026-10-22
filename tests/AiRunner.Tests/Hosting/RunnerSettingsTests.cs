@@ -37,7 +37,7 @@ public sealed class RunnerSettingsTests : IDisposable
 
     private string ConfigPath => Path.Combine(_folder, "repos.yml");
 
-    public void Dispose() => Directory.Delete(_folder, recursive: true);
+    public void Dispose() => FileSystem.DeleteDirectory(_folder);
 
     private string[] FolderFiles() => Directory.GetFiles(_folder).Select(Path.GetFileName).Order().ToArray()!;
 
@@ -63,11 +63,11 @@ public sealed class RunnerSettingsTests : IDisposable
         var view = _settings.Read();
         view.File!["poll_interval_seconds"] = 15;
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Saved, result.Outcome);
         Assert.Equal(15, _source.Current.PollIntervalSeconds);
-        Assert.Equal(2, _source.Version);
+        Assert.Equal(2, _source.State.Version);
         Assert.Equal(15, RunnerConfig.Load(ConfigPath).PollIntervalSeconds);
         Assert.Contains("hunter2", File.ReadAllText(ConfigPath));
         Assert.Equal(2, FolderFiles().Length);
@@ -83,7 +83,7 @@ public sealed class RunnerSettingsTests : IDisposable
         File.WriteAllText(ConfigPath, handEdit);
         view.File!["poll_interval_seconds"] = 15;
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Stale, result.Outcome);
         Assert.Equal(handEdit, File.ReadAllText(ConfigPath));
@@ -96,13 +96,13 @@ public sealed class RunnerSettingsTests : IDisposable
         var view = _settings.Read();
         view.File!["defaults"]!["limits"]!["max_reviews"] = 0;
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Invalid, result.Outcome);
         Assert.Contains("max_reviews must be 1 or more", result.Message);
         Assert.Equal(Start, File.ReadAllText(ConfigPath));
         Assert.Single(FolderFiles());
-        Assert.Equal(1, _source.Version);
+        Assert.Equal(1, _source.State.Version);
         Assert.False(IsWakePending());
     }
 
@@ -112,7 +112,7 @@ public sealed class RunnerSettingsTests : IDisposable
         var view = _settings.Read();
         view.File!["code_host"]!["token"] = "secret-token";
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Invalid, result.Outcome);
         Assert.DoesNotContain("secret-token", result.Message);
@@ -125,7 +125,7 @@ public sealed class RunnerSettingsTests : IDisposable
         var view = _settings.Read();
         view.File!["code_host"]!["base_url"] = "http://other";
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Saved, result.Outcome);
         Assert.Contains("code_host.base_url", result.Message);
@@ -152,7 +152,7 @@ public sealed class RunnerSettingsTests : IDisposable
         File.WriteAllText(ConfigPath, "poll_interval_seconds: [\n");
         var view = _settings.Read();
 
-        var result = await _settings.SaveAsync(new SettingsSave(view.File!, view.Hash), default);
+        var result = _settings.Save(new SettingsSave(view.File!, view.Hash));
 
         Assert.Equal(SettingsSaveOutcome.Saved, result.Outcome);
         Assert.Contains("hunter2", File.ReadAllText(ConfigPath));
@@ -165,7 +165,7 @@ public sealed class RunnerSettingsTests : IDisposable
         var view = _settings.Read();
         view.File!["code_host"]!["web_password"] = null;
 
-        await _settings.SaveAsync(new SettingsSave(view.File, view.Hash), default);
+        _settings.Save(new SettingsSave(view.File, view.Hash));
 
         Assert.Contains("hunter2", File.ReadAllText(ConfigPath));
         Assert.IsType<JsonObject>(_settings.Read().File!["code_host"]!["web_password"]);

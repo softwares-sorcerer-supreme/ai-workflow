@@ -3,8 +3,11 @@ using System.Text;
 
 namespace AiRunner.Configuration;
 
-/// <summary>What a reload found: whether the file changed since it was last read, and why it was refused.</summary>
-public sealed record ConfigReload(bool IsChanged, string? Error);
+/// <summary>
+/// What a reload found: whether the file changed since it was last read, why it was refused, and the version of the
+/// config applied after it.
+/// </summary>
+public sealed record ConfigReload(bool IsChanged, string? Error, int Version);
 
 /// <summary>
 /// Everything <see cref="RunnerConfigSource"/> knows at one moment, swapped as a whole, so a reader never pairs the
@@ -40,6 +43,27 @@ public sealed class RunnerConfigSource
     private readonly ConfigFile _startup;
     private volatile ConfigState _state;
 
+    /// <summary>
+    /// The keys <see cref="Publish"/> keeps at their startup values, and how to tell that a new file changed one.
+    /// <c>SettingsSchemaTests</c> checks that the schema's <see cref="SettingDefinition.IsRestartNeeded"/> marks the
+    /// same keys.
+    /// </summary>
+    private static readonly (string Key, Func<ConfigFile, ConfigFile, bool> IsChanged)[] RestartKeys =
+    [
+        ("code_host.kind", (startup, loaded) => startup.Config.CodeHost.Kind != loaded.Config.CodeHost.Kind),
+        ("code_host.base_url", (startup, loaded) => startup.Config.CodeHost.BaseUrl != loaded.Config.CodeHost.BaseUrl),
+        ("code_host.web_password", (startup, loaded) => startup.WebPassword != loaded.WebPassword),
+        ("paths.work", (startup, loaded) => startup.Config.Paths.Work != loaded.Config.Paths.Work),
+        ("paths.logs", (startup, loaded) => startup.Config.Paths.Logs != loaded.Config.Paths.Logs),
+        ("paths.state", (startup, loaded) => startup.Config.Paths.State != loaded.Config.Paths.State),
+        ("dashboard.enabled", (startup, loaded) => startup.Config.Dashboard.Enabled != loaded.Config.Dashboard.Enabled),
+        ("dashboard.port", (startup, loaded) => startup.Config.Dashboard.Port != loaded.Config.Dashboard.Port),
+        ("runner_name", (startup, loaded) => startup.Config.RunnerName != loaded.Config.RunnerName),
+    ];
+
+    /// <summary>The schema paths of the keys that keep their startup values.</summary>
+    public static IEnumerable<string> RestartNeededKeys => RestartKeys.Select(entry => entry.Key);
+
     private RunnerConfigSource(ConfigFile startup, string? path, string text)
     {
         _startup = startup;
@@ -54,16 +78,6 @@ public sealed class RunnerConfigSource
     public ConfigState State => _state;
 
     public RunnerConfig Current => _state.Config;
-
-    public int Version => _state.Version;
-
-    public string? Error => _state.Error;
-
-    public string Text => _state.Text;
-
-    public string FileHash => _state.FileHash;
-
-    public IReadOnlyList<string> RestartNeeded => _state.RestartNeeded;
 
     /// <summary>The web password repos.yml held at the start; applied once (the Setup page is the live way).</summary>
     public string StartupWebPassword => _startup.WebPassword;
@@ -103,7 +117,7 @@ public sealed class RunnerConfigSource
     {
         if (Path is null)
         {
-            return new ConfigReload(IsChanged: false, Error);
+            return Unchanged();
         }
 
         lock (_lock)
@@ -116,13 +130,13 @@ public sealed class RunnerConfigSource
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 // Missing or locked (an editor saving it): the next poll reads it again.
-                return new ConfigReload(IsChanged: false, Error);
+                return Unchanged();
             }
 
             var hash = HashOf(text);
             if (hash == _state.FileHash)
             {
-                return new ConfigReload(IsChanged: false, Error);
+                return Unchanged();
             }
 
             try
@@ -135,7 +149,7 @@ public sealed class RunnerConfigSource
                 _state = _state with { Error = exception.Message, FileHash = hash };
             }
 
-            return new ConfigReload(IsChanged: true, Error);
+            return new ConfigReload(IsChanged: true, _state.Error, _state.Version);
         }
     }
 
@@ -182,26 +196,16 @@ public sealed class RunnerConfigSource
         _state = new ConfigState(config, _state.Version + 1, Error: null, text, hash, restartNeeded);
     }
 
-    private List<string> ChangedRestartKeys(ConfigFile loaded)
+    private ConfigReload Unchanged()
     {
-        var startup = _startup.Config;
-        var config = loaded.Config;
-        (string Key, bool IsChanged)[] keys =
-        [
-            ("code_host.kind", startup.CodeHost.Kind != config.CodeHost.Kind),
-            ("code_host.base_url", startup.CodeHost.BaseUrl != config.CodeHost.BaseUrl),
-            ("code_host.web_password", _startup.WebPassword != loaded.WebPassword),
-            ("paths.work", startup.Paths.Work != config.Paths.Work),
-            ("paths.logs", startup.Paths.Logs != config.Paths.Logs),
-            ("paths.state", startup.Paths.State != config.Paths.State),
-            ("dashboard.enabled", startup.Dashboard.Enabled != config.Dashboard.Enabled),
-            ("dashboard.port", startup.Dashboard.Port != config.Dashboard.Port),
-            ("runner_name", startup.RunnerName != config.RunnerName),
-        ];
+        var state = _state;
 
-        return keys
-            .Where(entry => entry.IsChanged)
+        return new ConfigReload(IsChanged: false, state.Error, state.Version);
+    }
+
+    private List<string> ChangedRestartKeys(ConfigFile loaded) =>
+        RestartKeys
+            .Where(entry => entry.IsChanged(_startup, loaded))
             .Select(entry => entry.Key)
             .ToList();
-    }
 }

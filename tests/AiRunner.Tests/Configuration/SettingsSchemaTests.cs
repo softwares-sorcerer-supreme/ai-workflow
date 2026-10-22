@@ -108,6 +108,7 @@ public class SettingsSchemaTests
             ["code_host.base_url", "code_host.kind", "code_host.web_password", "dashboard.enabled", "dashboard.port",
                 "paths.logs", "paths.state", "paths.work", "runner_name"],
             restartNeeded);
+        Assert.Equal(restartNeeded, RunnerConfigSource.RestartNeededKeys.Order());
     }
 
     [Fact]

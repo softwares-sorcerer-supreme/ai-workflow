@@ -41,6 +41,17 @@ public static class SettingsJson
 
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
+    /// <summary>The built-in project settings; only read (a value handed out is cloned).</summary>
+    private static readonly JsonObject BuiltInSettings =
+        JsonSerializer.SerializeToNode(new ProjectSettings(), FileJson)!.AsObject();
+
+    private static readonly Dictionary<string, string> SourceLabels = new()
+    {
+        [FromProject] = "Set in this project",
+        [FromDefaults] = "Inherited from defaults",
+        [BuiltIn] = "Built-in default",
+    };
+
     /// <summary>The file as JSON, every secret masked. Throws <see cref="InvalidOperationException"/> on a bad file.</summary>
     public static JsonObject Read(string yaml)
     {
@@ -91,21 +102,19 @@ public static class SettingsJson
     }
 
     /// <summary>
-    /// Per project of <c>projects:</c>, every setting of <see cref="SettingsSchema.ProjectSettings"/>: the project's
-    /// own value, else the one of <c>defaults:</c>, else the built-in one (key by key, like the resolver merges).
+    /// Per project of <c>projects:</c> in a file from <see cref="Read"/>, every setting of
+    /// <see cref="SettingsSchema.ProjectSettings"/>: the project's own value, else the one of <c>defaults:</c>, else the
+    /// built-in one (key by key, like the resolver merges).
     /// </summary>
-    public static IReadOnlyList<ProjectEffective> Effective(string yaml)
+    public static IReadOnlyList<ProjectEffective> Effective(JsonObject file)
     {
-        var file = ConfigResolver.Deserialize(yaml);
-        var json = ToJson(file);
-        var defaults = json["defaults"] as JsonObject ?? [];
-        var builtIn = JsonSerializer.SerializeToNode(new ProjectSettings(), FileJson)!.AsObject();
-        var projects = json["projects"] as JsonObject ?? [];
+        var defaults = file["defaults"] as JsonObject ?? [];
+        var projects = file["projects"] as JsonObject ?? [];
         var result = new List<ProjectEffective>();
 
         foreach (var (name, node) in projects)
         {
-            var layers = new SettingLayers(node as JsonObject ?? [], defaults, builtIn);
+            var layers = new SettingLayers(node as JsonObject ?? [], defaults, BuiltInSettings);
             var values = SettingsSchema.ProjectSettings
                 .Select(entry => Effective(entry.Key, layers))
                 .ToList();
@@ -137,6 +146,8 @@ public static class SettingsJson
         return false;
     }
 
+    private static SourcedValue Sourced(JsonNode? value, string source) => new(value, source, SourceLabels[source]);
+
     private static JsonObject ToJson(RunnerFile file) => JsonSerializer.SerializeToNode(file, FileJson)!.AsObject();
 
     private static EffectiveValue Effective(string key, SettingLayers layers)
@@ -145,18 +156,18 @@ public static class SettingsJson
         SourcedValue inherited;
         if (Find(defaults, key) is { } shared)
         {
-            inherited = new SourcedValue(shared.DeepClone(), FromDefaults, "Inherited from defaults");
+            inherited = Sourced(shared.DeepClone(), FromDefaults);
         }
         else
         {
             var builtInValue = Find(builtIn, key)?.DeepClone();
-            inherited = new SourcedValue(builtInValue, BuiltIn, "Built-in default");
+            inherited = Sourced(builtInValue, BuiltIn);
         }
 
         var effective = inherited;
         if (Find(project, key) is { } own)
         {
-            effective = new SourcedValue(own.DeepClone(), FromProject, "Set in this project");
+            effective = Sourced(own.DeepClone(), FromProject);
         }
 
         return new EffectiveValue(key, effective, inherited);

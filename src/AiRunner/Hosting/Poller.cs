@@ -85,7 +85,10 @@ public sealed class Poller(
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
         status.PollStarted();
-        ApplyChangedConfig();
+
+        // A hand edit is applied here; a broken one keeps the working config and shows on the dashboard.
+        var reload = configSource.ReloadIfChanged();
+        logger.LogReload(reload);
 
         // The first resolution pins the scope's config: every project, list and plan of this poll uses it.
         using var scope = scopes.CreateScope();
@@ -277,28 +280,6 @@ public sealed class Poller(
         }
 
         return pulls;
-    }
-
-    /// <summary>
-    /// A hand edit of repos.yml is applied here, at the start of a poll; a broken one keeps the working config and is
-    /// shown on the dashboard (<see cref="RunnerConfigSource.Error"/>). Logged once per change of the file.
-    /// </summary>
-    private void ApplyChangedConfig()
-    {
-        var reload = configSource.ReloadIfChanged();
-        if (!reload.IsChanged)
-        {
-            return;
-        }
-
-        if (reload.Error is null)
-        {
-            logger.LogInformation("repos.yml changed: config version {Version} applied", configSource.Version);
-        }
-        else
-        {
-            logger.LogError("repos.yml has errors, the runner keeps its config: {Error}", reload.Error);
-        }
     }
 
     /// <summary>

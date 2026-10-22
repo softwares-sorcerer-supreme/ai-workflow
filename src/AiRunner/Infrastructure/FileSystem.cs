@@ -77,4 +77,20 @@ public static class FileSystem
             // Left behind; the next job's git clean removes it.
         }
     }
+
+    /// <summary>A temp file beside the target, then one move over it: readers see the old file or the new.</summary>
+    public static void ReplaceFile(string path, string text)
+    {
+        var folder = Path.GetDirectoryName(path)!;
+        var tempFile = Path.Combine(folder, $"{Path.GetFileName(path)}.tmp-{Guid.NewGuid():N}");
+        try
+        {
+            File.WriteAllText(tempFile, text);
+            File.Move(tempFile, path, overwrite: true);
+        }
+        finally
+        {
+            DeleteFile(tempFile);
+        }
+    }
 }

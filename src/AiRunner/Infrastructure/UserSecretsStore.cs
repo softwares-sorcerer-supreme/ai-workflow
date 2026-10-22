@@ -108,7 +108,7 @@ public sealed class UserSecretsStore(string path)
         return values;
     }
 
-    /// <summary>A temp file beside the target, then one move over it: readers see the old file or the new.</summary>
+    /// <summary>Sorted keys, written with <see cref="FileSystem.ReplaceFile"/>.</summary>
     private void WriteFile(Dictionary<string, string> values)
     {
         var folder = Path.GetDirectoryName(FilePath)!;
@@ -121,15 +121,6 @@ public sealed class UserSecretsStore(string path)
         }
 
         var text = json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-        var tempFile = Path.Combine(folder, $"{Path.GetFileName(FilePath)}.tmp-{Guid.NewGuid():N}");
-        try
-        {
-            File.WriteAllText(tempFile, text);
-            File.Move(tempFile, FilePath, overwrite: true);
-        }
-        finally
-        {
-            FileSystem.DeleteFile(tempFile);
-        }
+        FileSystem.ReplaceFile(FilePath, text);
     }
 }

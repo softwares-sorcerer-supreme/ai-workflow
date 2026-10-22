@@ -22,19 +22,7 @@ public sealed class ConfigFileStore(TimeProvider time)
         var backupPath = Path.Combine(folder, $"{fileName}.bak-{stamp}");
         File.Copy(path, backupPath, overwrite: true);
 
-        var tempPath = Path.Combine(folder, $"{fileName}.tmp-{Guid.NewGuid():N}");
-        try
-        {
-            File.WriteAllText(tempPath, text);
-            File.Move(tempPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
+        FileSystem.ReplaceFile(path, text);
 
         PruneBackups(folder, fileName);
     }

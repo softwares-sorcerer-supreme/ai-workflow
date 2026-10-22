@@ -109,7 +109,8 @@ export class Settings {
       return [];
     }
 
-    return diffSettings(cloneFile(loaded.file), this.draft());
+    // diffSettings only reads: the loaded file needs no copy.
+    return diffSettings(loaded.file as JsonValue, this.draft());
   });
 
   protected readonly isDirty = computed(() => this.changes().length > 0);
@@ -192,7 +193,8 @@ export class Settings {
   });
 
   constructor() {
-    // A poll answer replaces the form only while nothing is edited; the first answer always builds it.
+    // A poll answer replaces the form only while nothing is edited and only when repos.yml changed (another hash or
+    // version), so an idle page does not rebuild every form on each poll; the first answer always builds it.
     effect(() => {
       const next = this.settings.value();
       if (next === undefined) {
@@ -200,7 +202,15 @@ export class Settings {
       }
 
       untracked(() => {
-        if (this.loaded() === undefined || !this.isDirty()) {
+        const loaded = this.loaded();
+        if (loaded === undefined) {
+          this.adopt(next);
+
+          return;
+        }
+
+        const isNewFile = next.hash !== loaded.hash || next.version !== loaded.version;
+        if (isNewFile && !this.isDirty()) {
           this.adopt(next);
         }
       });

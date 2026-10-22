@@ -11,7 +11,7 @@ public sealed class ConfigFileStoreTests : IDisposable
 
     private string ConfigPath => Path.Combine(_folder, "repos.yml");
 
-    public void Dispose() => Directory.Delete(_folder, recursive: true);
+    public void Dispose() => FileSystem.DeleteDirectory(_folder);
 
     private string[] Backups() =>
         Directory.GetFiles(_folder, "repos.yml.bak-*")

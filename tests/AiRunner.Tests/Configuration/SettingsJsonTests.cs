@@ -198,7 +198,9 @@ public class SettingsJsonTests
                 components: { c: { repo: o/r } }
             """;
 
-        var effective = SettingsJson.Effective(yaml).Single();
+        var file = SettingsJson.Read(yaml);
+
+        var effective = SettingsJson.Effective(file).Single();
         var byKey = effective.Values.ToDictionary(value => value.Key);
 
         Assert.Equal("p", effective.Project);

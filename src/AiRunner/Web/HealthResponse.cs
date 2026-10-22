@@ -23,7 +23,7 @@ public sealed class HealthReader(
         {
             IsPaused = commands.IsPaused,
             IsSetupNeeded = isSetupNeeded,
-            ConfigError = configSource.Error,
+            ConfigError = configSource.State.Error,
         };
         var now = time.GetUtcNow();
 

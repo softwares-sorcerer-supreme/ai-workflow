@@ -47,7 +47,7 @@ public interface IRunnerSettings
 {
     SettingsView Read();
 
-    Task<SettingsSaveResult> SaveAsync(SettingsSave save, CancellationToken cancellationToken);
+    SettingsSaveResult Save(SettingsSave save);
 }
 
 /// <summary>
@@ -62,9 +62,6 @@ public sealed class RunnerSettings(
     RunnerCommands commands,
     ILogger<RunnerSettings> logger) : IRunnerSettings
 {
-    /// <summary>One save at a time: two screens saving at once must not interleave check, write and apply.</summary>
-    private readonly SemaphoreSlim _gate = new(1, 1);
-
     private string ConfigPath =>
         configSource.Path ?? throw new InvalidOperationException("This runner has no repos.yml to edit.");
 
@@ -73,11 +70,11 @@ public sealed class RunnerSettings(
         // A hand edit is applied here too, not only at the next poll: after a 409 the screen reloads and must get the
         // new hash at once.
         var reload = configSource.ReloadIfChanged();
-        LogReload(reload);
+        logger.LogReload(reload);
 
         var state = configSource.State;
         var file = SettingsJson.Read(state.Text);
-        var effective = SettingsJson.Effective(state.Text);
+        var effective = SettingsJson.Effective(file);
         var hasComments = SettingsJson.HasComments(state.Text);
 
         return new SettingsView(
@@ -91,20 +88,11 @@ public sealed class RunnerSettings(
             effective);
     }
 
-    public async Task<SettingsSaveResult> SaveAsync(SettingsSave save, CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            return Save(save);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    private SettingsSaveResult Save(SettingsSave save)
+    /// <summary>
+    /// Check, write and apply happen under the reload lock (<see cref="RunnerConfigSource.TryReplace"/>), so two saves
+    /// at once cannot interleave: the second one starts from a hash that is no longer on disk and is stale.
+    /// </summary>
+    public SettingsSaveResult Save(SettingsSave save)
     {
         var path = ConfigPath;
 
@@ -113,7 +101,7 @@ public sealed class RunnerSettings(
         bool isReplaced;
         try
         {
-            newText = SettingsJson.Write(save.File, configSource.Text);
+            newText = SettingsJson.Write(save.File, configSource.State.Text);
             isReplaced = configSource.TryReplace(save.BaseHash, newText, text => store.Write(path, text));
         }
         catch (InvalidOperationException exception)
@@ -139,22 +127,5 @@ public sealed class RunnerSettings(
             : $"Saved and applied; these take effect at the next start: {string.Join(", ", restartNeeded)}.";
 
         return new SettingsSaveResult(SettingsSaveOutcome.Saved, message);
-    }
-
-    private void LogReload(ConfigReload reload)
-    {
-        if (!reload.IsChanged)
-        {
-            return;
-        }
-
-        if (reload.Error is null)
-        {
-            logger.LogInformation("repos.yml changed: config version {Version} applied", configSource.Version);
-        }
-        else
-        {
-            logger.LogError("repos.yml has errors, the runner keeps its config: {Error}", reload.Error);
-        }
     }
 }

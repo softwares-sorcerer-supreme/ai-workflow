@@ -1,3 +1,5 @@
+using AiRunner.Infrastructure;
+
 namespace AiRunner.Tests.Configuration;
 
 /// <summary>
@@ -20,7 +22,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
 
     private string ConfigPath => Path.Combine(_folder, "repos.yml");
 
-    public void Dispose() => Directory.Delete(_folder, recursive: true);
+    public void Dispose() => FileSystem.DeleteDirectory(_folder);
 
     private RunnerConfigSource LoadStart()
     {
@@ -42,7 +44,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
         Assert.Null(reload.Error);
         Assert.Equal(30, source.Current.PollIntervalSeconds);
         Assert.Equal(60, before.PollIntervalSeconds);
-        Assert.Equal(2, source.Version);
+        Assert.Equal(2, source.State.Version);
         Assert.Equal(_folder, source.Current.RootDir);
     }
 
@@ -56,7 +58,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
 
         Assert.False(reload.IsChanged);
         Assert.Same(before, source.Current);
-        Assert.Equal(1, source.Version);
+        Assert.Equal(1, source.State.Version);
     }
 
     [Fact]
@@ -71,16 +73,16 @@ public sealed class RunnerConfigSourceTests : IDisposable
         Assert.True(broken.IsChanged);
         Assert.Contains("unknown key 'mystery_key'", broken.Error);
         Assert.Same(before, source.Current);
-        Assert.Contains("unknown key 'mystery_key'", source.Error);
-        Assert.Equal(1, source.Version);
+        Assert.Contains("unknown key 'mystery_key'", source.State.Error);
+        Assert.Equal(1, source.State.Version);
 
         Assert.False(source.ReloadIfChanged().IsChanged);
-        Assert.NotNull(source.Error);
+        Assert.NotNull(source.State.Error);
 
         File.WriteAllText(ConfigPath, Start.Replace("60", "45"));
         source.ReloadIfChanged();
 
-        Assert.Null(source.Error);
+        Assert.Null(source.State.Error);
         Assert.Equal(45, source.Current.PollIntervalSeconds);
     }
 
@@ -116,7 +118,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
         Assert.Equal("", config.RunnerName);
         Assert.Equal(
             ["code_host.base_url", "dashboard.port", "paths.work", "runner_name"],
-            source.RestartNeeded.Order());
+            source.State.RestartNeeded.Order());
     }
 
     [Fact]
@@ -129,7 +131,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
         File.WriteAllText(ConfigPath, Start);
         source.ReloadIfChanged();
 
-        Assert.Empty(source.RestartNeeded);
+        Assert.Empty(source.State.RestartNeeded);
     }
 
     [Fact]
@@ -176,7 +178,7 @@ public sealed class RunnerConfigSourceTests : IDisposable
             source.TryReplace(startHash, Start + "mystery_key: 1", _ => isWritten = true));
 
         Assert.False(isWritten);
-        Assert.Equal(1, source.Version);
+        Assert.Equal(1, source.State.Version);
     }
 
     [Fact]

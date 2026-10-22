@@ -72,7 +72,7 @@ public static class SettingsApi
             .WithName("getSettings")
             .WithSummary("repos.yml as JSON (no secret), its hash, and the merged settings of each project.");
 
-        writes.MapPut("/settings", SaveAsync)
+        writes.MapPut("/settings", Save)
             .WithTags("Settings")
             .WithName("saveSettings")
             .WithSummary("Check, back up, write and apply repos.yml; 409 when it changed since it was read.");
@@ -89,10 +89,7 @@ public static class SettingsApi
         return TypedResults.Ok(response);
     }
 
-    private static async Task<SettingsAnswer> SaveAsync(
-        SettingsRequest request,
-        IRunnerSettings settings,
-        CancellationToken cancellationToken)
+    private static SettingsAnswer Save(SettingsRequest request, IRunnerSettings settings)
     {
         if (request.File is null || string.IsNullOrEmpty(request.BaseHash))
         {
@@ -100,7 +97,7 @@ public static class SettingsApi
         }
 
         var save = new SettingsSave(request.File, request.BaseHash);
-        var result = await settings.SaveAsync(save, cancellationToken);
+        var result = settings.Save(save);
 
         switch (result.Outcome)
         {
@@ -137,6 +134,5 @@ public sealed class NoSettings : IRunnerSettings
         RestartNeeded: [],
         Effective: []);
 
-    public Task<SettingsSaveResult> SaveAsync(SettingsSave save, CancellationToken cancellationToken) =>
-        Task.FromResult(new SettingsSaveResult(SettingsSaveOutcome.Invalid, Message));
+    public SettingsSaveResult Save(SettingsSave save) => new(SettingsSaveOutcome.Invalid, Message);
 }

@@ -68,35 +68,20 @@ public static class SettingsSchema
     {
         var entries = new List<SettingDefinition>();
         entries.AddRange(GlobalKeys());
-
-        foreach (var setting in SettingKeys())
-        {
-            entries.Add(setting with { Path = DefaultsPrefix + setting.Key, Scope = SettingScopes.Defaults });
-        }
-
+        entries.AddRange(Under(SettingKeys(), DefaultsPrefix, SettingScopes.Defaults));
         entries.AddRange(ProjectKeys());
-
-        foreach (var setting in SettingKeys())
-        {
-            entries.Add(setting with { Path = ProjectPrefix + setting.Key, Scope = SettingScopes.Project });
-        }
-
-        foreach (var command in CommandKeys())
-        {
-            entries.Add(command with { Path = ProjectPrefix + command.Key, Scope = SettingScopes.Project });
-        }
-
+        entries.AddRange(Under(SettingKeys(), ProjectPrefix, SettingScopes.Project));
+        entries.AddRange(Under(CommandKeys(), ProjectPrefix, SettingScopes.Project));
         entries.AddRange(ComponentKeys());
-
-        foreach (var command in CommandKeys())
-        {
-            entries.Add(command with { Path = ComponentPrefix + command.Key, Scope = SettingScopes.Component });
-        }
-
+        entries.AddRange(Under(CommandKeys(), ComponentPrefix, SettingScopes.Component));
         entries.AddRange(LegacyKeys());
 
         return entries;
     }
+
+    /// <summary>The same keys placed in one scope: the path is the scope's prefix plus the key.</summary>
+    private static IEnumerable<SettingDefinition> Under(IEnumerable<SettingDefinition> keys, string prefix, string scope) =>
+        keys.Select(key => key with { Path = prefix + key.Key, Scope = scope });
 
     private static SettingDefinition Global(string key, string type, string help) =>
         new(key, key, SettingScopes.Global, type, help);
@@ -105,6 +90,7 @@ public static class SettingsSchema
 
     private static IEnumerable<SettingDefinition> GlobalKeys()
     {
+        var file = new RunnerFile();
         var copilot = new CopilotConfig();
         var paths = new PathsConfig();
         var attachments = new AttachmentsConfig();
@@ -134,14 +120,14 @@ public static class SettingsSchema
                 Number,
                 "Seconds between two polls of the code host.") with
             {
-                Default = Json(90),
+                Default = Json(file.PollIntervalSeconds),
             },
             Global(
                 "runner_name",
                 Text,
                 "Names this runner in claims (claim_enabled); empty = the machine user name.") with
             {
-                Default = Json(""), IsRestartNeeded = true,
+                Default = Json(file.RunnerName), IsRestartNeeded = true,
             },
             Global("copilot.analyze_timeout_minutes", Number, "Time limit of one analysis run.") with
             {
@@ -194,7 +180,7 @@ public static class SettingsSchema
             },
             Global("log_retention_days", Number, "Days the job logs and the job history are kept.") with
             {
-                Default = Json(30),
+                Default = Json(file.LogRetentionDays),
             },
             Global(
                 "attachments.enabled",
@@ -488,10 +474,8 @@ public static class SettingsSchema
                 "Name of the repo; it also names the project" + LegacyHelp),
         ];
 
-        foreach (var setting in SettingKeys().Concat(CommandKeys()))
-        {
-            entries.Add(setting with { Path = LegacyPrefix + setting.Key, Scope = SettingScopes.Legacy });
-        }
+        var settings = SettingKeys().Concat(CommandKeys());
+        entries.AddRange(Under(settings, LegacyPrefix, SettingScopes.Legacy));
 
         return entries;
     }
