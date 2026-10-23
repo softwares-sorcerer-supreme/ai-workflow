@@ -21,7 +21,9 @@ code component, else the job asks for a new analysis); `AgentSession` undoes eve
 component's repo and links the issue with `Issue: owner/repo#n` (never `Closes`); the runner closes issues after the merge
 (`SequenceSubIssuesJob`, `FinishIssueJob`). The spec's four delivery steps are built (step 4: claims, README layouts and migration note, `onboarding/PROJECT.md`).
 PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
-`ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR.
+`ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR. The runner's final PR
+(`feat/issue-*` into the default branch, `JobPlanner.IsFinalPull`) is never reviewed automatically, only with `ai-review-full`.
+A sub-issue's plan keeps only its component's technical plan steps of the parent SPEC (`SpecParser.StepsOf`).
 Each new head gets one review, up to `limits.max_reviews` (default 3, fix commits count too): the first reads the whole PR,
 a later one only `reviewedSha..head` when that commit is an ancestor (else full again), cut to the PR's files (file list and
 `diff.patch`, `Core/DiffFiles`, so a merge of the base branch is left out), and re-checks the previous findings

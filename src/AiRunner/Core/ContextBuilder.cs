@@ -221,7 +221,8 @@ public static class ContextBuilder
     /// contract. The body's own "Shared contract" summary is left out when the parent SPEC is there (it only repeats
     /// that SPEC's names, and every agent turn pays for the copy); without a SPEC it is the only contract and stays.
     /// The parent thread is not part of it. With no parent number only the body is written: that is the text whose
-    /// acceptance criteria the PR description is checked against (the parent's are not its own).
+    /// acceptance criteria the PR description is checked against (the parent's are not its own). The SPEC's technical
+    /// plan keeps only the steps of the sub-issue's component (<see cref="SpecParser.StepsOf"/>).
     /// </summary>
     public static string PlanFromSubIssue(HostIssue issue, int? parent, string? parentSpec)
     {
@@ -229,6 +230,16 @@ public static class ContextBuilder
         if (parentSpec is not null)
         {
             body = MarkdownSections.Without(body, "Shared contract");
+        }
+
+        var component = ComponentOf(issue);
+        var spec = parentSpec?.Trim();
+        var isPlanCut = false;
+        if (spec is not null && component is not null)
+        {
+            var ownSteps = SpecParser.StepsOf(spec, component);
+            isPlanCut = ownSteps != spec;
+            spec = ownSteps;
         }
 
         var builder = new StringBuilder();
@@ -246,16 +257,35 @@ public static class ContextBuilder
         builder.AppendLine();
         builder.AppendLine($"## Parent SPEC (issue #{parent}): the whole feature; your sub-issue is one part of it");
         builder.AppendLine();
-        builder.AppendLine(parentSpec is null
-            ? "None: the parent issue has no SPEC (analysed before this version)"
-            : parentSpec.Trim());
+        builder.AppendLine(spec ?? "None: the parent issue has no SPEC (analysed before this version)");
         builder.AppendLine();
         builder.AppendLine(
             "The `### API changes`, `### UI changes` and `### Shared contract` sections of the SPEC are binding for " +
             "every sub-issue. Build only your `### Scope`; " +
             "the other rows of the breakdown are built by other sub-issues.");
 
+        if (isPlanCut)
+        {
+            builder.AppendLine(
+                $"The `### Technical plan` above shows only the steps of component `{component}`; " +
+                "the steps of the other components are left out (other sub-issues build them).");
+        }
+
         return builder.ToString();
+    }
+
+    /// <summary>The sub-issue's `Component:` line, or null for an old or broken body.</summary>
+    private static string? ComponentOf(HostIssue issue)
+    {
+        try
+        {
+            return SubIssueBody.Parse(issue.Body)?.Component;
+        }
+        catch (FormatException)
+        {
+            // A broken header only costs the shorter plan; the job reads the body itself elsewhere.
+            return null;
+        }
     }
 
     /// <summary>

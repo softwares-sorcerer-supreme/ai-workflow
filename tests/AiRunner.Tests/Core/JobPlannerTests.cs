@@ -262,12 +262,10 @@ public class JobPlannerTests
         var plainPull = Pull();
         var labelledPull = Pull(labels: "ai");
         var runnerAiPull = Pull(head: "ai/issue-7", user: "bot");
-        var runnerFeaturePull = Pull(head: "feat/issue-12", user: "bot");
 
         Assert.Null(PlanPull(Project, plainPull).Job);
         Assert.NotNull(PlanPull(Project, labelledPull).Job);
         Assert.NotNull(PlanPull(Project, runnerAiPull).Job);
-        Assert.NotNull(PlanPull(Project, runnerFeaturePull).Job);
 
         // Not enough on its own: an ai/* branch pushed by someone else (or another runner),
         // or any other PR of the runner's user.
@@ -276,6 +274,25 @@ public class JobPlannerTests
 
         Assert.Null(PlanPull(Project, foreignAiPull).Job);
         Assert.Null(PlanPull(Project, runnerOtherPull).Job);
+    }
+
+    [Fact]
+    public void The_runners_final_pr_is_reviewed_only_when_the_label_asks()
+    {
+        var finalPull = Pull(head: "feat/issue-12", user: "bot");
+        var labelledFinalPull = Pull(head: "feat/issue-12", user: "bot", labels: Labels.ReviewFull);
+        var foreignFeaturePull = Pull(head: "feat/issue-12", user: "alice");
+
+        var automatic = PlanPull(Project, finalPull);
+        var allScope = PlanPull(AllPrs, finalPull);
+        var asked = PlanPull(Project, labelledFinalPull);
+        var foreign = PlanPull(AllPrs, foreignFeaturePull);
+
+        Assert.Null(automatic.Job);
+        Assert.Contains("final PR of a feature", automatic.Reason);
+        Assert.Null(allScope.Job);
+        Assert.Equal(JobType.ReviewPullRequest, asked.Job?.Type);
+        Assert.NotNull(foreign.Job);
     }
 
     // ---- review fixes ----

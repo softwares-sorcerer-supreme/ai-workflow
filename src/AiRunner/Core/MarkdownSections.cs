@@ -48,6 +48,60 @@ public static class MarkdownSections
         return string.Join("\n", kept).TrimEnd();
     }
 
+    /// <summary>
+    /// The text with only the data rows of the table under "### {heading}" that <paramref name="shouldKeep"/> keeps
+    /// (it gets the trimmed cells). Header, separator and every line outside that table stay as they are; without
+    /// such a section the text comes back unchanged.
+    /// </summary>
+    public static string WithRows(string markdown, string heading, Func<string[], bool> shouldKeep)
+    {
+        var lines = SplitLines(markdown);
+        var headingIndex = Array.FindIndex(lines, line => IsHeading(line, heading));
+
+        if (headingIndex < 0)
+        {
+            return markdown;
+        }
+
+        var kept = new List<string>();
+        var hasSeenSeparator = false;
+        var isInSection = false;
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            if (index == headingIndex)
+            {
+                isInSection = true;
+            }
+            else if (isInSection && IsSectionEnd(line))
+            {
+                isInSection = false;
+            }
+
+            var trimmed = line.Trim();
+            if (!isInSection || !trimmed.StartsWith('|'))
+            {
+                kept.Add(line);
+                continue;
+            }
+
+            var cells = trimmed.Trim('|').Split('|').Select(cell => cell.Trim()).ToArray();
+            var isSeparator = cells.All(cell => cell.Length > 0 && cell.All(character => character is '-' or ':'));
+            if (isSeparator)
+            {
+                hasSeenSeparator = true;
+            }
+
+            if (isSeparator || !hasSeenSeparator || shouldKeep(cells))
+            {
+                kept.Add(line);
+            }
+        }
+
+        return string.Join("\n", kept);
+    }
+
     private static bool IsHeading(string line, string heading) =>
         line.TrimStart().StartsWith("### ", StringComparison.Ordinal) &&
         line.TrimStart()[4..].Trim().StartsWith(heading, StringComparison.OrdinalIgnoreCase);

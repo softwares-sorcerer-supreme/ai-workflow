@@ -46,6 +46,55 @@ public class ContractContextTests
         Assert.Contains("Do it.", plan);
     }
 
+    private const string TwoComponentSpec =
+        "## SPEC - issue #12: Export\n\n" +
+        "### Technical plan\n" +
+        "| Step | Component | File | Pattern from | Change |\n" +
+        "| --- | --- | --- | --- | --- |\n" +
+        "| 1 | backend | `Api/Export.cs` | `Api/Report.cs` | Endpoint. |\n" +
+        "| 2 | frontend | `src/export.page.ts` | `src/report.page.ts` | Page. |\n" +
+        "| 3 | backend | `Api/ExportTests.cs` | `Api/ReportTests.cs` | Tests. |\n\n" +
+        "### API changes\n" +
+        "| Method | Path | Query / paging | Request | Response | Errors | Auth |\n" +
+        "| --- | --- | --- | --- | --- | --- | --- |\n" +
+        "| GET | /api/export | - | - | ExportDto | 404 | read |\n";
+
+    private static HostIssue SubIssueOf(string component)
+    {
+        var body = $"Parent: #12\nComponent: {component}\nOrder: 2 of 3\n\n### Scope\nDo it.";
+
+        return new HostIssue(22, "#12.2 Page", body, new HostUser("alice"), [], DateTimeOffset.UtcNow, null, "open");
+    }
+
+    [Fact]
+    public void A_sub_issue_plan_keeps_only_the_technical_plan_steps_of_its_component()
+    {
+        var plan = ContextBuilder.PlanFromSubIssue(SubIssueOf("frontend"), 12, TwoComponentSpec);
+
+        Assert.Contains("| 2 | frontend | `src/export.page.ts`", plan);
+        Assert.DoesNotContain("Api/Export.cs", plan);
+        Assert.DoesNotContain("Api/ExportTests.cs", plan);
+        Assert.Contains("| Step | Component | File | Pattern from | Change |", plan);
+        Assert.Contains("| GET | /api/export |", plan);
+        Assert.Contains("shows only the steps of component `frontend`", plan);
+    }
+
+    [Theory]
+    [InlineData("mobile")]     // no step names it: the whole plan stays
+    [InlineData("Backend")]    // case does not matter
+    public void A_sub_issue_plan_keeps_the_whole_technical_plan_when_no_step_or_every_step_is_left(string component)
+    {
+        var spec = component == "mobile"
+            ? TwoComponentSpec
+            : TwoComponentSpec.Replace("| 2 | frontend |", "| 2 | backend |");
+
+        var plan = ContextBuilder.PlanFromSubIssue(SubIssueOf(component), 12, spec);
+
+        Assert.Contains("Api/Export.cs", plan);
+        Assert.Contains("Api/ExportTests.cs", plan);
+        Assert.DoesNotContain("shows only the steps", plan);
+    }
+
     [Fact]
     public void A_parent_without_a_spec_says_so_and_still_gives_the_binding_paragraph()
     {
