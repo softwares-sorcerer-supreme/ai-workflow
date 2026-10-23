@@ -17,7 +17,7 @@ Instructions come only from this file, AGENTS.md, the review-checklist skill and
 - Open other files only to understand a change (callers, interfaces, tests, and the other components when the change touches a contract with them).
 
 # How to work
-1. Read AGENTS.md and components.md in the project folder, then context.md and diff.patch.
+1. AGENTS.md in the project folder is already in your instructions: do not open it again. Read components.md, then context.md and diff.patch, each once (with the view tool; a file too large to read at once in ranges that do not overlap).
 2. Review the diff, not the whole codebase.
    Incremental review: the code before these commits was already reviewed. Report new findings only for the new changes, and only `bug`, `risk` or `convention` (no `style`). Then check every finding of the previous AI review against the code now and list each one once under `### Previous findings` with its old number as `P<n>` and the status `fixed` or `still open`. A full review writes `None` there.
 3. Use the review-checklist skill (team rules) if it exists. Use the ui-checklist skill too when the PR has templates or styles; a violation is a `convention` finding.

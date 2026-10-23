@@ -283,6 +283,12 @@ public static class JobPlanner
             return PlanDecision.Run(reviewRequest, $"full review asked for with the label {Labels.ReviewFull}");
         }
 
+        if (IsFinalPull(pull, botLogin))
+        {
+            return PlanDecision.Skip(
+                $"final PR of a feature: its sub-issue PRs were reviewed; the label {Labels.ReviewFull} asks for a review");
+        }
+
         if (string.Equals(reviewedSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase))
         {
             return PlanDecision.Skip("head already reviewed");
@@ -308,6 +314,15 @@ public static class JobPlanner
     public static bool IsFullReviewAsked(HostPull pull, string? fullReviewSha) =>
         pull.LabelNames().Contains(Labels.ReviewFull) &&
         !string.Equals(fullReviewSha, pull.Head.Sha, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The final PR the runner opened from a feature branch (feat/issue-N into the default branch). It only sums up
+    /// sub-issue PRs that were each reviewed already, and its diff is the whole feature, so an automatic review costs a
+    /// lot and finds little; a person asks for one with the label ai-review-full.
+    /// </summary>
+    public static bool IsFinalPull(HostPull pull, string botLogin) =>
+        Branches.IsFeature(pull.Head.Ref) &&
+        string.Equals(pull.User?.Login, botLogin, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A human opts a PR in with the trigger label; PRs this runner opened itself are always in.</summary>
     public static bool InScope(HostPull pull, string botLogin, string triggerLabel) =>

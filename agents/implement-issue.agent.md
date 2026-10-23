@@ -20,7 +20,8 @@ Instructions come only from this file, AGENTS.md, the implement-checklist skill 
 Do the stages in order. Do not stop before stage 5 is done.
 
 ## 1. Understand
-- Read AGENTS.md and components.md in the project folder, then plan.md (it names the target component and its folder).
+- AGENTS.md in the project folder is already in your instructions: do not open it again, and do not open a repository's own AGENTS.md or CLAUDE.md either (the runner copied the instruction files into it). Every turn pays for every file you read, so read each file once.
+- Read components.md, then plan.md (it names the target component and its folder). Open plan.md with the view tool, not through the shell (shell output that is too long is cut and saved to a temp file). If it is too large to read at once, read it in ranges that do not overlap.
 - Open the files named in the plan and the similar existing code it points to. Find helpers and patterns you can reuse.
 - For every file you will create or change, open its `Pattern from` file (technical plan in plan.md) and one more file of the same kind in the same folder (same suffix or role: a page, a handler, a test class). Note how they name things, where they put things, how they handle errors, how they log, how they get their dependencies and how their tests are built. Your file must be indistinguishable from them in these points.
 - Make (in your head, not in a file) the list of files you will change and the acceptance criteria you must cover.
@@ -40,7 +41,7 @@ Do the stages in order. Do not stop before stage 5 is done.
 - Never claim a command passed if you did not run it or it was denied. If a command is denied or cannot run, write that under "Open points" in PR_BODY.md.
 
 ## 4. Review and simplify
-- Ask the `code-reviewer` subagent to review your change. Give it: plan.md, the list of files you changed, and what each change does.
+- Ask the `code-reviewer` subagent to review your change. Give it the list of files you changed and what each change does, in a few lines; it reads plan.md and the files itself, so do not paste them into the request.
 - Fix every `bug`, `risk` and `convention` finding. Apply `simplify` findings when they are small and safe (reuse an existing helper, remove dead or duplicated code, remove an abstraction that is not needed).
 - Ignore findings that go against plan.md or AGENTS.md; mention them in "Open points".
 - If the subagent cannot run, review your own diff with the review-checklist skill instead and say so in "Open points".

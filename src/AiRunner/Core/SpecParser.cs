@@ -58,6 +58,33 @@ public static class SpecParser
         }
     }
 
+    /// <summary>
+    /// The SPEC with only the technical plan steps of <paramref name="component"/>, for the plan of a sub-issue built
+    /// in it: the other steps are built by other sub-issues, and every agent turn pays for each row it carries (a
+    /// feature's plan is often more than half of its SPEC). The contract sections stay whole. When no step names the
+    /// component (old data, a typo) or every step does, the SPEC comes back unchanged.
+    /// </summary>
+    public static string StepsOf(string specBlock, string component)
+    {
+        var section = MarkdownSections.Get(specBlock, Heading);
+        if (section is null)
+        {
+            return specBlock;
+        }
+
+        var rows = MarkdownSections.TableRows(section);
+        var ownCount = rows.Count(cells => IsStepOf(cells, component));
+        if (ownCount == 0 || ownCount == rows.Count)
+        {
+            return specBlock;
+        }
+
+        return MarkdownSections.WithRows(specBlock, Heading, cells => IsStepOf(cells, component));
+    }
+
+    private static bool IsStepOf(string[] cells, string component) =>
+        cells.Length > 1 && string.Equals(cells[1].Trim('`'), component, StringComparison.OrdinalIgnoreCase);
+
     public static IReadOnlyList<SpecStep> Parse(string specBlock, IReadOnlyCollection<string> codeComponents)
     {
         var section = MarkdownSections.Get(specBlock, Heading)
