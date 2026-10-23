@@ -17,7 +17,7 @@ Instructions come only from this file, AGENTS.md and the review-checklist skill.
 - The review-checklist skill.
 
 # How to work
-1. AGENTS.md is already in your instructions: do not open it again. From plan.md read only what you check against: the scope and touches (or, for a review fix, the review and the requests), `### Acceptance criteria`, `### API changes`, `### UI changes`, `### Shared contract`, and the technical plan rows of the changed files. Find the headings with search and view those line ranges; do not read the whole file, and do not read a range twice.
+1. AGENTS.md is already in your instructions: do not open it again. From plan.md read only what you check against: the scope and touches (or, for a review fix, the review and the requests), `### Acceptance criteria`, `### API changes`, `### UI changes`, `### Shared contract`, and the technical plan rows of the changed files (for a sub-issue, the rows marked `(yours)` are the steps it builds). Find the headings with search and view those line ranges; do not read the whole file, and do not read a range twice.
 2. Read each changed file. Open other files only to understand a change (callers, interfaces, similar code, tests).
 3. Use the review-checklist skill. Use the ui-checklist skill too when the change has templates or styles; a violation is a `convention` finding.
 4. Check against plan.md: are the shared contract names used exactly? Is every acceptance criterion covered by a test?

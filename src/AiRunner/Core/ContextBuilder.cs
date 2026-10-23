@@ -222,7 +222,8 @@ public static class ContextBuilder
     /// that SPEC's names, and every agent turn pays for the copy); without a SPEC it is the only contract and stays.
     /// The parent thread is not part of it. With no parent number only the body is written: that is the text whose
     /// acceptance criteria the PR description is checked against (the parent's are not its own). The SPEC's technical
-    /// plan keeps only the steps of the sub-issue's component (<see cref="SpecParser.StepsOf"/>).
+    /// plan keeps only the steps of the sub-issue's component (<see cref="SpecParser.StepsOf"/>), and the steps the
+    /// sub-issue builds (its `Steps:` line) are marked (<see cref="SpecParser.MarkSteps"/>); the rest stay as context.
     /// </summary>
     public static string PlanFromSubIssue(HostIssue issue, int? parent, string? parentSpec)
     {
@@ -232,14 +233,21 @@ public static class ContextBuilder
             body = MarkdownSections.Without(body, "Shared contract");
         }
 
-        var component = ComponentOf(issue);
+        var header = HeaderOf(issue);
+        var component = header?.Component;
         var spec = parentSpec?.Trim();
         var isPlanCut = false;
         if (spec is not null && component is not null)
         {
-            var ownSteps = SpecParser.StepsOf(spec, component);
-            isPlanCut = ownSteps != spec;
-            spec = ownSteps;
+            var componentSteps = SpecParser.StepsOf(spec, component);
+            isPlanCut = componentSteps != spec;
+            spec = componentSteps;
+        }
+
+        IReadOnlyList<int> ownSteps = header?.Steps ?? [];
+        if (spec is not null)
+        {
+            spec = SpecParser.MarkSteps(spec, ownSteps);
         }
 
         var builder = new StringBuilder();
@@ -271,19 +279,26 @@ public static class ContextBuilder
                 "the steps of the other components are left out (other sub-issues build them).");
         }
 
+        if (spec is not null && ownSteps.Count > 0)
+        {
+            builder.AppendLine(
+                $"Your steps: {string.Join(", ", ownSteps)} (marked `{SpecParser.OwnStepMark}`); " +
+                "the other steps are built by other sub-issues.");
+        }
+
         return builder.ToString();
     }
 
-    /// <summary>The sub-issue's `Component:` line, or null for an old or broken body.</summary>
-    private static string? ComponentOf(HostIssue issue)
+    /// <summary>The sub-issue's header (component, steps), or null for an old or broken body.</summary>
+    private static SubIssueInfo? HeaderOf(HostIssue issue)
     {
         try
         {
-            return SubIssueBody.Parse(issue.Body)?.Component;
+            return SubIssueBody.Parse(issue.Body);
         }
         catch (FormatException)
         {
-            // A broken header only costs the shorter plan; the job reads the body itself elsewhere.
+            // A broken header only costs the shorter plan and the marks; the job reads the body itself elsewhere.
             return null;
         }
     }

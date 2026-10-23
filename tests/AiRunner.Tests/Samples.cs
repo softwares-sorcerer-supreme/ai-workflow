@@ -74,13 +74,16 @@ public static class Samples
         _Answer by number (Q1: ..., A2: wrong, it is ...), then write the trigger keyword (@ai by default) in your comment._
         """;
 
-    /// <summary>The three-row breakdown of the tests; each row names the component given for it.</summary>
+    /// <summary>
+    /// The three-row breakdown of the tests; each row names the component given for it. Row 1 builds step 1 of
+    /// <see cref="SpecFor"/>, so the SPEC's first component must be the first row's.
+    /// </summary>
     public static string Breakdown(string first, string second, string third) => $$"""
-        | # | Component | Title | Scope | Touches | Depends on |
-        | --- | --- | --- | --- | --- | --- |
-        | 1 | {{first}} | Export entity | Add the Export entity and its table. | src/Domain/Export.cs | - |
-        | 2 | {{second}} | Export command | Add the command that creates an export. | src/Application/Exports | 1 |
-        | 3 | {{third}} | [developer] Export API | Add POST /api/exports. | src/Api/ExportsController.cs | 1, 2 |
+        | # | Component | Title | Scope | Touches | Steps | Depends on |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | 1 | {{first}} | Export entity | Add the Export entity and its table. | src/Domain/Export.cs | 1 | - |
+        | 2 | {{second}} | Export command | Add the command that creates an export. | src/Application/Exports | - | 1 |
+        | 3 | {{third}} | [developer] Export API | Add POST /api/exports. | src/Api/ExportsController.cs | - | 1, 2 |
 
         Shared contract: entity Export(Id, RequestedBy, Status); enum ExportStatus { Pending, Done }; POST /api/exports
         """;

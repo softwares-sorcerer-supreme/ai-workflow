@@ -4,7 +4,11 @@ using System.Text.RegularExpressions;
 namespace AiRunner.Core;
 
 /// <param name="Component">The component this sub-issue is built in. Null for a sub-issue written before components existed.</param>
-public sealed record SubIssueInfo(int Parent, int Order, int Total, string BaseBranch, string? Component);
+public sealed record SubIssueInfo(int Parent, int Order, int Total, string BaseBranch, string? Component)
+{
+    /// <summary>The parent SPEC's technical plan steps this sub-issue builds; empty on older bodies.</summary>
+    public IReadOnlyList<int> Steps { get; init; } = [];
+}
 
 /// <summary>Which sub-issue of which parent: "#12.2" is Parent 12, Order 2.</summary>
 public sealed record SubIssueSlot(int Parent, int Order);
@@ -39,6 +43,12 @@ public static class SubIssueBody
         builder.AppendLine($"Order: {task.Order} of {total}");
         builder.AppendLine($"Base branch: {Branches.Feature(parent)}");
         builder.AppendLine($"Depends on: {dependencies}");
+
+        if (task.Steps.Count > 0)
+        {
+            builder.AppendLine($"Steps: {string.Join(", ", task.Steps)}");
+        }
+
         builder.AppendLine();
 
         if (task.NeedsDeveloper)
@@ -93,7 +103,35 @@ public static class SubIssueBody
         var total = int.Parse(orderMatch.Groups[2].Value);
         var baseBranch = baseBranchMatch.Success ? baseBranchMatch.Groups[1].Value : Branches.Feature(parentNumber);
         var component = componentMatch.Success ? componentMatch.Groups[1].Value : null;
-        return new SubIssueInfo(parentNumber, order, total, baseBranch, component);
+        var info = new SubIssueInfo(parentNumber, order, total, baseBranch, component);
+
+        // Only the header (the lines before the first blank line) holds it: a "Steps:" line in the Scope is text.
+        var header = HeaderOf(body);
+        var stepsMatch = Regex.Match(header, @"^Steps:\s*(.+?)\s*$", RegexOptions.Multiline);
+        if (!stepsMatch.Success)
+        {
+            return info;
+        }
+
+        // The line only marks steps in the plan; a person's bad edit of it must not break the sub-issue.
+        try
+        {
+            var steps = SpecParser.StepNumbers(stepsMatch.Groups[1].Value);
+            return info with { Steps = steps };
+        }
+        catch (FormatException)
+        {
+            return info;
+        }
+    }
+
+    /// <summary>The lines before the first blank line: the fixed header <see cref="Build"/> writes.</summary>
+    private static string HeaderOf(string body)
+    {
+        var text = body.Replace("\r\n", "\n");
+        var blankLine = text.IndexOf("\n\n", StringComparison.Ordinal);
+
+        return blankLine < 0 ? text : text[..blankLine];
     }
 
     /// <summary>True when the issue is the sub-issue number "order" of "parent" (read from its body, not its title).</summary>

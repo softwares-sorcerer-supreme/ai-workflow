@@ -49,11 +49,11 @@ public static class MarkdownSections
     }
 
     /// <summary>
-    /// The text with only the data rows of the table under "### {heading}" that <paramref name="shouldKeep"/> keeps
-    /// (it gets the trimmed cells). Header, separator and every line outside that table stay as they are; without
-    /// such a section the text comes back unchanged.
+    /// The text with every data row of the table under "### {heading}" replaced by what <paramref name="map"/> gives
+    /// for it (it gets the line and the trimmed cells; null drops the row). Header, separator and every line outside
+    /// that table stay as they are; without such a section the text comes back unchanged.
     /// </summary>
-    public static string WithRows(string markdown, string heading, Func<string[], bool> shouldKeep)
+    public static string MapRows(string markdown, string heading, Func<string, string[], string?> map)
     {
         var lines = SplitLines(markdown);
         var headingIndex = Array.FindIndex(lines, line => IsHeading(line, heading));
@@ -93,9 +93,16 @@ public static class MarkdownSections
                 hasSeenSeparator = true;
             }
 
-            if (isSeparator || !hasSeenSeparator || shouldKeep(cells))
+            if (isSeparator || !hasSeenSeparator)
             {
                 kept.Add(line);
+                continue;
+            }
+
+            var mapped = map(line, cells);
+            if (mapped is not null)
+            {
+                kept.Add(mapped);
             }
         }
 

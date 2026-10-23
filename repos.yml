@@ -16,6 +16,9 @@ copilot:
   extra_args: [--disable-builtin-mcps, --allow-all-tools]   # no GitHub MCP server; every tool allowed, but the runner's --deny-tool rules (git, .ai-workflow, analyze/review write+shell) still win
   command: C:\Users\70024980\AppData\Roaming\npm\copilot.cmd
 
+agent_models:               # model per subagent, written into the installed copy under ~/.copilot/agents (sync after a change)
+  code-reviewer: claude-haiku-5.5   # the review inside implement/fix (~20% of an implement); pr-review still checks the PR with the main model
+
 # Relative to this file.
 paths:
   work: work                # work/<project>/<repo>: one clone per repo, reset before each job
