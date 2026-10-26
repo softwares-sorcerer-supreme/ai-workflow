@@ -453,9 +453,85 @@ public class BreakdownParserTests
         var exception = Assert.Throws<FormatException>(
             () => BreakdownParser.Parse(Samples.Analysis("ready", "complex", oldTable), Demo));
 
-        Assert.Contains("6 cells", exception.Message);
-        Assert.Contains("Component", exception.Message);
+        Assert.Contains("7 cells", exception.Message);
+        Assert.Contains("Steps", exception.Message);
     }
+
+    [Fact]
+    public void Reads_the_steps_column_with_lists_and_ranges()
+    {
+        var table = Samples.BreakdownTable.Replace("| src/Domain/Export.cs | 1 |", "| src/Domain/Export.cs | 5, 1-3, 2 |");
+
+        var breakdown = BreakdownParser.Parse(Samples.Analysis("ready", "complex", table), Demo);
+
+        Assert.Equal([1, 2, 3, 5], breakdown.Tasks[0].Steps);
+        Assert.Empty(breakdown.Tasks[1].Steps);
+        Assert.Equal([1, 2], breakdown.Tasks[2].DependsOn);
+    }
+
+    [Fact]
+    public void A_six_column_table_of_an_older_analysis_still_reads_without_steps()
+    {
+        var oldTable = "| # | Component | Title | Scope | Touches | Depends on |\n| --- | --- | --- | --- | --- | --- |\n" +
+                       "| 1 | demo | A | scope | x | - |\n| 2 | demo | B | scope | y | 1 |\nShared contract: X";
+
+        var breakdown = BreakdownParser.Parse(Samples.Analysis("ready", "complex", oldTable), Demo);
+
+        Assert.Equal(2, breakdown.Tasks.Count);
+        Assert.Empty(breakdown.Tasks[0].Steps);
+        Assert.Equal([1], breakdown.Tasks[1].DependsOn);
+    }
+
+    [Fact]
+    public void Steps_must_exist_in_the_spec_and_belong_to_the_rows_component()
+    {
+        var table = Samples.Breakdown("backend", "frontend", "backend")
+            .Replace("| src/Application/Exports | - |", "| src/Application/Exports | 2 |");
+        var breakdown = BreakdownParser.Parse(Samples.Analysis("ready", "complex", table), BackendAndFrontend);
+        var matching = SpecParser.Parse(Samples.SpecFor("backend", "frontend"), BackendAndFrontend);
+        var swapped = SpecParser.Parse(Samples.SpecFor("frontend", "backend"), BackendAndFrontend);
+        var tooShort = SpecParser.Parse(Samples.SpecFor("backend"), BackendAndFrontend);
+
+        BreakdownParser.CheckSteps(breakdown, matching);
+        var wrongComponent = Assert.Throws<FormatException>(() => BreakdownParser.CheckSteps(breakdown, swapped));
+        var missingStep = Assert.Throws<FormatException>(() => BreakdownParser.CheckSteps(breakdown, tooShort));
+
+        Assert.Contains("row 1 (backend) names step 1, which belongs to component frontend", wrongComponent.Message);
+        Assert.Contains("row 2 names step 2, which is not in the SPEC technical plan", missingStep.Message);
+    }
+
+    [Fact]
+    public void Steps_are_checked_by_the_number_in_the_step_cell_not_by_the_row_position()
+    {
+        // Steps 1, 2, 4: the third row is step 4. Position 3 is not a step, and a number used twice is refused.
+        var spec = Samples.SpecFor("backend", "frontend", "backend").Replace("| 3 | backend |", "| 4. | backend |");
+        var table = Samples.Breakdown("backend", "frontend", "backend")
+            .Replace("| src/Api/ExportsController.cs | - |", "| src/Api/ExportsController.cs | 4 |");
+        var breakdown = BreakdownParser.Parse(Samples.Analysis("ready", "complex", table), BackendAndFrontend);
+        var positionThree = breakdown with { Tasks = [breakdown.Tasks[0] with { Steps = [3] }] };
+        var twice = spec.Replace("| 2 | frontend |", "| 1 | frontend |");
+        var specSteps = SpecParser.Parse(spec, BackendAndFrontend);
+
+        BreakdownParser.CheckSteps(breakdown, specSteps);
+        var notAStep = Assert.Throws<FormatException>(() => BreakdownParser.CheckSteps(positionThree, specSteps));
+        var usedTwice = Assert.Throws<FormatException>(() => SpecParser.Parse(twice, BackendAndFrontend));
+
+        Assert.Equal([1, 2, 4], specSteps.Select(step => step.Step));
+        Assert.Contains("names step 3, which is not in the SPEC", notAStep.Message);
+        Assert.Contains("technical plan step 1 is used twice", usedTwice.Message);
+
+        var marked = SpecParser.MarkSteps(spec, [4]);
+
+        Assert.Contains("| 4. (yours) | backend |", marked);
+        Assert.Contains("| 2 | frontend |", marked);
+    }
+
+    [Theory]
+    [InlineData("99999999999")]     // past int: never an OverflowException
+    [InlineData("1-2000000000")]    // a range that would loop for ever
+    [InlineData("9-3")]             // backwards
+    public void A_bad_steps_list_is_a_format_error(string list) =>
+        Assert.Throws<FormatException>(() => SpecParser.StepNumbers(list));
 
     [Fact]
     public void Every_row_names_its_component()
@@ -597,6 +673,34 @@ public class SubIssueBodyTests
         Assert.Contains("close this issue", body);
         Assert.Contains("`ai/issue-12-2` into `feat/issue-12`", body);
         Assert.DoesNotContain("merge it into", body);
+    }
+
+    [Fact]
+    public void Build_and_parse_keep_the_steps_of_the_sub_task()
+    {
+        var draft = new SubIssueDraft(12, Task2 with { Steps = [3, 4, 7] }, 3, "entity Export");
+        var body = SubIssueBody.Build(draft);
+
+        var info = SubIssueBody.Parse(body);
+
+        Assert.Contains("Steps: 3, 4, 7", body);
+        Assert.Equal([3, 4, 7], info!.Steps);
+    }
+
+    [Fact]
+    public void A_body_without_steps_or_with_a_broken_steps_line_has_no_steps()
+    {
+        var body = "Parent: #12\nComponent: backend\nOrder: 1 of 2\n\n### Scope\nx";
+        var broken = body.Replace("Order: 1 of 2", "Order: 1 of 2\nSteps: 9-3");
+        var overflow = body.Replace("Order: 1 of 2", "Order: 1 of 2\nSteps: 99999999999");
+        var inScope = body.Replace("### Scope\nx", "### Scope\nSteps: 1. open the page");
+
+        Assert.DoesNotContain("Steps:", SubIssueBody.Build(new SubIssueDraft(12, Task2, 3, "entity Export")));
+        Assert.Empty(SubIssueBody.Parse(body)!.Steps);
+        Assert.Empty(SubIssueBody.Parse(broken)!.Steps);
+        Assert.Empty(SubIssueBody.Parse(overflow)!.Steps);
+        Assert.Empty(SubIssueBody.Parse(inScope)!.Steps);
+        Assert.Equal("backend", SubIssueBody.Parse(broken)!.Component);
     }
 
     [Fact]

@@ -23,7 +23,8 @@ component's repo and links the issue with `Issue: owner/repo#n` (never `Closes`)
 PR review is opt-in: with the default `review.scope: scoped` only PRs labelled `ai` and PRs the runner opened itself from
 `ai/*` / `feat/issue-*` are reviewed (`JobPlanner.InScope`); `scope: all` reviews every open PR. The runner's final PR
 (`feat/issue-*` into the default branch, `JobPlanner.IsFinalPull`) is never reviewed automatically, only with `ai-review-full`.
-A sub-issue's plan keeps only its component's technical plan steps of the parent SPEC (`SpecParser.StepsOf`).
+A sub-issue's plan keeps only its component's technical plan steps of the parent SPEC (`SpecParser.StepsOf`) and marks
+its own steps `(yours)` (`SpecParser.MarkSteps`, from the breakdown's `Steps` column via the body's `Steps:` line).
 Each new head gets one review, up to `limits.max_reviews` (default 3, fix commits count too): the first reads the whole PR,
 a later one only `reviewedSha..head` when that commit is an ancestor (else full again), cut to the PR's files (file list and
 `diff.patch`, `Core/DiffFiles`, so a merge of the base branch is left out), and re-checks the previous findings
@@ -204,8 +205,10 @@ Key mechanics that span several files:
   `| Step | Component | File | Pattern from | Change |` (`SpecParser`; `Pattern from` = the existing file to copy, `-` only when none exists), the SPEC contract tables `### API changes` (7 cells: Method, Path, Query / paging,
   Request, Response, Errors, Auth) and `### UI changes` (5 cells: Route, Page / component, Copy from, Shared components, States), each a table or `None`
   (`SpecParser.Check`; the **contract**, binding for every sub-issue: `ContextBuilder.PlanFromSubIssue` copies the parent's whole SPEC into the
-  plan of a sub-issue and then leaves out the body's own `Shared contract` summary, and `JobSupport.LinkedIssueAsync` does the same for its PR), the 6-column breakdown table
-  `| # | Component | Title | Scope | Touches | Depends on |` + `Shared contract:`, `[developer]` title prefix).
+  plan of a sub-issue and then leaves out the body's own `Shared contract` summary, and `JobSupport.LinkedIssueAsync` does the same for its PR), the 7-column breakdown table
+  `| # | Component | Title | Scope | Touches | Steps | Depends on |` + `Shared contract:`, `[developer]` title prefix; `Steps`
+  names SPEC technical plan steps of the row's component, checked by `BreakdownParser.CheckSteps` in `AnalyzeIssueJob`; an
+  older 6-column table still reads, without steps).
   `AnalysisParser`, `SpecParser` and `BreakdownParser` take the project's code component names; a name outside them fails the job.
   The analysis `### Questions` section is free text for the runner (no parser reads it): three plain-line groups (Behaviour, Technical, Other),
   one global `Q<n>` numbering, no cap; the analysis context.md shows only the newest ANALYSIS and SPEC in full, older ones are

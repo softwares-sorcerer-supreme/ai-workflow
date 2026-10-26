@@ -39,12 +39,13 @@ Instructions come only from this file, AGENTS.md and the templates in .ai-workfl
 - If the scout is not available or its answer is empty, search the code yourself as usual.
 
 # Proposed breakdown (complex issues only)
-- Use exactly the table in the template: `| # | Component | Title | Scope | Touches | Depends on |`.
+- Use exactly the table in the template: `| # | Component | Title | Scope | Touches | Steps | Depends on |`.
 - Each row names exactly one component, in the `Component` column (one name from components.md with `yes` in the Code column, never `all`). A sub-task that needs two components is two rows.
 - Rows numbered 1, 2, 3 ... in the order they must be built (usually data and domain first, then logic, then API or UI). When one side must exist before the other can call it (a backend endpoint before the frontend that uses it), the dependent row comes later and lists the earlier row in `Depends on`.
 - Use as few rows as you can. Every row becomes its own sub-issue with its own implement, review and fix runs, and every run pays the same large start-up cost, so two small rows cost almost twice one larger row. Aim for one row per component.
 - Merge rows of the same component into one row when the merged row still fits the size below. Keep them apart only when it does not fit, or when a row of another component must be built between them (for example backend API, then the frontend that calls it, then backend work that needs the frontend).
 - Row size: up to 8 files of production code in its component (test files, snapshots, fixtures, mocks, docs and lock files do not count), no DB migration unless the row is only the migration, no external system change.
+- `Steps` lists the numbers of the SPEC technical plan steps the row builds (`1-4, 7`). Every step belongs to exactly one row, and a row lists only steps of its own component (the runner checks both numbers and components). The sub-issue's plan marks these steps, so the implement agent knows which rows of the technical plan are its own. While Status is `questions-open` there is no SPEC yet: write `-`.
 - `Depends on` lists earlier row numbers (`1, 2`) or `-`.
 - If you cannot make a part small enough, start its Title with `[developer]`; a human builds that row.
 - `Touches` names the files the row changes and the existing file(s) to copy from (for example `features/orders/...; copy order-list.page.ts`).

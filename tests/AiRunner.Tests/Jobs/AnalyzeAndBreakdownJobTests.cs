@@ -97,6 +97,21 @@ public sealed class AnalyzeIssueJobTests : IDisposable
     }
 
     [Fact]
+    public async Task Ready_complex_whose_steps_are_not_in_the_spec_fails_without_posting()
+    {
+        _kit.CodeHost.AddIssue(12, "Export CSV", null, "ai");
+        var breakdown = Samples.BreakdownTable.Replace("| src/Application/Exports | - |", "| src/Application/Exports | 2 |");
+        var analysis = Samples.Analysis("ready", "complex", breakdown);
+        _kit.Copilot.StdOut = Samples.AgentOutput(analysis, Samples.Spec);
+
+        var exception = await Assert.ThrowsAsync<JobFailedException>(
+            () => Job.RunAsync(_kit.Request(JobType.AnalyzeIssue, 12), _kit.Run, default));
+
+        Assert.Contains("breakdown row 2 names step 2, which is not in the SPEC", exception.Message);
+        Assert.Empty(_kit.CodeHost.CommentsOf(12));
+    }
+
+    [Fact]
     public async Task Quota_error_gets_a_clear_message()
     {
         _kit.CodeHost.AddIssue(12, "Export CSV", null, "ai");

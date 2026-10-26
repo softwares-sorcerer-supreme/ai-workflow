@@ -19,7 +19,7 @@ You have no browser, no `git` and no `grep`: check by reading the files you chan
 - Use the tokens or variables of the design system for every colour, space, size and font. No literal values, no inline styles, no new global styles.
 - Show all three states of every block that loads data: loading, empty and error (with a way to retry when the shared component offers it). Data is the fourth state.
 - Match the copy-from page on a small screen: same breakpoints, same wrapping, no fixed widths that break the layout.
-- Accessibility basics: every input has a label, every interactive element can be reached and shows focus, colour is never the only signal, text meets the contrast rule of the design system.
+- Accessibility basics: every input has a label, every interactive element can be reached and shows focus, everything that works with the mouse (selecting a row, opening a detail) also works with the keyboard, colour is never the only signal, text meets the contrast rule of the design system.
 - Forms and validation messages follow the pattern of the copy-from form.
 
 ## Before you leave

@@ -19,6 +19,14 @@ Go through this before you leave each stage of the implement-issue agent.
 - Errors are handled the way AGENTS.md describes (no swallowed exceptions, clear messages).
 - Existing callers of a changed function still work.
 
+## Often missed (each one came back from a pull request review and cost a fix round)
+- Async state: a slower, older request or timer must not overwrite the result of a newer one (keep a request id or cancel the old one); a debounce clears its pending timer before any early return; overlapping loads do not end each other's loading state.
+- Failure paths can recover: after a failed load the user can try again, and the screen does not look like a valid empty or unfiltered result.
+- Saved state (browser storage, URL, cache, files) can hold ids that no longer exist: check it against fresh data before it is used.
+- No default value that hides a bug (a made-up value for a required field): fail or validate instead.
+- Do not change shared production code or unrelated files (comments, blank lines included) to make a test easier. Follow the test layout the earlier changes of the same feature used; put common test setup in one helper instead of copying it into many files.
+- PR_BODY.md describes the diff as it is (no file it does not contain).
+
 ## Tests
 - Tests check behaviour, not implementation details.
 - There is a test for the main error path.

@@ -98,9 +98,12 @@ public sealed class AnalyzeIssueJob(
         var spec = parsed.Status == AnalysisStatus.Ready ? JobSupport.RequireBlock(output, Markers.Spec, run) : null;
 
         // A ready complex issue is next broken down by a human label; a bad table would only show up then.
+        Breakdown? breakdown = null;
         if (parsed.Status == AnalysisStatus.Ready && parsed.Complexity == Complexity.Complex)
         {
-            JobSupport.Parse(() => BreakdownParser.Parse(analysis, codeComponents), "The proposed breakdown");
+            breakdown = JobSupport.Parse(
+                () => BreakdownParser.Parse(analysis, codeComponents),
+                "The proposed breakdown");
         }
 
         if (spec is not null)
@@ -110,6 +113,12 @@ public sealed class AnalyzeIssueJob(
                 {
                     var steps = SpecParser.Parse(spec, codeComponents);
                     SpecParser.Check(spec);
+
+                    // The breakdown's Steps column names steps of this SPEC.
+                    if (breakdown is not null)
+                    {
+                        BreakdownParser.CheckSteps(breakdown, steps);
+                    }
 
                     return steps;
                 },

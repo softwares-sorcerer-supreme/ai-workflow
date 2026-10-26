@@ -11,12 +11,14 @@ Check these in order. Report only real problems in the diff, with a concrete fix
 - Does the change do what the PR description and the linked SPEC say?
 - Edge cases: empty input, null / missing values, one item, many items, duplicates, boundaries (0, max, last day of month, time zones).
 - Is existing behaviour changed by accident (other callers of a changed function)?
-- Async code: missing await, race conditions, shared state.
+- Async code: missing await, race conditions, shared state. A slower, older request or timer that overwrites a newer result (no request id or cancel); a debounce that returns before it clears its timer; overlapping loads that clear each other's loading flag.
+- Saved state (browser storage, URL, cache, files) used without checking that its ids still exist.
+- A default value that hides a bug (a made-up value for a required field).
 
 ## Risk (severity: risk)
 - **Security**: user input validated? Authorization checked on new endpoints? No SQL built from strings? No secrets, tokens or connection strings in code or config?
 - **Data**: can this lose or corrupt data? Transactions where several writes must succeed together? Migrations safe on existing data?
-- **Errors**: exceptions caught at the right level, logged with context, not swallowed? Clear message for the user?
+- **Errors**: exceptions caught at the right level, logged with context, not swallowed? Clear message for the user? After a failed load, can the user try again, and does the screen avoid looking like a valid result?
 - **Performance**: queries inside loops, loading full tables, missing paging, large files read into memory.
 - **Compatibility**: public API, message or file formats changed without a version or migration?
 
@@ -45,6 +47,7 @@ When the change has templates or styles, also use the ui-checklist skill; a viol
 - An abstraction, option, flag or layer that the change does not need.
 - Code that can be clearly shorter without losing clarity (nested ifs, manual loops a built-in covers).
 - Unrelated reformatting or renaming that makes the diff bigger.
+- Shared production code changed only to make a test easier; the same test setup copied into many files instead of one helper.
 
 ## Team rules
 Add your own rules here, for example:

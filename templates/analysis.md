@@ -29,10 +29,10 @@ Other (scope, timing, who decides, environments):
 - `path/to/file` - <role in this change>
 
 ### Proposed breakdown
-| # | Component | Title | Scope | Touches | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| 1 | <one component name> | <short title> | <one or two sentences: what this sub-task does> | <files or layers> | - |
-| 2 | <one component name> | <short title> | <scope> | <files or layers> | 1 |
+| # | Component | Title | Scope | Touches | Steps | Depends on |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | <one component name> | <short title> | <one or two sentences: what this sub-task does> | <files or layers> | <SPEC technical plan steps, e.g. 1-4, 7> | - |
+| 2 | <one component name> | <short title> | <scope> | <files or layers> | <steps> | 1 |
 
 Shared contract: <exact names all sub-tasks must use: entities, DTOs, endpoints, enums, functions>
 

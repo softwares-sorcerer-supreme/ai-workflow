@@ -79,6 +79,33 @@ public class ContractContextTests
         Assert.Contains("shows only the steps of component `frontend`", plan);
     }
 
+    [Fact]
+    public void A_sub_issue_plan_marks_its_own_steps_and_keeps_the_others_of_its_component()
+    {
+        var spec = TwoComponentSpec.Replace(
+            "| 3 | backend | `Api/ExportTests.cs`",
+            "| 4 | backend | `Api/Audit.cs` | `Api/Report.cs` | Audit. |\n| 3 | backend | `Api/ExportTests.cs`");
+        var body = "Parent: #12\nComponent: backend\nOrder: 2 of 3\nSteps: 1, 3\n\n### Scope\nDo it.";
+        var withSteps = SubIssueOf("backend") with { Body = body };
+
+        var plan = ContextBuilder.PlanFromSubIssue(withSteps, 12, spec);
+
+        Assert.Contains("| 1 (yours) | backend | `Api/Export.cs` |", plan);
+        Assert.Contains("| 3 (yours) | backend | `Api/ExportTests.cs` |", plan);
+        Assert.Contains("| 4 | backend | `Api/Audit.cs` |", plan);
+        Assert.DoesNotContain("src/export.page.ts", plan);
+        Assert.Contains("Your steps: 1, 3 (marked `(yours)`)", plan);
+    }
+
+    [Fact]
+    public void A_sub_issue_without_a_steps_line_marks_nothing()
+    {
+        var plan = ContextBuilder.PlanFromSubIssue(SubIssueOf("frontend"), 12, TwoComponentSpec);
+
+        Assert.DoesNotContain("(yours)", plan);
+        Assert.DoesNotContain("Your steps:", plan);
+    }
+
     [Theory]
     [InlineData("mobile")]     // no step names it: the whole plan stays
     [InlineData("Backend")]    // case does not matter
